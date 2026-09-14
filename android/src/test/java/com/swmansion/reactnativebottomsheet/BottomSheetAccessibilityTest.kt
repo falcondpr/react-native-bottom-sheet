@@ -4,8 +4,8 @@ import android.content.Context
 import android.graphics.Rect
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.core.view.ViewCompat
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
-import androidx.customview.widget.ExploreByTouchHelper
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
@@ -21,23 +21,23 @@ class BottomSheetAccessibilityTest {
   private val context = ApplicationProvider.getApplicationContext<Context>()
 
   @Test
-  fun `scrim helper exposes its only virtual child with screen bounds`() {
-    val host = laidOutView(width = 100, height = 200)
-    val helper =
-      ScrimAccessibilityHelper(
-        host = host,
+  fun `scrim delegate exposes button semantics and visible bounds`() {
+    val scrim =
+      laidOutView(width = 100, height = 200).apply {
+        contentDescription = "Dismiss"
+        isClickable = true
+      }
+    val delegate =
+      ScrimAccessibilityDelegate(
         isDismissAvailable = { true },
         scrimBottom = { 80f },
-        performDismiss = { true },
       )
-    val provider = helper.getAccessibilityNodeProvider(host)!!
+    ViewCompat.setAccessibilityDelegate(scrim, delegate)
 
-    val hostNode = provider.createAccessibilityNodeInfo(ExploreByTouchHelper.HOST_ID)!!
-    val scrimNode = provider.createAccessibilityNodeInfo(SCRIM_VIRTUAL_VIEW_ID)!!
+    val scrimNode = scrim.createAccessibilityNodeInfo()
     val bounds = Rect()
     scrimNode.getBoundsInScreen(bounds)
 
-    assertEquals(1, hostNode.childCount)
     assertEquals("android.widget.Button", scrimNode.className)
     assertEquals("Dismiss", scrimNode.contentDescription)
     assertTrue(scrimNode.isClickable)
@@ -46,65 +46,29 @@ class BottomSheetAccessibilityTest {
   }
 
   @Test
-  fun `scrim helper hides its virtual child when dismissal or scrim area is unavailable`() {
+  fun `scrim delegate does not expose or perform dismissal while unavailable`() {
     var dismissAvailable = false
-    var scrimBottom = 80f
-    val host = laidOutView(width = 100, height = 200)
-    val helper =
-      ScrimAccessibilityHelper(
-        host = host,
+    var clickCount = 0
+    val scrim =
+      laidOutView(width = 100, height = 200).apply {
+        isClickable = true
+        setOnClickListener { clickCount++ }
+      }
+    val delegate =
+      ScrimAccessibilityDelegate(
         isDismissAvailable = { dismissAvailable },
-        scrimBottom = { scrimBottom },
-        performDismiss = { true },
+        scrimBottom = { 80f },
       )
-    val provider = helper.getAccessibilityNodeProvider(host)!!
+    ViewCompat.setAccessibilityDelegate(scrim, delegate)
 
-    assertEquals(
-      0,
-      provider.createAccessibilityNodeInfo(ExploreByTouchHelper.HOST_ID)!!.childCount,
-    )
+    val unavailableInfo = scrim.createAccessibilityNodeInfo()
+    assertFalse(unavailableInfo.isDismissable)
+    assertFalse(scrim.performAccessibilityAction(AccessibilityNodeInfoCompat.ACTION_DISMISS, null))
 
     dismissAvailable = true
-    scrimBottom = 0f
-
-    assertEquals(
-      0,
-      provider.createAccessibilityNodeInfo(ExploreByTouchHelper.HOST_ID)!!.childCount,
-    )
-  }
-
-  @Test
-  fun `scrim helper routes click and dismiss actions only for its virtual child`() {
-    var dismissCount = 0
-    val host = laidOutView(width = 100, height = 200)
-    val helper =
-      ScrimAccessibilityHelper(
-        host = host,
-        isDismissAvailable = { true },
-        scrimBottom = { 80f },
-        performDismiss = {
-          dismissCount++
-          true
-        },
-      )
-    val provider = helper.getAccessibilityNodeProvider(host)!!
-
-    assertTrue(
-      provider.performAction(
-        SCRIM_VIRTUAL_VIEW_ID,
-        AccessibilityNodeInfoCompat.ACTION_CLICK,
-        null,
-      )
-    )
-    assertTrue(
-      provider.performAction(
-        SCRIM_VIRTUAL_VIEW_ID,
-        AccessibilityNodeInfoCompat.ACTION_DISMISS,
-        null,
-      )
-    )
-    assertFalse(provider.performAction(42, AccessibilityNodeInfoCompat.ACTION_CLICK, null))
-    assertEquals(2, dismissCount)
+    assertTrue(scrim.performAccessibilityAction(AccessibilityNodeInfoCompat.ACTION_DISMISS, null))
+    assertTrue(scrim.performAccessibilityAction(AccessibilityNodeInfoCompat.ACTION_CLICK, null))
+    assertEquals(2, clickCount)
   }
 
   @Test
@@ -144,8 +108,4 @@ class BottomSheetAccessibilityTest {
   @Suppress("DEPRECATION")
   private fun accessibilityNodeInfo(): AccessibilityNodeInfoCompat =
     AccessibilityNodeInfoCompat.wrap(AccessibilityNodeInfo.obtain())
-
-  private companion object {
-    const val SCRIM_VIRTUAL_VIEW_ID = 0
-  }
 }
