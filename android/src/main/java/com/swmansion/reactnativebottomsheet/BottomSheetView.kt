@@ -29,6 +29,7 @@ import com.facebook.react.uimanager.ThemedReactContext
 import com.facebook.react.uimanager.UIManagerHelper
 import com.facebook.react.uimanager.events.EventDispatcher
 import com.facebook.react.views.view.ReactViewGroup
+import com.swmansion.reactnativebottomsheet.accessibility.PortalAccessibilityIsolationCoordinator
 import com.swmansion.reactnativebottomsheet.closerequest.CloseRequestInputState
 import com.swmansion.reactnativebottomsheet.closerequest.OverlayCloseRequestController
 import com.swmansion.reactnativebottomsheet.closerequest.PortalCloseRequestController
@@ -77,6 +78,7 @@ class BottomSheetView(context: Context) : ReactViewGroup(context), LifecycleEven
     OverlayCloseRequestController(emitCloseRequest = ::emitCloseRequest)
   private val portalPresentationController =
     PortalPresentationController(this, portalCloseRequestController::onPresentationChanged)
+  private val portalAccessibilityIsolationLease = PortalAccessibilityIsolationCoordinator.acquire()
 
   init {
     pointerEvents = PointerEvents.BOX_NONE
@@ -480,6 +482,7 @@ class BottomSheetView(context: Context) : ReactViewGroup(context), LifecycleEven
     isReactHostResumed = false
     hasCloseRequestHandler = false
     portalPresentationController.dispose()
+    portalAccessibilityIsolationLease.release()
     portalCloseRequestController.dispose()
     overlayCloseRequestController.dispose()
     themedReactContext?.removeLifecycleEventListener(this)

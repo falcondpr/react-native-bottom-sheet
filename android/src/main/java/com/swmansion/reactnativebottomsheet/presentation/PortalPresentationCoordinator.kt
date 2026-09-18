@@ -1,6 +1,7 @@
 package com.swmansion.reactnativebottomsheet.presentation
 
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import androidx.annotation.UiThread
 import java.lang.ref.WeakReference
@@ -12,6 +13,15 @@ internal enum class PortalPresentationAssignment {
   CLOSE_FALLBACK,
 }
 
+internal data class PortalRetainedPresentation(val reactRoot: ViewGroup, val anchor: View)
+
+internal fun interface PortalAccessibilityPolicyObserver {
+  fun onPolicyChanged(
+    windowRoot: View,
+    retainedPresentations: List<PortalRetainedPresentation>,
+  )
+}
+
 /** One neutral membership and native-order authority, with weak anchors, roots and observers. */
 @UiThread
 internal object PortalPresentationCoordinator {
@@ -19,6 +29,10 @@ internal object PortalPresentationCoordinator {
     /** False means the hierarchy or observer expired; the controller must resolve it again. */
     fun update(isActive: Boolean): Boolean
 
+    fun remove()
+  }
+
+  internal interface PolicyObservation {
     fun remove()
   }
 
@@ -49,7 +63,7 @@ internal object PortalPresentationCoordinator {
     override fun update(isActive: Boolean): Boolean {
       if (!entry.isRegistered) return false
       entry.isActive = isActive
-      root.get()?.let(::reconcile)
+      root.get()?.let { reconcile(it, forceAccessibilityPolicyReconciliation = true) }
       return entry.isRegistered
     }
 
@@ -57,12 +71,23 @@ internal object PortalPresentationCoordinator {
       if (!entry.isRegistered) return
       entry.isRegistered = false
       entry.assign(PortalPresentationAssignment.NONE)
-      root.get()?.let(::reconcile)
+      root.get()?.let { reconcile(it, forceAccessibilityPolicyReconciliation = true) }
     }
+  }
+
+  private class AccessibilityPolicySnapshot(paths: List<List<View>>) {
+    private val paths = paths.map { path -> path.map(::WeakReference) }
+
+    fun matches(current: List<List<View>>): Boolean =
+      paths.size == current.size &&
+        paths.zip(current).all { (previous, next) ->
+          previous.size == next.size && previous.zip(next).all { (old, new) -> old.get() === new }
+        }
   }
 
   private class WindowState(root: View) : ViewTreeObserver.OnPreDrawListener {
     val entries = mutableListOf<Entry>()
+    var accessibilityPolicySnapshot = AccessibilityPolicySnapshot(emptyList())
     private val root = WeakReference(root)
     private var observer: WeakReference<ViewTreeObserver>? = null
 
@@ -92,6 +117,23 @@ internal object PortalPresentationCoordinator {
   }
 
   private val windows = WeakHashMap<View, WindowState>()
+  private val accessibilityPolicyObservers = mutableListOf<PortalAccessibilityPolicyObserver>()
+
+  fun observeAccessibilityPolicy(observer: PortalAccessibilityPolicyObserver): PolicyObservation {
+    accessibilityPolicyObservers.add(observer)
+    windows.keys.toList().forEach {
+      reconcile(it, forceAccessibilityPolicyReconciliation = true)
+    }
+    return object : PolicyObservation {
+      private var observing = true
+
+      override fun remove() {
+        if (!observing) return
+        observing = false
+        accessibilityPolicyObservers.remove(observer)
+      }
+    }
+  }
 
   fun register(
     anchor: View,
@@ -101,11 +143,14 @@ internal object PortalPresentationCoordinator {
     val context = anchor.resolvePortalPresentationContext() ?: return null
     val entry = Entry(anchor, context, isActive, observer)
     windows.getOrPut(context.windowRoot) { WindowState(context.windowRoot) }.entries.add(entry)
-    reconcile(context.windowRoot)
+    reconcile(context.windowRoot, forceAccessibilityPolicyReconciliation = true)
     return RegistrationImpl(entry, context.windowRoot)
   }
 
-  fun reconcile(root: View) {
+  fun reconcile(
+    root: View,
+    forceAccessibilityPolicyReconciliation: Boolean = false,
+  ) {
     val window = windows[root] ?: return
     val entries = window.entries
     val contexts = mutableMapOf<Entry, PortalPresentationContext>()
@@ -128,6 +173,13 @@ internal object PortalPresentationCoordinator {
       }
     }
     if (entries.isEmpty()) {
+      publishAccessibilityPolicy(
+        root,
+        window,
+        emptyList(),
+        emptyList(),
+        forceAccessibilityPolicyReconciliation,
+      )
       window.stopObserving()
       windows.remove(root)
       return
@@ -149,5 +201,31 @@ internal object PortalPresentationCoordinator {
       if (top != null) PortalPresentationAssignment.TOP
       else PortalPresentationAssignment.CLOSE_FALLBACK
     )
+    val retainedEntries = top?.let(::listOf) ?: contexts.keys.toList()
+    val retainedContexts = retainedEntries.mapNotNull(contexts::get)
+    publishAccessibilityPolicy(
+      root,
+      window,
+      retainedEntries.zip(retainedContexts).mapNotNull { (entry, context) ->
+        val anchor = entry.anchor.get() ?: return@mapNotNull null
+        PortalRetainedPresentation(context.reactRoot, anchor)
+      },
+      retainedContexts.map(PortalPresentationContext::path),
+      forceAccessibilityPolicyReconciliation,
+    )
+  }
+
+  private fun publishAccessibilityPolicy(
+    root: View,
+    window: WindowState,
+    retainedPresentations: List<PortalRetainedPresentation>,
+    retainedPaths: List<List<View>>,
+    force: Boolean,
+  ) {
+    if (!force && window.accessibilityPolicySnapshot.matches(retainedPaths)) return
+    window.accessibilityPolicySnapshot = AccessibilityPolicySnapshot(retainedPaths)
+    accessibilityPolicyObservers.toList().forEach {
+      it.onPolicyChanged(root, retainedPresentations)
+    }
   }
 }
