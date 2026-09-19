@@ -1,7 +1,5 @@
 package com.swmansion.reactnativebottomsheet
 
-import android.content.Context
-import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -10,7 +8,6 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsForTests
-import com.facebook.react.uimanager.RootView
 import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.concurrent.CountDownLatch
@@ -131,12 +128,4 @@ class PortalModalAccessibilityInstrumentedTest {
       ViewGroup.LayoutParams.MATCH_PARENT,
       ViewGroup.LayoutParams.MATCH_PARENT,
     )
-}
-
-private class InstrumentedReactRoot(context: Context) : FrameLayout(context), RootView {
-  override fun onChildStartedNativeGesture(childView: View?, ev: MotionEvent) = Unit
-
-  override fun onChildEndedNativeGesture(childView: View, ev: MotionEvent) = Unit
-
-  override fun handleException(t: Throwable) = throw t
 }
