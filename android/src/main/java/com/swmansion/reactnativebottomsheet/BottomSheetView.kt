@@ -62,6 +62,7 @@ class BottomSheetView(context: Context) : ReactViewGroup(context), LifecycleEven
   private var hasCloseRequestHandler = false
   private var isViewAttached = false
   private var isReactHostResumed = themedReactContext?.lifecycleState == LifecycleState.RESUMED
+  private var destroyed = false
   private val portalCloseRequestController =
     PortalCloseRequestController(
       view = this,
@@ -181,6 +182,7 @@ class BottomSheetView(context: Context) : ReactViewGroup(context), LifecycleEven
   }
 
   fun setNativeOverlay(value: Boolean) {
+    if (destroyed) return
     if (value == nativeOverlay) return
     nativeOverlay = value
     if (value) {
@@ -197,6 +199,7 @@ class BottomSheetView(context: Context) : ReactViewGroup(context), LifecycleEven
 
   override fun onAttachedToWindow() {
     super.onAttachedToWindow()
+    if (destroyed) return
     isViewAttached = true
     overlayDialog?.let { dialog ->
       overlayCloseRequestController.bind(dialog)
@@ -447,6 +450,7 @@ class BottomSheetView(context: Context) : ReactViewGroup(context), LifecycleEven
   // MARK: - Activity lifecycle
 
   override fun onHostResume() {
+    if (destroyed) return
     isReactHostResumed = true
     // Restore the overlay if it was torn down while the activity was gone but the
     // sheet should still be presented above it.
@@ -458,11 +462,13 @@ class BottomSheetView(context: Context) : ReactViewGroup(context), LifecycleEven
   }
 
   override fun onHostPause() {
+    if (destroyed) return
     isReactHostResumed = false
     refreshPresentationRouting()
   }
 
   override fun onHostDestroy() {
+    if (destroyed) return
     isReactHostResumed = false
     portalPresentationController.clear()
     portalCloseRequestController.clear()
@@ -478,6 +484,8 @@ class BottomSheetView(context: Context) : ReactViewGroup(context), LifecycleEven
   // MARK: - Cleanup
 
   fun destroy() {
+    if (destroyed) return
+    destroyed = true
     isViewAttached = false
     isReactHostResumed = false
     hasCloseRequestHandler = false

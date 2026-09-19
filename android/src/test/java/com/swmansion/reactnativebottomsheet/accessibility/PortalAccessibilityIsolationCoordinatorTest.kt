@@ -9,6 +9,7 @@ import com.swmansion.reactnativebottomsheet.presentation.TestReactRoot
 import java.lang.ref.WeakReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -17,6 +18,64 @@ import org.robolectric.annotation.Config
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35])
 class PortalAccessibilityIsolationCoordinatorTest {
+  @Test
+  fun `nested Top stays isolated through closing and transfers directly on settle`() {
+    val activity = Robolectric.buildActivity(Activity::class.java).setup()
+    val lease = PortalAccessibilityIsolationCoordinator.acquire()
+    try {
+      val root = TestReactRoot(activity.get())
+      val background = View(activity.get()).also(root::addView)
+      val lowerPortal = FrameLayout(activity.get()).also(root::addView)
+      var transferredWithoutBackgroundRestore = false
+      val lowerContent =
+        RestoreObservingView(activity.get()) {
+            transferredWithoutBackgroundRestore =
+              background.importantForAccessibility ==
+                View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+          }
+          .also(lowerPortal::addView)
+      val nestedProvider = FrameLayout(activity.get()).also(lowerPortal::addView)
+      val upperPortal = View(activity.get()).also(nestedProvider::addView)
+      activity.get().setContentView(root)
+      val lowerRegistration =
+        requireNotNull(PortalPresentationCoordinator.register(lowerPortal, true) {})
+      val upperRegistration =
+        requireNotNull(PortalPresentationCoordinator.register(upperPortal, true) {})
+
+      assertEquals(
+        View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+        background.importantForAccessibility,
+      )
+      assertEquals(
+        View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+        lowerContent.importantForAccessibility,
+      )
+      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, upperPortal.importantForAccessibility)
+
+      // A visible closing Top remains Active until its host reports settle.
+      upperRegistration.update(true)
+      assertEquals(
+        View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+        lowerContent.importantForAccessibility,
+      )
+      upperRegistration.update(false)
+
+      assertTrue(transferredWithoutBackgroundRestore)
+      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, lowerContent.importantForAccessibility)
+      assertEquals(
+        View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+        background.importantForAccessibility,
+      )
+
+      upperRegistration.remove()
+      lowerRegistration.remove()
+      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, background.importantForAccessibility)
+    } finally {
+      lease.release()
+      activity.close()
+    }
+  }
+
   @Test
   fun `shared presentation policy isolates only the owner React root and restores on release`() {
     val activity = Robolectric.buildActivity(Activity::class.java).setup()
@@ -141,5 +200,20 @@ class PortalAccessibilityIsolationCoordinatorTest {
     )
     window.removeView(root)
     return registration to WeakReference(root)
+  }
+
+  private class RestoreObservingView(
+    activity: Activity,
+    private val onRestore: () -> Unit,
+  ) : View(activity) {
+    override fun setImportantForAccessibility(mode: Int) {
+      if (
+        importantForAccessibility == View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS &&
+          mode != View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+      ) {
+        onRestore()
+      }
+      super.setImportantForAccessibility(mode)
+    }
   }
 }

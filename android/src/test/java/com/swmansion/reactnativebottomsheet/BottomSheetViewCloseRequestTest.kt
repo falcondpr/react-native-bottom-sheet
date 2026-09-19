@@ -33,6 +33,8 @@ import com.facebook.react.uimanager.events.EventDispatcher
 import com.facebook.react.uimanager.events.EventDispatcherListener
 import com.swmansion.reactnativebottomsheet.presentation.TestReactRoot
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -480,6 +482,34 @@ class BottomSheetViewCloseRequestTest {
       assertEscape(activity::dispatchKeyEvent, expectedHandled = true)
       assertEquals(1, listener.closeRequestCount)
       sheet.destroy()
+      reactContext.onHostDestroy()
+    }
+  }
+
+  @Test
+  fun `destroy is idempotent and a late host resume cannot recreate the overlay`() {
+    withActivity<ComponentActivity> { activity ->
+      val reactContext = BridgeReactContext(activity.applicationContext)
+      reactContext.onHostResume(activity)
+      val themedContext = ThemedReactContext(reactContext, activity, "test", 1)
+      val sheet = configuredOpenSheet(themedContext, CountingBottomSheetListener())
+      sheet.eventDispatcher = NoOpEventDispatcher
+      activity.setReactContentView(sheet)
+      layoutPortal(sheet)
+      sheet.onHostResume()
+      sheet.setNativeOverlay(true)
+      shadowOf(Looper.getMainLooper()).idle()
+      val dialog = requireNotNull(ShadowDialog.getLatestDialog()) as ComponentDialog
+      assertTrue(dialog.isShowing)
+
+      sheet.destroy()
+      sheet.destroy()
+      assertFalse(dialog.isShowing)
+      sheet.onHostResume()
+      shadowOf(Looper.getMainLooper()).idle()
+
+      assertSame(dialog, ShadowDialog.getLatestDialog())
+      assertFalse(dialog.isShowing)
       reactContext.onHostDestroy()
     }
   }
