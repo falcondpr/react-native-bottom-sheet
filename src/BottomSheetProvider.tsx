@@ -7,9 +7,8 @@ import {
   useSyncExternalStore,
 } from 'react';
 import type { ReactNode } from 'react';
-import { StyleSheet, View } from 'react-native';
 
-type PortalSnapshot = Array<[string, ReactNode]>;
+import { renderPortalHost, type PortalSnapshot } from './PortalHost';
 
 interface PortalContextType {
   addPortal: (key: string, element: ReactNode) => void;
@@ -28,11 +27,7 @@ const PortalHost = () => {
     context.getSnapshot
   );
 
-  return portals.map(([key, element]) => (
-    <View key={key} style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      {element}
-    </View>
-  ));
+  return renderPortalHost(portals);
 };
 
 /** Provides the portal host required for modal bottom sheets. */

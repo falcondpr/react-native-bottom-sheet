@@ -17,6 +17,7 @@ import com.facebook.react.uimanager.events.BatchEventDispatchedListener
 import com.facebook.react.uimanager.events.Event
 import com.facebook.react.uimanager.events.EventDispatcher
 import com.facebook.react.uimanager.events.EventDispatcherListener
+import com.facebook.react.views.view.ReactViewGroup
 import com.swmansion.reactnativebottomsheet.presentation.TestReactRoot
 import java.util.Collections
 import java.util.IdentityHashMap
@@ -156,6 +157,75 @@ class BottomSheetViewPortalAccessibilityTest {
       reactContext.onHostDestroy()
       activity.close()
     }
+  }
+
+  @Test
+  fun `opening an upper sibling portal removes the lower portal from the accessibility tree`() {
+    val activity = Robolectric.buildActivity(Activity::class.java).setup()
+    val lowerSheet = BottomSheetView(activity.get())
+    val upperSheet = BottomSheetView(activity.get())
+    try {
+      val root = TestReactRoot(activity.get())
+      val portalHost = ReactViewGroup(activity.get())
+      val background =
+        View(activity.get()).apply {
+          importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+          contentDescription = "Application control"
+        }
+      val lowerWrapper = ReactViewGroup(activity.get())
+      val upperWrapper = ReactViewGroup(activity.get())
+      val lowerContent =
+        View(activity.get()).apply {
+          importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+          contentDescription = "Lower focus target"
+        }
+      val upperContent =
+        View(activity.get()).apply {
+          importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+          contentDescription = "Upper focus target"
+        }
+      lowerSheet.configurePortal(index = 1, content = lowerContent)
+      upperSheet.configurePortal(index = 0, content = upperContent)
+      lowerWrapper.addView(lowerSheet, matchParent())
+      upperWrapper.addView(upperSheet, matchParent())
+      portalHost.addView(lowerWrapper, matchParent())
+      portalHost.addView(upperWrapper, matchParent())
+      root.addView(background, matchParent())
+      root.addView(portalHost, matchParent())
+      activity.get().setContentView(root)
+      layout(root)
+      layout(lowerSheet)
+      layout(upperSheet)
+
+      val lowerTree = accessibleTree(root)
+      assertFalse(lowerTree.contains(background))
+      assertTrue(lowerTree.contains(lowerContent))
+
+      upperSheet.setIndex(1)
+      shadowOf(Looper.getMainLooper()).idle()
+
+      val upperTree = accessibleTree(root)
+      assertFalse(upperTree.contains(background))
+      assertFalse(upperTree.contains(lowerContent))
+      assertTrue(upperTree.contains(upperContent))
+    } finally {
+      upperSheet.destroy()
+      lowerSheet.destroy()
+      activity.close()
+    }
+  }
+
+  private fun BottomSheetView.configurePortal(index: Int, content: View) {
+    animateIn = false
+    modal = true
+    setDetents(
+      listOf(
+        mapOf("value" to 0.0, "kind" to "points", "programmatic" to false),
+        mapOf("value" to 300.0, "kind" to "points", "programmatic" to false),
+      )
+    )
+    setIndex(index)
+    addSheetChild(content, 0)
   }
 
   private fun accessibleTree(root: ViewGroup): Set<View> {

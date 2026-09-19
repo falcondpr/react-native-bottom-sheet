@@ -23,6 +23,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run lint
       - run: bun run typecheck
+      - run: bun run test:js
       - run: bun run prepare
       - uses: actions/setup-java@v5
         with:
