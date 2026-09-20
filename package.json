@@ -44,6 +44,7 @@
     "test:android:instrumented:assemble": "./example/android/gradlew --project-dir example/android :swmansion_react-native-bottom-sheet:assembleDebugAndroidTest",
     "test:android:instrumented": "./example/android/gradlew --project-dir example/android :swmansion_react-native-bottom-sheet:connectedDebugAndroidTest",
     "test:android:unit": "./example/android/gradlew --project-dir example/android :swmansion_react-native-bottom-sheet:testDebugUnitTest",
+    "test:ios:native": "./scripts/test-ios-native.sh",
     "typecheck": "tsc",
     "lint": "eslint \"**/*.{js,ts,tsx}\""
   },
