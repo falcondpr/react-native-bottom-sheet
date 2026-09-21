@@ -1,5 +1,7 @@
 #import <UIKit/UIKit.h>
 
+#import "BottomSheetPresentationOwnership.h"
+
 NS_ASSUME_NONNULL_BEGIN
 
 @class BottomSheetContentView;
@@ -13,6 +15,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)bottomSheetView:(BottomSheetContentView *)view didReportError:(NSString *)message;
 - (void)bottomSheetView:(BottomSheetContentView *)view
     didChangePresentationActive:(BOOL)presentationActive;
+- (BottomSheetPresentationEscapeRoute)voiceOverEscapeRouteForBottomSheetView:
+    (BottomSheetContentView *)view;
 // Fired after each layout pass with fresh native geometry, so the component
 // layer can push the content wrapper's target size (and, in overlay mode, the
 // sheet frame) into the shadow tree.

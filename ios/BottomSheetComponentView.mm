@@ -434,6 +434,12 @@ using namespace facebook::react;
   [self reconcilePresentationOwnership];
 }
 
+- (BottomSheetPresentationEscapeRoute)voiceOverEscapeRouteForBottomSheetView:
+    (BottomSheetContentView *)view
+{
+  return [_presentationController routeForVoiceOverEscape];
+}
+
 - (void)bottomSheetViewDidLayout:(BottomSheetContentView *)view
 {
   [self pushNativeGeometry];

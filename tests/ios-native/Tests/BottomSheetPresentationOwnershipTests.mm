@@ -3,13 +3,8 @@
 
 #import <math.h>
 
-#import <React/RCTComponentViewProtocol.h>
-#import <ReactCodegen/RCTThirdPartyComponentsProvider.h>
-#import <react/renderer/components/ReactNativeBottomSheetSpec/Props.h>
-
 #import "../../../ios/BottomSheetPresentationOwnership.h"
-
-using namespace facebook::react;
+#import "Support/BottomSheetTestComponentFactory.h"
 
 @interface BottomSheetPresentationOwnershipTests : XCTestCase
 @end
@@ -36,28 +31,6 @@ static void BottomSheetTearDownWindow(UIWindow *window)
 {
   window.hidden = YES;
   window.rootViewController = nil;
-}
-
-static UIView<RCTComponentViewProtocol> *BottomSheetMakeProductionComponent(
-    BOOL nativeOverlay)
-{
-  Class componentClass =
-      [RCTThirdPartyComponentsProvider thirdPartyFabricComponents][@"BottomSheetView"];
-  NSCAssert(componentClass != nil, @"BottomSheetView must be registered with the Fabric provider");
-
-  UIView<RCTComponentViewProtocol> *component = [[componentClass alloc] initWithFrame:CGRectZero];
-  auto nextProps = std::make_shared<BottomSheetViewProps>();
-  nextProps->detents = {
-      BottomSheetViewDetentsStruct{0, "points", false},
-      BottomSheetViewDetentsStruct{320, "points", false},
-  };
-  nextProps->index = 1;
-  nextProps->animateIn = false;
-  nextProps->modal = true;
-  nextProps->nativeOverlay = nativeOverlay;
-  Props::Shared sharedNextProps = nextProps;
-  [component updateProps:sharedNextProps oldProps:component.props];
-  return component;
 }
 
 static void BottomSheetLayoutViewTree(UIView *root)
@@ -110,6 +83,31 @@ static void BottomSheetLayoutViewTree(UIView *root)
   }];
 
   XCTAssertNil(topIdentity);
+}
+
+- (void)testEscapeResolverAttemptsForTopAndConsumesLower
+{
+  BottomSheetPresentationIdentity *lowerIdentity = [BottomSheetPresentationIdentity new];
+  BottomSheetPresentationIdentity *topIdentity = [BottomSheetPresentationIdentity new];
+
+  XCTAssertEqual(
+      [BottomSheetPresentationEscapeResolver routeForCallerIdentity:topIdentity
+                                             topPresentationIdentity:topIdentity],
+      BottomSheetPresentationEscapeRouteAttemptLocal);
+  XCTAssertEqual(
+      [BottomSheetPresentationEscapeResolver routeForCallerIdentity:lowerIdentity
+                                             topPresentationIdentity:topIdentity],
+      BottomSheetPresentationEscapeRouteConsume);
+}
+
+- (void)testEscapeResolverPassesThroughWithoutTop
+{
+  BottomSheetPresentationIdentity *callerIdentity = [BottomSheetPresentationIdentity new];
+
+  XCTAssertEqual(
+      [BottomSheetPresentationEscapeResolver routeForCallerIdentity:callerIdentity
+                                             topPresentationIdentity:nil],
+      BottomSheetPresentationEscapeRoutePassThrough);
 }
 
 - (void)testOneActiveCandidateBecomesTop
@@ -495,10 +493,10 @@ static void BottomSheetLayoutViewTree(UIView *root)
 {
   UIWindow *window = BottomSheetMakeTestWindow();
   window.rootViewController.view.frame = window.bounds;
-  UIView<RCTComponentViewProtocol> *portalComponent =
-      BottomSheetMakeProductionComponent(NO);
-  UIView<RCTComponentViewProtocol> *overlayComponent =
-      BottomSheetMakeProductionComponent(YES);
+  UIView *portalComponent =
+      [BottomSheetTestComponentFactory makeProductionComponentWithNativeOverlay:NO];
+  UIView *overlayComponent =
+      [BottomSheetTestComponentFactory makeProductionComponentWithNativeOverlay:YES];
   portalComponent.frame = window.bounds;
   overlayComponent.frame = window.bounds;
 
@@ -510,14 +508,14 @@ static void BottomSheetLayoutViewTree(UIView *root)
       [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:window];
   XCTAssertNotNil(overlayTop);
 
-  [overlayComponent prepareForRecycle];
+  [BottomSheetTestComponentFactory prepareForRecycle:overlayComponent];
 
   BottomSheetPresentationIdentity *portalTop =
       [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:window];
   XCTAssertNotNil(portalTop);
   XCTAssertNotEqualObjects(portalTop, overlayTop);
 
-  [portalComponent prepareForRecycle];
+  [BottomSheetTestComponentFactory prepareForRecycle:portalComponent];
   XCTAssertNil([BottomSheetPresentationCoordinator topPresentationIdentityInWindow:window]);
   [overlayComponent removeFromSuperview];
   [portalComponent removeFromSuperview];

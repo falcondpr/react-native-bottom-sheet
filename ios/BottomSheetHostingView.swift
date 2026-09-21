@@ -121,6 +121,33 @@ private final class BottomSheetScrimControl: UIControl {
   }
 }
 
+@objc(BottomSheetPresentationEscapeDecision)
+final class PresentationEscapeDecision: NSObject {
+  fileprivate enum Route {
+    case passThrough
+    case attemptLocal
+    case consume
+  }
+
+  fileprivate let route: Route
+
+  private init(route: Route) {
+    self.route = route
+  }
+
+  @objc static func passThrough() -> PresentationEscapeDecision {
+    PresentationEscapeDecision(route: .passThrough)
+  }
+
+  @objc static func attemptLocal() -> PresentationEscapeDecision {
+    PresentationEscapeDecision(route: .attemptLocal)
+  }
+
+  @objc static func consume() -> PresentationEscapeDecision {
+    PresentationEscapeDecision(route: .consume)
+  }
+}
+
 @objcMembers
 public final class BottomSheetHostingView: UIView {
   public weak var eventDelegate: BottomSheetHostingViewDelegate?
@@ -207,6 +234,7 @@ public final class BottomSheetHostingView: UIView {
   private var isContentInteractionDisabled = false
   private var contentHeightMarker: UIView?
   private weak var surfaceView: UIView?
+  @objc var presentationEscapePolicy: (() -> PresentationEscapeDecision)?
   private static var markerObservationContext = 0
   private static let springAnimationKey = "bottomSheetSettle"
 
@@ -762,11 +790,23 @@ public final class BottomSheetHostingView: UIView {
     return true
   }
 
-  /// VoiceOver's escape gesture (two-finger Z scrub) dismisses a modal sheet,
-  /// mirroring a scrim tap. Returning false when there is nothing to dismiss
-  /// lets the gesture keep bubbling to enclosing containers.
+  /// VoiceOver's escape gesture (two-finger Z scrub) follows the current
+  /// per-window presentation route. Only Top may attempt local dismissal;
+  /// lower presentations consume defensively, while no Top passes through.
   override public func accessibilityPerformEscape() -> Bool {
-    attemptScrimDismissal()
+    guard let decision = presentationEscapePolicy?() else {
+      return false
+    }
+
+    switch decision.route {
+    case .passThrough:
+      return false
+    case .attemptLocal:
+      attemptScrimDismissal()
+      return true
+    case .consume:
+      return true
+    }
   }
 
   private func snapToIndex(

@@ -9,8 +9,16 @@
 @interface BottomSheetContentView () <BottomSheetHostingViewDelegate>
 @end
 
+@interface BottomSheetPresentationEscapeDecision : NSObject
++ (instancetype)passThrough;
++ (instancetype)attemptLocal;
++ (instancetype)consume;
+@end
+
 @interface BottomSheetHostingView (BottomSheetPresentationOwnership)
 @property (nonatomic, readonly, getter=isPresentationActive) BOOL presentationActive;
+@property (nonatomic, copy, nullable) BottomSheetPresentationEscapeDecision *
+    (^presentationEscapePolicy)(void);
 @end
 
 @implementation BottomSheetContentView {
@@ -24,6 +32,22 @@
     _impl = [[BottomSheetHostingView alloc] initWithFrame:self.bounds];
     _impl.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _impl.eventDelegate = self;
+    __weak __typeof(self) weakSelf = self;
+    _impl.presentationEscapePolicy = ^BottomSheetPresentationEscapeDecision *{
+      __typeof(self) strongSelf = weakSelf;
+      if (strongSelf == nil) {
+        return [BottomSheetPresentationEscapeDecision passThrough];
+      }
+
+      switch ([strongSelf.delegate voiceOverEscapeRouteForBottomSheetView:strongSelf]) {
+        case BottomSheetPresentationEscapeRouteAttemptLocal:
+          return [BottomSheetPresentationEscapeDecision attemptLocal];
+        case BottomSheetPresentationEscapeRouteConsume:
+          return [BottomSheetPresentationEscapeDecision consume];
+        case BottomSheetPresentationEscapeRoutePassThrough:
+          return [BottomSheetPresentationEscapeDecision passThrough];
+      }
+    };
     [self addSubview:_impl];
   }
 

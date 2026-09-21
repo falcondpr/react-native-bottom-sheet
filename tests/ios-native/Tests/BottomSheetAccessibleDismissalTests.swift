@@ -44,8 +44,8 @@ final class BottomSheetAccessibleDismissalTests: XCTestCase {
     XCTAssertEqual(events.positionSamples.last?.isPresentationActive, false)
   }
 
-  func testHostEscapeRemovesDismissAtCloseCommitAndRejectsRetries() async throws {
-    let fixture = BottomSheetHostFixture()
+  func testHostEscapeRemovesDismissAtCloseCommitAndConsumesRetries() async throws {
+    let fixture = BottomSheetHostFixture(presentations: [.portal])
     defer { fixture.tearDown() }
     let host = fixture.host
     let events = fixture.events
@@ -64,7 +64,7 @@ final class BottomSheetAccessibleDismissalTests: XCTestCase {
     XCTAssertFalse(dismiss.isHidden)
     XCTAssertTrue(host.isModalAccessibilityActive)
     XCTAssertEqual(events.settledIndices, [])
-    XCTAssertFalse(host.accessibilityPerformEscape())
+    XCTAssertTrue(host.accessibilityPerformEscape(), "closing Top must keep consuming Escape")
     XCTAssertEqual(events.changedIndices, [0])
 
     await fulfillment(of: [settle], timeout: 2.0)

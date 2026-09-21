@@ -16,6 +16,12 @@ typedef NS_ENUM(NSInteger, BottomSheetPresentationOrder) {
   BottomSheetPresentationOrderAbove,
 };
 
+typedef NS_ENUM(NSInteger, BottomSheetPresentationEscapeRoute) {
+  BottomSheetPresentationEscapeRoutePassThrough,
+  BottomSheetPresentationEscapeRouteAttemptLocal,
+  BottomSheetPresentationEscapeRouteConsume,
+};
+
 typedef BottomSheetPresentationOrder (^BottomSheetPresentationOrderProvider)(
     BottomSheetPresentationIdentity *first,
     BottomSheetPresentationIdentity *second);
@@ -42,6 +48,15 @@ typedef BottomSheetPresentationOrder (^BottomSheetPresentationOrderProvider)(
 
 @end
 
+@interface BottomSheetPresentationEscapeResolver : NSObject
+
++ (BottomSheetPresentationEscapeRoute)routeForCallerIdentity:
+                                          (BottomSheetPresentationIdentity *)callerIdentity
+                                               topPresentationIdentity:
+                                                   (nullable BottomSheetPresentationIdentity *)topPresentationIdentity;
+
+@end
+
 @interface BottomSheetPresentationUIKitOrderResolver : NSObject
 
 + (BottomSheetPresentationOrder)orderOfAnchor:(UIView *)first
@@ -65,6 +80,7 @@ typedef BottomSheetPresentationOrder (^BottomSheetPresentationOrderProvider)(
 - (void)beginHierarchyMutation;
 - (void)endHierarchyMutation;
 - (void)reconcilePresentationOrder;
+- (BottomSheetPresentationEscapeRoute)routeForVoiceOverEscape;
 - (void)invalidate;
 
 @end

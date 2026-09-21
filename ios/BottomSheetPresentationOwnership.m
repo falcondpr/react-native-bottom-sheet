@@ -76,6 +76,22 @@ static void BottomSheetAssertMainThread(void)
 
 @end
 
+@implementation BottomSheetPresentationEscapeResolver
+
++ (BottomSheetPresentationEscapeRoute)routeForCallerIdentity:
+                                          (BottomSheetPresentationIdentity *)callerIdentity
+                                               topPresentationIdentity:
+                                                   (nullable BottomSheetPresentationIdentity *)topPresentationIdentity
+{
+  if (topPresentationIdentity == nil) {
+    return BottomSheetPresentationEscapeRoutePassThrough;
+  }
+  return callerIdentity == topPresentationIdentity ? BottomSheetPresentationEscapeRouteAttemptLocal
+                                                   : BottomSheetPresentationEscapeRouteConsume;
+}
+
+@end
+
 @implementation BottomSheetPresentationUIKitOrderResolver
 
 + (nullable NSArray<UIView *> *)pathFromWindow:(UIWindow *)window toAnchor:(UIView *)anchor
@@ -466,6 +482,26 @@ static const void *BottomSheetPresentationCoordinatorAssociationKey =
     return;
   }
   [self updateModal:self.isModal active:self.isActive mode:self.mode];
+}
+
+- (BottomSheetPresentationEscapeRoute)routeForVoiceOverEscape
+{
+  BottomSheetAssertMainThread();
+  if (self.isInvalidated) {
+    return BottomSheetPresentationEscapeRoutePassThrough;
+  }
+
+  [self reconcileRegistration];
+  BottomSheetPresentationCoordinator *coordinator = self.coordinator;
+  UIView *anchor = self.anchor;
+  UIWindow *window = self.isModal ? anchor.window : nil;
+  if (coordinator == nil || window == nil || coordinator.window != window) {
+    return BottomSheetPresentationEscapeRoutePassThrough;
+  }
+
+  [coordinator recomputeTopPresentation];
+  return [BottomSheetPresentationEscapeResolver routeForCallerIdentity:self.identity
+                                               topPresentationIdentity:coordinator.topPresentationIdentity];
 }
 
 - (void)invalidate
