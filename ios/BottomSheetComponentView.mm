@@ -1,5 +1,6 @@
 #import "BottomSheetComponentView.h"
 #import "BottomSheetContentView.h"
+#import "BottomSheetPresentationOwnership.h"
 #import "BottomSheetSurfaceComponentView.h"
 #import "../common/cpp/react/renderer/components/ReactNativeBottomSheetSpec/BottomSheetStateHelper.h"
 #import "../common/cpp/react/renderer/components/ReactNativeBottomSheetSpec/ComponentDescriptors.h"
@@ -53,6 +54,7 @@ using namespace facebook::react;
 
 @implementation BottomSheetComponentView {
   BottomSheetContentView *_sheetView;
+  BottomSheetPresentationController *_presentationController;
   State::Shared _sheetState;
   float _lastContentOffsetY;
   BOOL _needsIndexSyncAfterRecycle;
@@ -81,12 +83,15 @@ using namespace facebook::react;
     _sheetView.delegate = self;
     _sheetView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.contentView = _sheetView;
+    _presentationController =
+        [[BottomSheetPresentationController alloc] initWithAnchor:_sheetView];
   }
   return self;
 }
 
 - (void)updateProps:(const Props::Shared &)props oldProps:(const Props::Shared &)oldProps
 {
+  [_presentationController beginHierarchyMutation];
   const auto &newViewProps = static_cast<const BottomSheetViewProps &>(*props);
   const auto &oldViewProps = static_cast<const BottomSheetViewProps &>(*_props);
 
@@ -161,6 +166,8 @@ using namespace facebook::react;
   }
 
   [super updateProps:props oldProps:oldProps];
+  [self reconcilePresentationOwnership];
+  [_presentationController endHierarchyMutation];
 }
 
 - (void)updateState:(const State::Shared &)state oldState:(const State::Shared &)oldState
@@ -205,8 +212,10 @@ using namespace facebook::react;
       });
     } else {
       [self updateOverlayPresentation];
+      return;
     }
   }
+  [self reconcilePresentationOwnership];
 }
 
 /// Reconciles where the sheet view is parented with the current `nativeOverlay`
@@ -214,12 +223,15 @@ using namespace facebook::react;
 /// the host window when on, restored as our own `contentView` when off.
 - (void)updateOverlayPresentation
 {
+  [_presentationController beginHierarchyMutation];
   UIWindow *window = self.window;
 
   if (!_nativeOverlay) {
     if (_overlayContainer != nil) {
       [self restoreInlinePresentation];
     }
+    [self reconcilePresentationOwnership];
+    [_presentationController endHierarchyMutation];
     return;
   }
 
@@ -261,6 +273,8 @@ using namespace facebook::react;
       [self restoreInlinePresentation];
     }
   }
+  [self reconcilePresentationOwnership];
+  [_presentationController endHierarchyMutation];
 }
 
 - (void)attachOverlayTouchHandler
@@ -414,6 +428,12 @@ using namespace facebook::react;
   RCTFatal([NSError errorWithDomain:RCTErrorDomain code:0 userInfo:@{NSLocalizedDescriptionKey : message}]);
 }
 
+- (void)bottomSheetView:(BottomSheetContentView *)view
+    didChangePresentationActive:(BOOL)presentationActive
+{
+  [self reconcilePresentationOwnership];
+}
+
 - (void)bottomSheetViewDidLayout:(BottomSheetContentView *)view
 {
   [self pushNativeGeometry];
@@ -421,6 +441,7 @@ using namespace facebook::react;
 
 - (void)prepareForRecycle
 {
+  [_presentationController invalidate];
   [super prepareForRecycle];
   // Restore inline parenting after the base class resets Fabric view state so a
   // reused instance starts from the default presentation.
@@ -429,10 +450,22 @@ using namespace facebook::react;
   [self restoreInlinePresentation];
   _needsIndexSyncAfterRecycle = YES;
   [_sheetView resetSheetState];
+  _presentationController =
+      [[BottomSheetPresentationController alloc] initWithAnchor:_sheetView];
   _sheetState.reset();
   _lastContentOffsetY = 0;
   _lastGeometryFrameSize = CGSizeZero;
   _lastGeometryInset = -1;
+}
+
+- (void)reconcilePresentationOwnership
+{
+  BottomSheetPresentationMode mode = _nativeOverlay
+      ? BottomSheetPresentationModeNativeOverlay
+      : BottomSheetPresentationModePortal;
+  [_presentationController updateModal:_sheetView.modal
+                                active:_sheetView.isPresentationActive
+                                  mode:mode];
 }
 
 @end

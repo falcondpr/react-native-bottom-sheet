@@ -9,8 +9,13 @@
 @interface BottomSheetContentView () <BottomSheetHostingViewDelegate>
 @end
 
+@interface BottomSheetHostingView (BottomSheetPresentationOwnership)
+@property (nonatomic, readonly, getter=isPresentationActive) BOOL presentationActive;
+@end
+
 @implementation BottomSheetContentView {
   BottomSheetHostingView *_impl;
+  BOOL _lastPresentationActive;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame
@@ -78,6 +83,7 @@
 - (void)setModal:(BOOL)modal
 {
   _impl.modal = modal;
+  [self publishPresentationActiveIfNeeded];
 }
 
 - (void)setDetents:(NSArray<NSDictionary *> *)raw
@@ -120,6 +126,11 @@
   return _impl.isModalAccessibilityActive;
 }
 
+- (BOOL)isPresentationActive
+{
+  return _impl.isPresentationActive;
+}
+
 - (void)mountChildComponentView:(UIView *)childView atIndex:(NSInteger)index
 {
   [_impl mountChildComponentView:childView atIndex:index];
@@ -143,6 +154,7 @@
 - (void)resetSheetState
 {
   [_impl resetSheetState];
+  [self publishPresentationActiveIfNeeded];
 }
 
 - (void)bottomSheetHostingView:(BottomSheetHostingView *)view didChangeIndex:(NSInteger)index
@@ -152,6 +164,7 @@
 
 - (void)bottomSheetHostingView:(BottomSheetHostingView *)view didSettle:(NSInteger)index
 {
+  [self publishPresentationActiveIfNeeded];
   [self.delegate bottomSheetView:self didSettle:index];
 }
 
@@ -159,6 +172,7 @@
               didChangePosition:(CGFloat)position
                           index:(CGFloat)index
 {
+  [self publishPresentationActiveIfNeeded];
   [self.delegate bottomSheetView:self didChangePosition:position index:index];
 }
 
@@ -170,6 +184,16 @@
 - (void)bottomSheetHostingViewDidLayout:(BottomSheetHostingView *)view
 {
   [self.delegate bottomSheetViewDidLayout:self];
+}
+
+- (void)publishPresentationActiveIfNeeded
+{
+  BOOL presentationActive = _impl.isPresentationActive;
+  if (_lastPresentationActive == presentationActive) {
+    return;
+  }
+  _lastPresentationActive = presentationActive;
+  [self.delegate bottomSheetView:self didChangePresentationActive:presentationActive];
 }
 
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event

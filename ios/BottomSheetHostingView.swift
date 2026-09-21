@@ -124,7 +124,10 @@ private final class BottomSheetScrimControl: UIControl {
 public final class BottomSheetHostingView: UIView {
   public weak var eventDelegate: BottomSheetHostingViewDelegate?
   public var modal: Bool = false {
-    didSet { updateScrim() }
+    didSet {
+      updateScrim()
+      updatePresentationActiveForCurrentState()
+    }
   }
 
   public var scrimColor: UIColor? = .clear {
@@ -171,6 +174,8 @@ public final class BottomSheetHostingView: UIView {
   }
 
   private var targetIndex: Int = 0
+  @objc(isPresentationActive)
+  private(set) var presentationActive = false
   public var animateIn: Bool = true
   public var animateContentHeight: Bool = true
 
@@ -464,6 +469,7 @@ public final class BottomSheetHostingView: UIView {
     rawDetentSpecs = []
     detentSpecs = []
     targetIndex = 0
+    presentationActive = false
     pendingIndex = nil
     pendingSnapRequest = nil
     hasLaidOut = false
@@ -596,6 +602,7 @@ public final class BottomSheetHostingView: UIView {
     let maxHeight = sheetContainerHeight
     let ty = overrideTy ?? currentTranslationY
     let position = maxHeight - ty
+    updatePresentationActive(forPosition: position)
     updateScrim(forPosition: position)
     updateSheetVisibility(forPosition: position)
     updateInteractionState()
@@ -873,6 +880,9 @@ public final class BottomSheetHostingView: UIView {
 
     sheetContainer.transform = CGAffineTransform(translationX: 0, y: targetTy)
     emitPosition()
+    if detent(at: index).height <= 0.5 {
+      presentationActive = false
+    }
     scrimPinnedFull = false
     setContentInteractionEnabled(true)
     updateInteractionState()
@@ -1566,6 +1576,18 @@ public final class BottomSheetHostingView: UIView {
       return false
     case .content:
       return validContentHeight == nil
+    }
+  }
+
+  private func updatePresentationActiveForCurrentState() {
+    updatePresentationActive(forPosition: currentSheetHeight)
+  }
+
+  private func updatePresentationActive(forPosition position: CGFloat) {
+    if !modal {
+      presentationActive = false
+    } else if position > 0.5 {
+      presentationActive = true
     }
   }
 }
