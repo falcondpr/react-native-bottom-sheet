@@ -111,12 +111,13 @@ private final class ActiveScrollViewState {
 
 /// The scrim control, exposed to VoiceOver as a dismiss button while a
 /// dismissible modal sheet is open. VoiceOver's default activation simulates
-/// a tap at the activation point; sending the control action directly keeps
+/// a tap at the activation point; attempting dismissal directly keeps
 /// activation reliable even when the sheet overlaps that point mid-settle.
 private final class BottomSheetScrimControl: UIControl {
+  var onAccessibilityActivate: (() -> Bool)?
+
   override func accessibilityActivate() -> Bool {
-    sendActions(for: .touchUpInside)
-    return true
+    onAccessibilityActivate?() ?? false
   }
 }
 
@@ -218,6 +219,9 @@ public final class BottomSheetHostingView: UIView {
     scrimView.alpha = 0
     scrimView.isHidden = true
     scrimView.addTarget(self, action: #selector(handleScrimPress), for: .touchUpInside)
+    scrimView.onAccessibilityActivate = { [weak self] in
+      self?.attemptScrimDismissal() ?? false
+    }
     scrimView.isAccessibilityElement = false
     scrimView.accessibilityTraits = .button
     scrimView.accessibilityLabel = "Dismiss"
@@ -561,8 +565,15 @@ public final class BottomSheetHostingView: UIView {
     detentSpecs.firstIndex(where: { $0.height == 0 })
   }
 
-  private var scrimDismissIndex: Int? {
-    guard let closedIndex, !detentSpecs[closedIndex].programmatic else {
+  private var accessibleDismissalIndex: Int? {
+    guard
+      hasLaidOut,
+      isScrimVisible,
+      let closedIndex,
+      !detentSpecs[closedIndex].programmatic,
+      targetIndex != closedIndex,
+      activeSpring == nil || currentSheetHeight > 0.5
+    else {
       return nil
     }
     return closedIndex
@@ -743,12 +754,7 @@ public final class BottomSheetHostingView: UIView {
   /// scrim tap takes, returning whether a dismissal was actually performed.
   @discardableResult
   private func attemptScrimDismissal() -> Bool {
-    guard
-      modal,
-      let closedIndex = scrimDismissIndex,
-      targetIndex != closedIndex,
-      activeSpring == nil || currentSheetHeight > 0.5
-    else {
+    guard let closedIndex = accessibleDismissalIndex else {
       return false
     }
 
@@ -785,6 +791,7 @@ public final class BottomSheetHostingView: UIView {
     }
 
     targetIndex = index
+    updateInteractionState()
     if !preserveScrimPin {
       scrimPinnedFull = false
     }
@@ -1776,6 +1783,6 @@ private extension BottomSheetHostingView {
     // sheet; otherwise it would be an inert, unlabeled stop in the
     // accessibility tree (a scrim over a programmatic-only close detent is
     // decorative, not actionable).
-    scrimView.isAccessibilityElement = modal && scrimDismissIndex != nil && !scrimView.isHidden
+    scrimView.isAccessibilityElement = accessibleDismissalIndex != nil
   }
 }
