@@ -261,6 +261,44 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   BottomSheetTearDownModalIsolationTestWindow(window);
 }
 
+- (void)testReentrantCurrentTopCleanupIsIdempotentDuringTransfer
+{
+  NSMutableArray<NSString *> *writeLog = [NSMutableArray new];
+  UIWindow *window = BottomSheetMakeModalIsolationTestWindow();
+  BottomSheetModalBoundaryRecordingView *lower =
+      [[BottomSheetModalBoundaryRecordingView alloc] initWithName:@"lower" writeLog:writeLog];
+  BottomSheetModalBoundaryRecordingView *upper =
+      [[BottomSheetModalBoundaryRecordingView alloc] initWithName:@"upper" writeLog:writeLog];
+  [window.rootViewController.view addSubview:lower];
+  [window.rootViewController.view addSubview:upper];
+  BottomSheetPresentationController *lowerController =
+      BottomSheetActivateModalBoundary(lower, BottomSheetPresentationModePortal);
+  __block BOOL didCleanCurrentTop = NO;
+  lower.afterWrite = ^(BOOL modal) {
+    if (!modal && !didCleanCurrentTop) {
+      didCleanCurrentTop = YES;
+      [lowerController invalidate];
+      [lowerController invalidate];
+    }
+  };
+  [writeLog removeAllObjects];
+
+  BottomSheetPresentationController *upperController =
+      BottomSheetActivateModalBoundary(upper, BottomSheetPresentationModePortal);
+
+  XCTAssertTrue(didCleanCurrentTop);
+  XCTAssertEqualObjects(writeLog, (@[ @"upper:true", @"lower:false" ]));
+  XCTAssertFalse(lower.accessibilityViewIsModal);
+  XCTAssertTrue(upper.accessibilityViewIsModal);
+  XCTAssertEqualObjects(
+      [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:window],
+      upperController.identity);
+
+  lower.afterWrite = nil;
+  [upperController invalidate];
+  BottomSheetTearDownModalIsolationTestWindow(window);
+}
+
 - (void)testIdempotentReconciliationRepairsOnlyDriftedPrivateBoundary
 {
   NSMutableArray<NSString *> *writeLog = [NSMutableArray new];

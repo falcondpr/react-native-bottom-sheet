@@ -54,15 +54,19 @@ final class BottomSheetHostFixture {
 
   init(
     presentations: [BottomSheetTestPresentationMode],
+    initialIndices: [Int]? = nil,
     separateNativeRootBranches: Bool = false
   ) {
     precondition(!presentations.isEmpty)
+    let indices = initialIndices ?? Array(repeating: 1, count: presentations.count)
+    precondition(indices.count == presentations.count)
     let windowFrame = CGRect(x: 0, y: 0, width: 390, height: 844)
     window = UIWindow(frame: windowFrame)
     rootViewController = UIViewController()
-    let components = presentations.map {
+    let components = zip(presentations, indices).map {
       BottomSheetTestComponentFactory.makeProductionComponent(
-        withNativeOverlay: $0.usesNativeOverlay
+        withNativeOverlay: $0.usesNativeOverlay,
+        index: $1
       )
     }
     let hosts = components.map { component in
@@ -124,6 +128,13 @@ final class BottomSheetHostFixture {
   func recycleComponent(at index: Int) {
     BottomSheetTestComponentFactory.prepare(forRecycle: components[index])
     components[index].removeFromSuperview()
+  }
+
+  func setIndex(_ index: Int, forPresentationAt presentationIndex: Int) {
+    BottomSheetTestComponentFactory.setIndex(
+      index,
+      forProductionComponent: components[presentationIndex]
+    )
   }
 
   func bringComponentToFront(at index: Int) {

@@ -203,7 +203,12 @@ public final class BottomSheetHostingView: UIView {
 
   private var targetIndex: Int = 0
   @objc(isPresentationActive)
-  private(set) var presentationActive = false
+  private(set) var presentationActive = false {
+    didSet {
+      guard presentationActive != oldValue else { return }
+      presentationActiveDidChange?(presentationActive)
+    }
+  }
   public var animateIn: Bool = true
   public var animateContentHeight: Bool = true
 
@@ -234,6 +239,7 @@ public final class BottomSheetHostingView: UIView {
   private var isContentInteractionDisabled = false
   private var contentHeightMarker: UIView?
   private weak var surfaceView: UIView?
+  @objc var presentationActiveDidChange: ((Bool) -> Void)?
   @objc var presentationEscapePolicy: (() -> PresentationEscapeDecision)?
   private static var markerObservationContext = 0
   private static let springAnimationKey = "bottomSheetSettle"
@@ -831,6 +837,9 @@ public final class BottomSheetHostingView: UIView {
     }
 
     targetIndex = index
+    if detent(at: index).height > 0.5 {
+      updatePresentationActive(forPosition: detent(at: index).height)
+    }
     updateInteractionState()
     if !preserveScrimPin {
       scrimPinnedFull = false

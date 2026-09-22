@@ -8,6 +8,7 @@
 #import <React/RCTAssert.h>
 #import <React/RCTConversions.h>
 #import <React/RCTFabricComponentsPlugins.h>
+#import <React/RCTMountingTransactionObserving.h>
 #import <React/RCTSurfaceTouchHandler.h>
 #import <react/renderer/components/ReactNativeBottomSheetSpec/EventEmitters.h>
 #import <react/renderer/components/ReactNativeBottomSheetSpec/Props.h>
@@ -49,7 +50,7 @@ using namespace facebook::react;
 
 @end
 
-@interface BottomSheetComponentView () <BottomSheetContentViewDelegate>
+@interface BottomSheetComponentView () <BottomSheetContentViewDelegate, RCTMountingTransactionObserving>
 @end
 
 @implementation BottomSheetComponentView {
@@ -64,6 +65,8 @@ using namespace facebook::react;
   RCTSurfaceTouchHandler *_overlayTouchHandler;
   CGSize _lastGeometryFrameSize;
   CGFloat _lastGeometryInset;
+  BOOL _presentationMountTransactionOpen;
+  NSUInteger _presentationLifecycleGeneration;
 }
 
 + (ComponentDescriptorProvider)componentDescriptorProvider
@@ -203,10 +206,13 @@ using namespace facebook::react;
       // running snap against the slot's geometry. Defer one runloop turn: if
       // the window is back by then (the mid-commit case), presentation is left
       // untouched; if the view genuinely left the window, tear down as before.
+      NSUInteger lifecycleGeneration = _presentationLifecycleGeneration;
       __weak __typeof(self) weakSelf = self;
       dispatch_async(dispatch_get_main_queue(), ^{
         __typeof(self) strongSelf = weakSelf;
-        if (strongSelf != nil && strongSelf.window == nil) {
+        if (strongSelf != nil &&
+            strongSelf->_presentationLifecycleGeneration == lifecycleGeneration &&
+            strongSelf.window == nil) {
           [strongSelf updateOverlayPresentation];
         }
       });
@@ -216,6 +222,29 @@ using namespace facebook::react;
     }
   }
   [self reconcilePresentationOwnership];
+}
+
+#pragma mark - RCTMountingTransactionObserving
+
+- (void)mountingTransactionWillMount:(const facebook::react::MountingTransaction &)transaction
+                withSurfaceTelemetry:(const facebook::react::SurfaceTelemetry &)surfaceTelemetry
+{
+  if (_presentationMountTransactionOpen) {
+    return;
+  }
+  _presentationMountTransactionOpen = YES;
+  [_presentationController beginHierarchyMutation];
+}
+
+- (void)mountingTransactionDidMount:(const facebook::react::MountingTransaction &)transaction
+               withSurfaceTelemetry:(const facebook::react::SurfaceTelemetry &)surfaceTelemetry
+{
+  [self reconcilePresentationOwnership];
+  if (!_presentationMountTransactionOpen) {
+    return;
+  }
+  _presentationMountTransactionOpen = NO;
+  [_presentationController endHierarchyMutation];
 }
 
 /// Reconciles where the sheet view is parented with the current `nativeOverlay`
@@ -438,7 +467,7 @@ using namespace facebook::react;
 
 - (void)prepareForRecycle
 {
-  [_presentationController invalidate];
+  [self tearDownPresentationLifecycle];
   [super prepareForRecycle];
   // Restore inline parenting after the base class resets Fabric view state so a
   // reused instance starts from the default presentation.
@@ -446,13 +475,38 @@ using namespace facebook::react;
   _extendUnderStatusBar = NO;
   [self restoreInlinePresentation];
   _needsIndexSyncAfterRecycle = YES;
-  [_sheetView resetSheetState];
   _presentationController =
       [[BottomSheetPresentationController alloc] initWithAnchor:_sheetView];
   _sheetState.reset();
   _lastContentOffsetY = 0;
   _lastGeometryFrameSize = CGSizeZero;
   _lastGeometryInset = -1;
+}
+
+- (void)invalidate
+{
+  [self tearDownPresentationLifecycle];
+  [super invalidate];
+}
+
+- (void)dealloc
+{
+  [self tearDownPresentationLifecycle];
+}
+
+- (void)tearDownPresentationLifecycle
+{
+  _presentationLifecycleGeneration++;
+  _presentationMountTransactionOpen = NO;
+  [_presentationController invalidate];
+  [_sheetView resetSheetState];
+  [self detachOverlayTouchHandler];
+  [_overlayContainer removeFromSuperview];
+  if (_sheetView.superview == _overlayContainer) {
+    [_sheetView removeFromSuperview];
+  }
+  _overlayTouchHandler = nil;
+  _overlayContainer = nil;
 }
 
 - (void)reconcilePresentationOwnership

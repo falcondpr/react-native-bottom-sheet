@@ -21,6 +21,8 @@
 		A20000000000000000000010 /* BottomSheetPresentationModalIsolationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000013 /* BottomSheetPresentationModalIsolationTests.swift */; };
 		A20000000000000000000011 /* BottomSheetTestComponentFactory.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000014 /* BottomSheetTestComponentFactory.mm */; };
 		A20000000000000000000012 /* BottomSheetPresentationModalIsolationControllerTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000017 /* BottomSheetPresentationModalIsolationControllerTests.mm */; };
+		A20000000000000000000013 /* BottomSheetPresentationLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000018 /* BottomSheetPresentationLifecycleTests.swift */; };
+		A20000000000000000000014 /* BottomSheetPresentationModeIntegrationTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000019 /* BottomSheetPresentationModeIntegrationTests.mm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -54,6 +56,8 @@
 		A30000000000000000000015 /* BottomSheetTestComponentFactory.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BottomSheetTestComponentFactory.h; sourceTree = "<group>"; };
 		A30000000000000000000016 /* BottomSheetNativeTests-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "BottomSheetNativeTests-Bridging-Header.h"; sourceTree = "<group>"; };
 		A30000000000000000000017 /* BottomSheetPresentationModalIsolationControllerTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = BottomSheetPresentationModalIsolationControllerTests.mm; sourceTree = "<group>"; };
+		A30000000000000000000018 /* BottomSheetPresentationLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomSheetPresentationLifecycleTests.swift; sourceTree = "<group>"; };
+		A30000000000000000000019 /* BottomSheetPresentationModeIntegrationTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = BottomSheetPresentationModeIntegrationTests.mm; sourceTree = "<group>"; };
 		C577E0CAB61E0CDA09F92FA3 /* libPods-BottomSheetNativeTestHost.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-BottomSheetNativeTestHost.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CADF3CD6D1B7A344694F886D /* libPods-BottomSheetNativeTests.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-BottomSheetNativeTests.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		D58BA040A6195B33CF4A612C /* Pods-BottomSheetNativeTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-BottomSheetNativeTests.debug.xcconfig"; path = "Target Support Files/Pods-BottomSheetNativeTests/Pods-BottomSheetNativeTests.debug.xcconfig"; sourceTree = "<group>"; };
@@ -140,6 +144,8 @@
 				A30000000000000000000012 /* BottomSheetPresentationEscapeTests.swift */,
 				A30000000000000000000013 /* BottomSheetPresentationModalIsolationTests.swift */,
 				A30000000000000000000017 /* BottomSheetPresentationModalIsolationControllerTests.mm */,
+				A30000000000000000000018 /* BottomSheetPresentationLifecycleTests.swift */,
+				A30000000000000000000019 /* BottomSheetPresentationModeIntegrationTests.mm */,
 				A70000000000000000000005 /* Support */,
 			);
 			path = Tests;
@@ -357,6 +363,8 @@
 				A20000000000000000000010 /* BottomSheetPresentationModalIsolationTests.swift in Sources */,
 				A20000000000000000000011 /* BottomSheetTestComponentFactory.mm in Sources */,
 				A20000000000000000000012 /* BottomSheetPresentationModalIsolationControllerTests.mm in Sources */,
+				A20000000000000000000013 /* BottomSheetPresentationLifecycleTests.swift in Sources */,
+				A20000000000000000000014 /* BottomSheetPresentationModeIntegrationTests.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

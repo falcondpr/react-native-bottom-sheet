@@ -1,5 +1,6 @@
 import CoreGraphics
 import ReactNativeBottomSheet
+import UIKit
 import XCTest
 
 @MainActor
@@ -7,6 +8,7 @@ final class BottomSheetEventRecorder: NSObject, @preconcurrency BottomSheetHosti
   struct PositionSample {
     let position: CGFloat
     let isPresentationActive: Bool
+    let isPresentationBoundaryModal: Bool?
   }
 
   var changedIndices: [Int] = []
@@ -14,6 +16,7 @@ final class BottomSheetEventRecorder: NSObject, @preconcurrency BottomSheetHosti
   var positionSamples: [PositionSample] = []
   var didSettleExpectation: XCTestExpectation?
   weak var adapter: BottomSheetHostingViewDelegate?
+  weak var observedPresentationBoundary: UIView?
 
   func reset() {
     changedIndices.removeAll()
@@ -41,7 +44,8 @@ final class BottomSheetEventRecorder: NSObject, @preconcurrency BottomSheetHosti
     positionSamples.append(
       PositionSample(
         position: position,
-        isPresentationActive: view.isModalAccessibilityActive
+        isPresentationActive: view.isModalAccessibilityActive,
+        isPresentationBoundaryModal: observedPresentationBoundary?.accessibilityViewIsModal
       )
     )
   }

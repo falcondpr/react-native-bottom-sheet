@@ -17,13 +17,13 @@
 
 @interface BottomSheetHostingView (BottomSheetPresentationOwnership)
 @property (nonatomic, readonly, getter=isPresentationActive) BOOL presentationActive;
+@property (nonatomic, copy, nullable) void (^presentationActiveDidChange)(BOOL active);
 @property (nonatomic, copy, nullable) BottomSheetPresentationEscapeDecision *
     (^presentationEscapePolicy)(void);
 @end
 
 @implementation BottomSheetContentView {
   BottomSheetHostingView *_impl;
-  BOOL _lastPresentationActive;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame
@@ -33,6 +33,12 @@
     _impl.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     _impl.eventDelegate = self;
     __weak __typeof(self) weakSelf = self;
+    _impl.presentationActiveDidChange = ^(BOOL active) {
+      __typeof(self) strongSelf = weakSelf;
+      if (strongSelf != nil) {
+        [strongSelf.delegate bottomSheetView:strongSelf didChangePresentationActive:active];
+      }
+    };
     _impl.presentationEscapePolicy = ^BottomSheetPresentationEscapeDecision *{
       __typeof(self) strongSelf = weakSelf;
       if (strongSelf == nil) {
@@ -107,7 +113,6 @@
 - (void)setModal:(BOOL)modal
 {
   _impl.modal = modal;
-  [self publishPresentationActiveIfNeeded];
 }
 
 - (void)setDetents:(NSArray<NSDictionary *> *)raw
@@ -178,7 +183,6 @@
 - (void)resetSheetState
 {
   [_impl resetSheetState];
-  [self publishPresentationActiveIfNeeded];
 }
 
 - (void)bottomSheetHostingView:(BottomSheetHostingView *)view didChangeIndex:(NSInteger)index
@@ -188,7 +192,6 @@
 
 - (void)bottomSheetHostingView:(BottomSheetHostingView *)view didSettle:(NSInteger)index
 {
-  [self publishPresentationActiveIfNeeded];
   [self.delegate bottomSheetView:self didSettle:index];
 }
 
@@ -196,7 +199,6 @@
               didChangePosition:(CGFloat)position
                           index:(CGFloat)index
 {
-  [self publishPresentationActiveIfNeeded];
   [self.delegate bottomSheetView:self didChangePosition:position index:index];
 }
 
@@ -208,16 +210,6 @@
 - (void)bottomSheetHostingViewDidLayout:(BottomSheetHostingView *)view
 {
   [self.delegate bottomSheetViewDidLayout:self];
-}
-
-- (void)publishPresentationActiveIfNeeded
-{
-  BOOL presentationActive = _impl.isPresentationActive;
-  if (_lastPresentationActive == presentationActive) {
-    return;
-  }
-  _lastPresentationActive = presentationActive;
-  [self.delegate bottomSheetView:self didChangePresentationActive:presentationActive];
 }
 
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
