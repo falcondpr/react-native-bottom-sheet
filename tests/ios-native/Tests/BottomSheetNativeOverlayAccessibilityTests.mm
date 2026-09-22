@@ -12,11 +12,11 @@ using namespace facebook::react;
 // Forward every callback to the real adapter before observing its UIKit output.
 @interface BottomSheetOverlayBoundaryRecorder : NSObject <BottomSheetHostingViewDelegate>
 @property (nonatomic, weak) id<BottomSheetHostingViewDelegate> adapter;
-@property (nonatomic, weak) UIView *overlay;
+@property (nonatomic, weak) UIView *boundary;
+@property (nonatomic, weak) UIView *overlayContainer;
 @property (nonatomic, strong) XCTestExpectation *settle;
 @property (nonatomic) NSUInteger positionCount;
 @property (nonatomic) BOOL boundaryStayedActive;
-@property (nonatomic) BOOL terminalPositionWasNonModal;
 @end
 
 @implementation BottomSheetOverlayBoundaryRecorder
@@ -29,7 +29,8 @@ using namespace facebook::react;
 {
   [self.adapter bottomSheetHostingView:view didSettle:index];
   XCTAssertEqual(index, 0);
-  XCTAssertFalse(self.overlay.accessibilityViewIsModal);
+  XCTAssertFalse(self.boundary.accessibilityViewIsModal);
+  XCTAssertFalse(self.overlayContainer.accessibilityViewIsModal);
   [self.settle fulfill];
 }
 
@@ -39,11 +40,8 @@ using namespace facebook::react;
 {
   [self.adapter bottomSheetHostingView:view didChangePosition:position index:index];
   self.positionCount += 1;
-  if (position > 0) {
-    self.boundaryStayedActive &= self.overlay.accessibilityViewIsModal;
-  } else {
-    self.terminalPositionWasNonModal = !self.overlay.accessibilityViewIsModal;
-  }
+  self.boundaryStayedActive &= self.boundary.accessibilityViewIsModal;
+  self.boundaryStayedActive &= !self.overlayContainer.accessibilityViewIsModal;
 }
 
 - (void)bottomSheetHostingView:(BottomSheetHostingView *)view didReportError:(NSString *)message
@@ -120,18 +118,22 @@ static BottomSheetHostingView *BottomSheetFindHost(UIView *view)
     }
     [host setNeedsLayout];
     [host layoutIfNeeded];
-    UIView *overlay = host;
-    while (overlay.superview != nil && overlay.superview != window) {
-      overlay = overlay.superview;
+    UIView *boundary = host.superview;
+    XCTAssertNotNil(boundary);
+    UIView *overlayContainer = boundary;
+    while (overlayContainer.superview != nil && overlayContainer.superview != window) {
+      overlayContainer = overlayContainer.superview;
     }
-    XCTAssertEqual(overlay.superview, window);
-    XCTAssertNotEqual(overlay, window.rootViewController.view);
-    XCTAssertTrue(overlay.accessibilityViewIsModal);
+    XCTAssertEqual(overlayContainer.superview, window);
+    XCTAssertNotEqual(overlayContainer, window.rootViewController.view);
+    XCTAssertTrue(boundary.accessibilityViewIsModal);
+    XCTAssertFalse(overlayContainer.accessibilityViewIsModal);
 
     BottomSheetOverlayBoundaryRecorder *recorder = [BottomSheetOverlayBoundaryRecorder new];
     recorder.adapter = host.eventDelegate;
     XCTAssertNotNil(recorder.adapter);
-    recorder.overlay = overlay;
+    recorder.boundary = boundary;
+    recorder.overlayContainer = overlayContainer;
     recorder.boundaryStayedActive = YES;
     recorder.settle = [self expectationWithDescription:@"native overlay closes through the real spring"];
     recorder.settle.assertForOverFulfill = YES;
@@ -140,14 +142,15 @@ static BottomSheetHostingView *BottomSheetFindHost(UIView *view)
     [host setDetentIndex:0];
 
     XCTAssertNotNil([host.sheetContainer.layer animationForKey:@"bottomSheetSettle"]);
-    XCTAssertTrue(overlay.accessibilityViewIsModal);
+    XCTAssertTrue(boundary.accessibilityViewIsModal);
+    XCTAssertFalse(overlayContainer.accessibilityViewIsModal);
 
     [self waitForExpectations:@[recorder.settle] timeout:2];
 
     XCTAssertGreaterThan(recorder.positionCount, 1u);
     XCTAssertTrue(recorder.boundaryStayedActive);
-    XCTAssertTrue(recorder.terminalPositionWasNonModal);
-    XCTAssertFalse(overlay.accessibilityViewIsModal);
+    XCTAssertFalse(boundary.accessibilityViewIsModal);
+    XCTAssertFalse(overlayContainer.accessibilityViewIsModal);
     host.eventDelegate = recorder.adapter;
   } @finally {
     [component prepareForRecycle];

@@ -21,6 +21,7 @@ final class BottomSheetHostFixture {
   var events: BottomSheetEventRecorder { eventRecorders[0] }
 
   private let components: [UIView]
+  private let componentRootBranches: [UIView]
 
   init() {
     window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
@@ -30,6 +31,7 @@ final class BottomSheetHostFixture {
     hosts = [host]
     eventRecorders = [events]
     components = []
+    componentRootBranches = []
 
     window.rootViewController = rootViewController
     rootViewController.view.frame = window.bounds
@@ -50,9 +52,13 @@ final class BottomSheetHostFixture {
     host.layoutIfNeeded()
   }
 
-  init(presentations: [BottomSheetTestPresentationMode]) {
+  init(
+    presentations: [BottomSheetTestPresentationMode],
+    separateNativeRootBranches: Bool = false
+  ) {
     precondition(!presentations.isEmpty)
-    window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+    let windowFrame = CGRect(x: 0, y: 0, width: 390, height: 844)
+    window = UIWindow(frame: windowFrame)
     rootViewController = UIViewController()
     let components = presentations.map {
       BottomSheetTestComponentFactory.makeProductionComponent(
@@ -66,6 +72,9 @@ final class BottomSheetHostFixture {
       return host
     }
     self.components = components
+    componentRootBranches = separateNativeRootBranches
+      ? presentations.map { _ in UIView(frame: windowFrame) }
+      : []
     self.hosts = hosts
     eventRecorders = hosts.map { host in
       let recorder = BottomSheetEventRecorder()
@@ -77,9 +86,15 @@ final class BottomSheetHostFixture {
 
     window.rootViewController = rootViewController
     rootViewController.view.frame = window.bounds
-    components.forEach {
-      $0.frame = window.bounds
-      rootViewController.view.addSubview($0)
+    for (index, component) in components.enumerated() {
+      component.frame = window.bounds
+      if separateNativeRootBranches {
+        let branch = componentRootBranches[index]
+        rootViewController.view.addSubview(branch)
+        branch.addSubview(component)
+      } else {
+        rootViewController.view.addSubview(component)
+      }
     }
     window.makeKeyAndVisible()
     Self.layoutTree(window)
@@ -94,6 +109,7 @@ final class BottomSheetHostFixture {
       BottomSheetTestComponentFactory.prepare(forRecycle: component)
       component.removeFromSuperview()
     }
+    componentRootBranches.reversed().forEach { $0.removeFromSuperview() }
     if components.isEmpty {
       host.removeFromSuperview()
     }
@@ -105,8 +121,14 @@ final class BottomSheetHostFixture {
     components[index].removeFromSuperview()
   }
 
+  func recycleComponent(at index: Int) {
+    BottomSheetTestComponentFactory.prepare(forRecycle: components[index])
+    components[index].removeFromSuperview()
+  }
+
   func bringComponentToFront(at index: Int) {
-    rootViewController.view.bringSubviewToFront(components[index])
+    let branch = componentRootBranches.isEmpty ? components[index] : componentRootBranches[index]
+    rootViewController.view.bringSubviewToFront(branch)
     Self.layoutTree(window)
   }
 

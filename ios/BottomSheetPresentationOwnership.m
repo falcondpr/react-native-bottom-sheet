@@ -202,12 +202,83 @@ static void BottomSheetAssertMainThread(void)
 @implementation BottomSheetPresentationCandidateRecord
 @end
 
+@interface BottomSheetPresentationModalIsolationAdapter : NSObject
+@property (nonatomic, strong) NSHashTable<UIView *> *boundaries;
+@property (nonatomic, strong) NSHashTable<UIView *> *pendingReleasedBoundaries;
+
+- (void)registerBoundary:(UIView *)boundary;
+- (void)unregisterBoundary:(UIView *)boundary;
+- (void)reconcileTopBoundary:(nullable UIView *)topBoundary;
+- (void)invalidate;
+@end
+
+@implementation BottomSheetPresentationModalIsolationAdapter
+
+- (instancetype)init
+{
+  if (self = [super init]) {
+    _boundaries = [NSHashTable weakObjectsHashTable];
+    _pendingReleasedBoundaries = [NSHashTable weakObjectsHashTable];
+  }
+  return self;
+}
+
+- (void)registerBoundary:(UIView *)boundary
+{
+  [self.pendingReleasedBoundaries removeObject:boundary];
+  [self.boundaries addObject:boundary];
+}
+
+- (void)unregisterBoundary:(UIView *)boundary
+{
+  [self.boundaries removeObject:boundary];
+  [self.pendingReleasedBoundaries addObject:boundary];
+}
+
+- (void)reconcileTopBoundary:(nullable UIView *)topBoundary
+{
+  if (topBoundary != nil && !topBoundary.accessibilityViewIsModal) {
+    topBoundary.accessibilityViewIsModal = YES;
+  }
+
+  NSArray<UIView *> *boundaries = self.boundaries.allObjects;
+  for (UIView *boundary in boundaries) {
+    if (boundary != topBoundary && boundary.accessibilityViewIsModal) {
+      boundary.accessibilityViewIsModal = NO;
+    }
+  }
+
+  NSArray<UIView *> *releasedBoundaries = self.pendingReleasedBoundaries.allObjects;
+  for (UIView *boundary in releasedBoundaries) {
+    if (boundary == topBoundary) {
+      continue;
+    }
+    if (boundary.accessibilityViewIsModal) {
+      boundary.accessibilityViewIsModal = NO;
+    }
+    [self.pendingReleasedBoundaries removeObject:boundary];
+  }
+}
+
+- (void)invalidate
+{
+  [self reconcileTopBoundary:nil];
+  [self.boundaries removeAllObjects];
+  [self.pendingReleasedBoundaries removeAllObjects];
+}
+
+@end
+
 @interface BottomSheetPresentationCoordinator ()
 @property (nonatomic, weak) UIWindow *window;
 @property (nonatomic, strong) NSMutableDictionary<BottomSheetPresentationIdentity *, BottomSheetPresentationCandidateRecord *> *records;
 @property (nonatomic, strong, nullable) BottomSheetPresentationIdentity *topPresentationIdentity;
+@property (nonatomic, strong, nullable) BottomSheetPresentationIdentity *escapeOwnerIdentity;
+@property (nonatomic, strong) BottomSheetPresentationModalIsolationAdapter *modalIsolationAdapter;
 @property (nonatomic) NSInteger hierarchyMutationDepth;
 @property (nonatomic) BOOL hierarchyMutationDirty;
+@property (nonatomic, getter=isReconciliationInProgress) BOOL reconciliationInProgress;
+@property (nonatomic) BOOL reconciliationDirty;
 
 + (nullable instancetype)coordinatorForWindow:(UIWindow *)window createIfNeeded:(BOOL)createIfNeeded;
 - (void)updateController:(BottomSheetPresentationController *)controller
@@ -217,6 +288,7 @@ static void BottomSheetAssertMainThread(void)
 - (void)beginHierarchyMutation;
 - (void)endHierarchyMutation;
 - (void)recomputeTopPresentation;
+- (void)recomputeTopPresentationOnce;
 @end
 
 static const void *BottomSheetPresentationCoordinatorAssociationKey =
@@ -233,6 +305,7 @@ static const void *BottomSheetPresentationCoordinatorAssociationKey =
     coordinator = [BottomSheetPresentationCoordinator new];
     coordinator.window = window;
     coordinator.records = [NSMutableDictionary new];
+    coordinator.modalIsolationAdapter = [BottomSheetPresentationModalIsolationAdapter new];
     objc_setAssociatedObject(
         window,
         BottomSheetPresentationCoordinatorAssociationKey,
@@ -263,6 +336,13 @@ static const void *BottomSheetPresentationCoordinatorAssociationKey =
     record.controller = controller;
     self.records[controller.identity] = record;
   }
+  UIView *previousAnchor = record.anchor;
+  if (previousAnchor != anchor) {
+    if (previousAnchor != nil) {
+      [self.modalIsolationAdapter unregisterBoundary:previousAnchor];
+    }
+    [self.modalIsolationAdapter registerBoundary:anchor];
+  }
   record.anchor = anchor;
   record.active = active;
   [self recomputeTopPresentation];
@@ -272,6 +352,10 @@ static const void *BottomSheetPresentationCoordinatorAssociationKey =
 {
   BottomSheetAssertMainThread();
   BottomSheetPresentationCandidateRecord *record = self.records[controller.identity];
+  UIView *anchor = record.anchor;
+  if (anchor != nil) {
+    [self.modalIsolationAdapter unregisterBoundary:anchor];
+  }
   record.controller.topPresentation = NO;
   [self.records removeObjectForKey:controller.identity];
 
@@ -302,8 +386,25 @@ static const void *BottomSheetPresentationCoordinatorAssociationKey =
     self.hierarchyMutationDirty = YES;
     return;
   }
+  if (self.isReconciliationInProgress) {
+    self.reconciliationDirty = YES;
+    return;
+  }
+
+  self.reconciliationInProgress = YES;
+  do {
+    self.reconciliationDirty = NO;
+    [self recomputeTopPresentationOnce];
+  } while (self.reconciliationDirty && self.hierarchyMutationDepth == 0);
+  self.reconciliationInProgress = NO;
+}
+
+- (void)recomputeTopPresentationOnce
+{
   UIWindow *window = self.window;
   if (window == nil) {
+    self.escapeOwnerIdentity = nil;
+    [self.modalIsolationAdapter reconcileTopBoundary:nil];
     self.topPresentationIdentity = nil;
     return;
   }
@@ -311,12 +412,18 @@ static const void *BottomSheetPresentationCoordinatorAssociationKey =
   for (BottomSheetPresentationIdentity *identity in self.records.allKeys) {
     BottomSheetPresentationCandidateRecord *record = self.records[identity];
     if (record.controller == nil || record.anchor == nil) {
+      UIView *anchor = record.anchor;
+      if (anchor != nil) {
+        [self.modalIsolationAdapter unregisterBoundary:anchor];
+      }
       record.controller.topPresentation = NO;
       [self.records removeObjectForKey:identity];
     }
   }
 
   if (self.records.count == 0) {
+    self.escapeOwnerIdentity = nil;
+    [self.modalIsolationAdapter reconcileTopBoundary:nil];
     self.topPresentationIdentity = nil;
     if (objc_getAssociatedObject(window, BottomSheetPresentationCoordinatorAssociationKey) == self) {
       objc_setAssociatedObject(
@@ -358,7 +465,14 @@ static const void *BottomSheetPresentationCoordinatorAssociationKey =
                                                             inWindow:window];
   }];
 
-  for (BottomSheetPresentationCandidateRecord *record in self.records.objectEnumerator) {
+  if (self.escapeOwnerIdentity != nextTopIdentity) {
+    self.escapeOwnerIdentity = nil;
+  }
+  UIView *nextTopBoundary = nextTopIdentity == nil ? nil : anchors[nextTopIdentity];
+  [self.modalIsolationAdapter reconcileTopBoundary:nextTopBoundary];
+
+  NSArray<BottomSheetPresentationCandidateRecord *> *records = self.records.allValues;
+  for (BottomSheetPresentationCandidateRecord *record in records) {
     if (record.identity != nextTopIdentity) {
       record.controller.topPresentation = NO;
     }
@@ -367,10 +481,13 @@ static const void *BottomSheetPresentationCoordinatorAssociationKey =
   if (nextTopIdentity != nil) {
     self.records[nextTopIdentity].controller.topPresentation = YES;
   }
+  self.escapeOwnerIdentity = nextTopIdentity;
 }
 
 - (void)dealloc
 {
+  self.escapeOwnerIdentity = nil;
+  [self.modalIsolationAdapter invalidate];
   for (BottomSheetPresentationCandidateRecord *record in self.records.objectEnumerator) {
     record.controller.topPresentation = NO;
   }
@@ -501,7 +618,7 @@ static const void *BottomSheetPresentationCoordinatorAssociationKey =
 
   [coordinator recomputeTopPresentation];
   return [BottomSheetPresentationEscapeResolver routeForCallerIdentity:self.identity
-                                               topPresentationIdentity:coordinator.topPresentationIdentity];
+                                               topPresentationIdentity:coordinator.escapeOwnerIdentity];
 }
 
 - (void)invalidate

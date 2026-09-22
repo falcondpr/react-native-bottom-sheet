@@ -267,7 +267,6 @@ using namespace facebook::react;
       [self attachOverlayTouchHandler];
     }
     [self pushNativeGeometry];
-    [self updateOverlayAccessibilityState];
   } else {
     if (_overlayContainer != nil) {
       [self restoreInlinePresentation];
@@ -292,11 +291,6 @@ using namespace facebook::react;
   if (attachedView != nil) {
     [_overlayTouchHandler detachFromView:attachedView];
   }
-}
-
-- (void)updateOverlayAccessibilityState
-{
-  _overlayContainer.accessibilityViewIsModal = _nativeOverlay && _sheetView.isModalAccessibilityActive;
 }
 
 /// Pushes the current natively measured geometry into the shadow tree: the
@@ -348,7 +342,6 @@ using namespace facebook::react;
 - (void)restoreInlinePresentation
 {
   if (_overlayContainer != nil) {
-    _overlayContainer.accessibilityViewIsModal = NO;
     [self detachOverlayTouchHandler];
     [_overlayContainer removeFromSuperview];
   }
@@ -414,13 +407,11 @@ using namespace facebook::react;
   // remains to be applied here.
   float contentOffsetY = static_cast<float>(view.currentContentOffsetY);
   if (contentOffsetY == _lastContentOffsetY) {
-    [self updateOverlayAccessibilityState];
     return;
   }
   _lastContentOffsetY = contentOffsetY;
 
   [self pushStateSnapshot];
-  [self updateOverlayAccessibilityState];
 }
 
 - (void)bottomSheetView:(BottomSheetContentView *)view didReportError:(NSString *)message
