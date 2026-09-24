@@ -1,6 +1,16 @@
 import { useRef, useState } from 'react';
-import { Button, Pressable, StyleSheet, Text, View } from 'react-native';
-import { ModalBottomSheet } from '@swmansion/react-native-bottom-sheet';
+import {
+  Button,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import {
+  ModalBottomSheet,
+  programmatic,
+} from '@swmansion/react-native-bottom-sheet';
 
 import {
   DemoScreen,
@@ -12,12 +22,20 @@ import {
 
 type PortalName = 'lower' | 'upper';
 type PortalPhase = 'open' | 'closing' | 'settle';
-type PortalEvent = {
-  id: number;
-  portal: PortalName;
-  phase: PortalPhase;
-  index: number;
+type UpperPresentation = 'portal' | 'nativeOverlay';
+
+const PORTAL_PHASE_LABEL: Record<PortalPhase, string> = {
+  open: 'opening',
+  closing: 'closing',
+  settle: 'settled',
 };
+
+const PLATFORM_CLOSE_INSTRUCTION =
+  Platform.OS === 'ios'
+    ? 'Verify focus stays in upper. Escape must affect only upper.'
+    : Platform.OS === 'android'
+      ? 'Verify focus stays in upper. Back must affect only upper.'
+      : 'Verify screen reader focus stays in upper.';
 
 const PortalFocusTarget = ({ label }: { label: string }) => (
   <Pressable
@@ -33,23 +51,32 @@ const PortalFocusTarget = ({ label }: { label: string }) => (
 export const PortalAccessibilityStackScreen = () => {
   const [lowerIndex, setLowerIndex] = useState(0);
   const [upperIndex, setUpperIndex] = useState(0);
-  const [events, setEvents] = useState<PortalEvent[]>([]);
-  const nextEventId = useRef(0);
+  const [upperPresentation, setUpperPresentation] =
+    useState<UpperPresentation>('portal');
+  const [upperProgrammaticOnly, setUpperProgrammaticOnly] = useState(false);
+  const [portalPhase, setPortalPhase] = useState<
+    Record<PortalName, PortalPhase>
+  >({
+    lower: 'settle',
+    upper: 'settle',
+  });
   const pendingSettle = useRef<Record<PortalName, boolean>>({
     lower: false,
     upper: false,
   });
   const bottomPadding = useSheetBottomPadding();
 
-  const logEvent = (portal: PortalName, phase: PortalPhase, index: number) => {
+  const recordPortalEvent = (
+    portal: PortalName,
+    phase: PortalPhase,
+    index: number
+  ) => {
     const message = `[two-portals] ${portal} ${phase} index=${index}`;
     console.log(message);
-    setEvents((current) =>
-      [{ id: nextEventId.current++, portal, phase, index }, ...current].slice(
-        0,
-        8
-      )
-    );
+    setPortalPhase((current) => ({
+      ...current,
+      [portal]: phase,
+    }));
   };
 
   const beginTransition = (
@@ -59,7 +86,7 @@ export const PortalAccessibilityStackScreen = () => {
     setIndex: (index: number) => void
   ) => {
     pendingSettle.current[portal] = true;
-    logEvent(portal, phase, index);
+    recordPortalEvent(portal, phase, index);
     setIndex(index);
   };
 
@@ -70,11 +97,24 @@ export const PortalAccessibilityStackScreen = () => {
     beginTransition('lower', 'closing', 0, setLowerIndex);
   };
 
-  const openUpper = () => beginTransition('upper', 'open', 1, setUpperIndex);
+  const openUpper = (
+    presentation: UpperPresentation,
+    programmaticOnly: boolean
+  ) => {
+    setUpperPresentation(presentation);
+    setUpperProgrammaticOnly(programmaticOnly);
+    beginTransition('upper', 'open', 1, setUpperIndex);
+  };
 
   const closeUpper = () => {
     if (upperIndex === 0) return;
     beginTransition('upper', 'closing', 0, setUpperIndex);
+  };
+
+  const toggleUpperPresentation = () => {
+    setUpperPresentation((current) =>
+      current === 'portal' ? 'nativeOverlay' : 'portal'
+    );
   };
 
   const handleIndexChange = (
@@ -93,12 +133,12 @@ export const PortalAccessibilityStackScreen = () => {
   const handleSettle = (portal: PortalName, index: number) => {
     if (!pendingSettle.current[portal]) return;
     pendingSettle.current[portal] = false;
-    logEvent(portal, 'settle', index);
+    recordPortalEvent(portal, 'settle', index);
   };
 
   return (
     <DemoScreen
-      title="Portal accessibility stack"
+      title="Stacked modal accessibility"
       sheet={
         <>
           <ModalBottomSheet
@@ -117,17 +157,30 @@ export const PortalAccessibilityStackScreen = () => {
               style={[styles.sheetContent, { paddingBottom: bottomPadding }]}
             >
               <PortalFocusTarget label="Lower focus target" />
-              <Button title="Open upper portal" onPress={openUpper} />
+              <Text style={styles.sectionTitle}>Open upper as</Text>
+              <Button
+                title="Portal"
+                onPress={() => openUpper('portal', false)}
+              />
+              <Button
+                title="nativeOverlay"
+                onPress={() => openUpper('nativeOverlay', false)}
+              />
+              <Button
+                title="Programmatic-only portal"
+                onPress={() => openUpper('portal', true)}
+              />
               <Text style={styles.hint}>
-                TalkBack should not reach the application screen while this
-                portal is active.
+                Screen reader focus should not reach this lower sheet while the
+                upper sheet is active.
               </Text>
             </View>
           </ModalBottomSheet>
 
           <ModalBottomSheet
-            detents={[0, 360]}
+            detents={upperProgrammaticOnly ? [programmatic(0), 440] : [0, 440]}
             index={upperIndex}
+            nativeOverlay={upperPresentation === 'nativeOverlay'}
             onIndexChange={(nextIndex) =>
               handleIndexChange('upper', nextIndex, setUpperIndex)
             }
@@ -140,41 +193,46 @@ export const PortalAccessibilityStackScreen = () => {
               />
             }
           >
-            <SheetHeader title="Upper portal" onClose={closeUpper} />
+            <SheetHeader
+              title={`Upper ${upperPresentation}`}
+              onClose={closeUpper}
+            />
             <View
               style={[styles.sheetContent, { paddingBottom: bottomPadding }]}
             >
               <PortalFocusTarget label="Upper focus target" />
-              <Button
-                title="Close upper; keep lower open"
-                onPress={closeUpper}
-              />
-              <Text style={styles.hint}>
-                Lower focus target must remain unreachable through closing and
-                return only after upper settle.
+              <Text style={styles.modeStatus}>
+                {upperPresentation} ·{' '}
+                {upperProgrammaticOnly
+                  ? 'programmatic-only close'
+                  : 'dismissible'}
               </Text>
+              <Text style={styles.hint}>{PLATFORM_CLOSE_INSTRUCTION}</Text>
+              <Button
+                title={
+                  upperPresentation === 'portal'
+                    ? 'Move upper to nativeOverlay'
+                    : 'Move upper to portal'
+                }
+                onPress={toggleUpperPresentation}
+              />
             </View>
           </ModalBottomSheet>
         </>
       }
     >
       <Text style={styles.instructions}>
-        Open lower, move TalkBack to Lower focus target, open upper, then close
-        upper. During upper closing only Upper focus target should remain in the
-        modal accessibility scope.
+        Open the lower sheet, then choose an upper variant.
       </Text>
       <Button title="Open lower portal" onPress={openLower} />
-      <View style={styles.eventLog}>
-        <Text style={styles.eventLogTitle}>Lifecycle log (newest first)</Text>
-        {events.length === 0 ? (
-          <Text style={styles.muted}>No events yet.</Text>
-        ) : (
-          events.map((event) => (
-            <Text key={event.id} style={styles.eventLine}>
-              {event.portal} {event.phase} index={event.index}
-            </Text>
-          ))
-        )}
+      <View style={styles.statusCard}>
+        <Text style={styles.statusTitle}>Current lifecycle</Text>
+        <Text style={styles.statusLine}>
+          lower: {PORTAL_PHASE_LABEL[portalPhase.lower]} · index {lowerIndex}
+        </Text>
+        <Text style={styles.statusLine}>
+          upper: {PORTAL_PHASE_LABEL[portalPhase.upper]} · index {upperIndex}
+        </Text>
       </View>
     </DemoScreen>
   );
@@ -213,21 +271,27 @@ const styles = StyleSheet.create({
   upperSurface: {
     backgroundColor: '#fff9e8',
   },
-  eventLog: {
+  statusCard: {
     borderRadius: 12,
     backgroundColor: '#f3f3f3',
     padding: 12,
     gap: 4,
   },
-  eventLogTitle: {
+  statusTitle: {
     fontWeight: '700',
     marginBottom: 4,
   },
-  eventLine: {
+  statusLine: {
     fontFamily: 'monospace',
     fontVariant: ['tabular-nums'],
   },
-  muted: {
-    color: '#777',
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modeStatus: {
+    color: '#555',
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });
