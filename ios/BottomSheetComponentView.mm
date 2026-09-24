@@ -475,6 +475,9 @@ using namespace facebook::react;
   _extendUnderStatusBar = NO;
   [self restoreInlinePresentation];
   _needsIndexSyncAfterRecycle = YES;
+  // `_extendUnderStatusBar` is the diff baseline for the prop, so the hosting
+  // view has to be reset with it or a recycled sheet keeps the previous flag.
+  [_sheetView setExtendUnderStatusBar:NO];
   _presentationController =
       [[BottomSheetPresentationController alloc] initWithAnchor:_sheetView];
   _sheetState.reset();

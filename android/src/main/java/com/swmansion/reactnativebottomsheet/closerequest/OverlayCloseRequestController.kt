@@ -6,6 +6,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.ComponentDialog
 import androidx.lifecycle.Lifecycle
+import com.facebook.react.ReactActivity
 
 /**
  * Atomically computes overlay-dialog Back/Escape routing, touchability, focusability, and alpha
@@ -119,10 +120,20 @@ internal class OverlayCloseRequestController(private val emitCloseRequest: () ->
     when (action) {
       CloseRequestInputAction.EMIT_CLOSE_REQUEST -> emitCloseRequestIfEligible()
       CloseRequestInputAction.CONSUME -> Unit
-      CloseRequestInputAction.PASS_THROUGH ->
-        (dialog?.context?.findActivity() as? ComponentActivity)
-          ?.onBackPressedDispatcher
-          ?.onBackPressed()
+      CloseRequestInputAction.PASS_THROUGH -> routeHostBack()
+    }
+  }
+
+  private fun routeHostBack() {
+    when (val activity = dialog?.context?.findActivity()) {
+      is ReactActivity -> {
+        // ReactActivity keeps this deprecated override as its Back entry point across the supported
+        // RN range. Calling the Activity dispatcher directly skips React Native on versions or
+        // configurations where RN does not register its own dispatcher callback. Newer RN
+        // callbacks route to this same method.
+        @Suppress("DEPRECATION") activity.onBackPressed()
+      }
+      is ComponentActivity -> activity.onBackPressedDispatcher.onBackPressed()
     }
   }
 
