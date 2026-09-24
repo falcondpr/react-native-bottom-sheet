@@ -19,6 +19,13 @@ export const renderPortalHost = (portals: PortalSnapshot) => {
           key={key}
           style={StyleSheet.absoluteFill}
           pointerEvents="box-none"
+          // Keep this wrapper a real native view (Android). As a layout-only
+          // view Fabric flattens it, and portal-entry churn (a sheet remounted
+          // while the previous instance tears down) makes the differ unflatten
+          // it mid-flight - a reparenting batch that can arrive without the
+          // wrapper's Create mutation, killing the surface with "Unable to
+          // find viewState for tag". See issue #78.
+          collapsable={false}
         >
           {element}
         </View>

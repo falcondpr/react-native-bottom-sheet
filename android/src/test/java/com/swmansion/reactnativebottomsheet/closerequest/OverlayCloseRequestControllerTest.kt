@@ -9,6 +9,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.ComponentDialog
 import androidx.activity.OnBackPressedCallback
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.facebook.react.ReactActivity
+import com.facebook.react.ReactActivityDelegate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -170,6 +172,67 @@ class OverlayCloseRequestControllerTest {
     }
   }
 
+  @Test
+  @Config(sdk = [35, 36])
+  fun `Host Back enters consuming React Native once without dismissing the dialog`() {
+    RecordingReactActivityDelegate.backEntryCount = 0
+    withAppCompatActivity<RecordingReactActivity> { activity ->
+      var closeRequestCount = 0
+      val controller = OverlayCloseRequestController {
+        closeRequestCount++
+        true
+      }
+      val dialog = shownDialog(activity)
+      controller.bind(dialog)
+      controller.update(
+        inputState(hasCloseRequestHandler = false),
+        usesOverlayDialog = true,
+        isSheetInteractive = false,
+      )
+
+      dialog.onBackPressedDispatcher.onBackPressed()
+
+      assertEquals(1, RecordingReactActivityDelegate.backEntryCount)
+      assertEquals(0, closeRequestCount)
+      assertTrue(dialog.isShowing)
+      assertFalse(activity.isFinishing)
+      controller.dispose()
+      dialog.dismiss()
+    }
+  }
+
+  @Test
+  @Config(sdk = [36])
+  fun `Host Back lets React Native default Back reach the native callback once on API 36`() {
+    DefaultBackRecordingReactActivityDelegate.backEntryCount = 0
+    withAppCompatActivity<DefaultBackRecordingReactActivity> { activity ->
+      var closeRequestCount = 0
+      var nativeBackCount = 0
+      activity.onBackPressedDispatcher.addCallback(countingCallback { nativeBackCount++ })
+      val controller = OverlayCloseRequestController {
+        closeRequestCount++
+        true
+      }
+      val dialog = shownDialog(activity)
+      controller.bind(dialog)
+      controller.update(
+        inputState(hasCloseRequestHandler = false),
+        usesOverlayDialog = true,
+        isSheetInteractive = false,
+      )
+
+      dialog.onBackPressedDispatcher.onBackPressed()
+
+      assertEquals(1, DefaultBackRecordingReactActivityDelegate.backEntryCount)
+      assertEquals(1, nativeBackCount)
+      assertEquals(0, closeRequestCount)
+      assertTrue(dialog.isShowing)
+      assertFalse(activity.isFinishing)
+      controller.dispose()
+      dialog.dismiss()
+    }
+  }
+
   private fun shownDialog(activity: ComponentActivity): ComponentDialog =
     ComponentDialog(activity).also { dialog ->
       dialog.setContentView(FrameLayout(activity))
@@ -217,5 +280,70 @@ class OverlayCloseRequestControllerTest {
     } finally {
       activityController.close()
     }
+  }
+
+  private inline fun <reified T : Activity> withAppCompatActivity(block: (T) -> Unit) {
+    val activityController =
+      Robolectric.buildActivity(T::class.java)
+        .also {
+          it.get().setTheme(androidx.appcompat.R.style.Theme_AppCompat)
+        }
+        .setup()
+    try {
+      block(activityController.get())
+    } finally {
+      activityController.close()
+    }
+  }
+}
+
+private class RecordingReactActivity : ReactActivity() {
+  override fun createReactActivityDelegate(): ReactActivityDelegate =
+    RecordingReactActivityDelegate(this)
+}
+
+private class RecordingReactActivityDelegate(activity: ReactActivity) :
+  ReactActivityDelegate(activity, null) {
+  override fun onCreate(savedInstanceState: android.os.Bundle?) = Unit
+
+  override fun onPause() = Unit
+
+  override fun onResume() = Unit
+
+  override fun onDestroy() = Unit
+
+  override fun onBackPressed(): Boolean {
+    backEntryCount++
+    return true
+  }
+
+  companion object {
+    var backEntryCount = 0
+  }
+}
+
+private class DefaultBackRecordingReactActivity : ReactActivity() {
+  override fun createReactActivityDelegate(): ReactActivityDelegate =
+    DefaultBackRecordingReactActivityDelegate(this)
+}
+
+private class DefaultBackRecordingReactActivityDelegate(private val activity: ReactActivity) :
+  ReactActivityDelegate(activity, null) {
+  override fun onCreate(savedInstanceState: android.os.Bundle?) = Unit
+
+  override fun onPause() = Unit
+
+  override fun onResume() = Unit
+
+  override fun onDestroy() = Unit
+
+  override fun onBackPressed(): Boolean {
+    backEntryCount++
+    activity.invokeDefaultOnBackPressed()
+    return true
+  }
+
+  companion object {
+    var backEntryCount = 0
   }
 }

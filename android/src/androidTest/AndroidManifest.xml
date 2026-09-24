@@ -4,5 +4,9 @@
       android:name="androidx.activity.ComponentActivity"
       android:exported="true"
       android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+    <activity
+      android:name="com.swmansion.reactnativebottomsheet.RecordingReactActivity"
+      android:exported="true"
+      android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
   </application>
 </manifest>

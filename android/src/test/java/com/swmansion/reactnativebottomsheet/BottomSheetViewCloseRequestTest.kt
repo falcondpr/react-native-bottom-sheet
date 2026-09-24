@@ -417,6 +417,24 @@ class BottomSheetViewCloseRequestTest {
   }
 
   @Test
+  fun `open native overlay stays interactive with a fully transparent scrim`() {
+    withActivity<ComponentActivity> { activity ->
+      val listener = CountingBottomSheetListener()
+      val fixture =
+        openNativeOverlaySheet(activity, listener, hasCloseRequestHandler = false) {
+          it.setScrimOpacities(listOf(0f, 0f))
+        }
+      val windowAttributes = requireNotNull(fixture.dialog.window).attributes
+      assertEquals(
+        0,
+        windowAttributes.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+      )
+      assertEquals(1f, windowAttributes.alpha)
+      fixture.destroy()
+    }
+  }
+
+  @Test
   fun `native overlay predictive Back stays ineligible after handler restoration`() {
     withActivity<ComponentActivity> { activity ->
       val listener = CountingBottomSheetListener()
