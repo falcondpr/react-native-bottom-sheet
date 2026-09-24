@@ -202,9 +202,18 @@ static void BottomSheetAssertMainThread(void)
 @implementation BottomSheetPresentationCandidateRecord
 @end
 
+@interface BottomSheetAccessibilityHiddenMutation : NSObject
+@property (nonatomic) BOOL baseline;
+@end
+
+@implementation BottomSheetAccessibilityHiddenMutation
+@end
+
 @interface BottomSheetPresentationModalIsolationAdapter : NSObject
 @property (nonatomic, strong) NSHashTable<UIView *> *boundaries;
 @property (nonatomic, strong) NSHashTable<UIView *> *pendingReleasedBoundaries;
+@property (nonatomic, strong)
+    NSMapTable<UIView *, BottomSheetAccessibilityHiddenMutation *> *hiddenBranchMutations;
 
 - (void)registerBoundary:(UIView *)boundary;
 - (void)unregisterBoundary:(UIView *)boundary;
@@ -219,6 +228,7 @@ static void BottomSheetAssertMainThread(void)
   if (self = [super init]) {
     _boundaries = [NSHashTable weakObjectsHashTable];
     _pendingReleasedBoundaries = [NSHashTable weakObjectsHashTable];
+    _hiddenBranchMutations = [NSMapTable weakToStrongObjectsMapTable];
   }
   return self;
 }
@@ -241,6 +251,38 @@ static void BottomSheetAssertMainThread(void)
     topBoundary.accessibilityViewIsModal = YES;
   }
 
+  NSMutableSet<UIView *> *hiddenBranches = [NSMutableSet new];
+  UIWindow *window = topBoundary.window;
+  NSArray<UIView *> *topPath = window == nil
+      ? nil
+      : [BottomSheetPresentationUIKitOrderResolver pathFromWindow:window toAnchor:topBoundary];
+  for (NSUInteger index = 0; index + 1 < topPath.count; index++) {
+    UIView *parent = topPath[index];
+    UIView *pathChild = topPath[index + 1];
+    for (UIView *sibling in parent.subviews) {
+      if (sibling != pathChild) {
+        [hiddenBranches addObject:sibling];
+      }
+    }
+  }
+
+  // Establish the complete new isolation path before releasing either the old
+  // modal boundary or any branch hidden for the previous Top. This mirrors the
+  // boundary transfer order and prevents a synchronous Top swap from exposing
+  // lower presentations or application content between writes.
+  for (UIView *branch in hiddenBranches) {
+    BottomSheetAccessibilityHiddenMutation *mutation =
+        [self.hiddenBranchMutations objectForKey:branch];
+    if (mutation == nil) {
+      mutation = [BottomSheetAccessibilityHiddenMutation new];
+      mutation.baseline = branch.accessibilityElementsHidden;
+      [self.hiddenBranchMutations setObject:mutation forKey:branch];
+    }
+    if (!branch.accessibilityElementsHidden) {
+      branch.accessibilityElementsHidden = YES;
+    }
+  }
+
   NSArray<UIView *> *boundaries = self.boundaries.allObjects;
   for (UIView *boundary in boundaries) {
     if (boundary != topBoundary && boundary.accessibilityViewIsModal) {
@@ -258,6 +300,23 @@ static void BottomSheetAssertMainThread(void)
     }
     [self.pendingReleasedBoundaries removeObject:boundary];
   }
+
+  NSArray<UIView *> *previouslyHiddenBranches =
+      self.hiddenBranchMutations.keyEnumerator.allObjects;
+  for (UIView *branch in previouslyHiddenBranches) {
+    if ([hiddenBranches containsObject:branch]) {
+      continue;
+    }
+    BottomSheetAccessibilityHiddenMutation *mutation =
+        [self.hiddenBranchMutations objectForKey:branch];
+    // A later writer that made the branch visible wins. Restore only the
+    // library's hidden write; a branch whose baseline was already hidden does
+    // not need another setter invocation during cleanup.
+    if (mutation != nil && branch.accessibilityElementsHidden && !mutation.baseline) {
+      branch.accessibilityElementsHidden = NO;
+    }
+    [self.hiddenBranchMutations removeObjectForKey:branch];
+  }
 }
 
 - (void)invalidate
@@ -265,6 +324,7 @@ static void BottomSheetAssertMainThread(void)
   [self reconcileTopBoundary:nil];
   [self.boundaries removeAllObjects];
   [self.pendingReleasedBoundaries removeAllObjects];
+  [self.hiddenBranchMutations removeAllObjects];
 }
 
 @end
