@@ -1786,7 +1786,7 @@ PODS:
     - React-perflogger (= 0.85.3)
     - React-utils (= 0.85.3)
     - ReactNativeDependencies
-  - ReactNativeBottomSheet (0.17.0-next.1):
+  - ReactNativeBottomSheet (0.17.0-next.2):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -2115,7 +2115,7 @@ SPEC CHECKSUMS:
   ReactAppDependencyProvider: 25c9c516839be2c5e3d3344f95dc7da5f7e63fc2
   ReactCodegen: ce51416a9c9ae7d562bf567be72767c0237ae3a3
   ReactCommon: 7dfc3250793bf36cf221096ff59e1179e13eef7f
-  ReactNativeBottomSheet: 92b8afc73f2a23d7df1915b9d040e10d07395822
+  ReactNativeBottomSheet: 781b28ed5f00a8d3af0c9bec92092db722292a90
   ReactNativeDependencies: 114343791bd7e9b8b0613eb9968bc09a7cff2a73
   Yoga: 77dfa8673de2874e1855002ae59c68b8be9b007b
 
