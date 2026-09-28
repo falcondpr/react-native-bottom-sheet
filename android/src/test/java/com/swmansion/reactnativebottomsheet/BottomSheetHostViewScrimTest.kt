@@ -23,7 +23,7 @@ import org.robolectric.Robolectric
 import org.robolectric.annotation.Config
 
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [35])
+@Config(sdk = [35], qualifiers = "w600dp-h1000dp-mdpi")
 class BottomSheetHostViewScrimTest {
   @Before
   fun useLocalReactNativeFeatureFlags() {
@@ -31,7 +31,7 @@ class BottomSheetHostViewScrimTest {
   }
 
   @Test
-  fun `scrim is a full size child below sheet content and mirrors visual props`() {
+  fun `host keeps full size visual and dismiss layers below sheet content`() {
     withActivity { activity ->
       val host = configuredHost(activity)
       val sheetChild = View(activity)
@@ -42,26 +42,36 @@ class BottomSheetHostViewScrimTest {
       activity.setContentView(host)
       layout(host)
 
-      val scrim = scrim(host)
+      val visualScrim = visualScrim(host)
+      val dismiss = dismissAccessibilityView(host)
       val sheetContainer = sheetContainer(host)
-      assertSame(scrim, host.getChildAt(0))
-      assertSame(sheetContainer, host.getChildAt(1))
+      assertEquals(3, host.childCount)
+      assertSame(visualScrim, host.getChildAt(0))
+      assertSame(dismiss, host.getChildAt(1))
+      assertSame(sheetContainer, host.getChildAt(2))
       assertSame(sheetChild, host.getSheetChildAt(0))
       assertEquals(1, host.sheetChildCount)
-      assertEquals(HOST_WIDTH, scrim.width)
-      assertEquals(HOST_HEIGHT, scrim.height)
-      assertEquals(color, (scrim.background as ColorDrawable).color)
-      assertEquals(0.4f, scrim.alpha, 0.001f)
-      assertEquals(View.VISIBLE, scrim.visibility)
+      assertEquals(HOST_WIDTH, visualScrim.width)
+      assertEquals(HOST_HEIGHT, visualScrim.height)
+      assertEquals(HOST_WIDTH, dismiss.width)
+      assertEquals(HOST_HEIGHT, dismiss.height)
+      assertEquals(color, (visualScrim.background as ColorDrawable).color)
+      assertEquals(0.4f, visualScrim.alpha, 0.001f)
+      assertEquals(View.VISIBLE, visualScrim.visibility)
+      assertEquals(null, dismiss.background)
+      assertEquals(1f, dismiss.alpha, 0f)
+      assertEquals(0f, dismiss.pivotY, 0f)
 
       host.setScrimOpacities(listOf(0f, 0.7f))
-      assertEquals(0.7f, scrim.alpha, 0.001f)
-      assertFalse(scrim.isLayoutRequested)
+      assertEquals(0.7f, visualScrim.alpha, 0.001f)
+      assertEquals(1f, dismiss.alpha, 0f)
+      assertFalse(visualScrim.isLayoutRequested)
+      assertFalse(dismiss.isLayoutRequested)
     }
   }
 
   @Test
-  fun `accessibility tree contains both sheet content and dismiss scrim`() {
+  fun `accessibility tree excludes visual scrim and contains sheet content then Dismiss`() {
     withActivity { activity ->
       val host = configuredHost(activity)
       val sheetChild =
@@ -79,24 +89,37 @@ class BottomSheetHostViewScrimTest {
       sheetContainer(host).addChildrenForAccessibility(sheetAccessibleChildren)
 
       assertEquals(2, hostAccessibleChildren.size)
-      assertTrue(hostAccessibleChildren.contains(scrim(host)))
+      assertFalse(hostAccessibleChildren.contains(visualScrim(host)))
+      assertTrue(hostAccessibleChildren.contains(dismissAccessibilityView(host)))
       assertTrue(hostAccessibleChildren.contains(sheetContainer(host)))
       assertTrue(sheetAccessibleChildren.contains(sheetChild))
+      assertEquals(
+        sheetContainer(host).createAccessibilityNodeInfo(),
+        dismissAccessibilityView(host).createAccessibilityNodeInfo().traversalAfter,
+      )
+      assertEquals(
+        sheetContainer(host).id,
+        dismissAccessibilityView(host).accessibilityTraversalAfter,
+      )
     }
   }
 
   @Test
-  fun `scrim exposes dismiss button semantics above the sheet in traversal order`() {
+  fun `Dismiss default node and transformed view end at stable sheet top`() {
     withActivity { activity ->
       val host = configuredHost(activity)
       activity.setContentView(host)
       layout(host)
-      val scrim = scrim(host)
-      val node = scrim.createAccessibilityNodeInfo()
-      val bounds = Rect()
-      node.getBoundsInScreen(bounds)
+      val visualScrim = visualScrim(host)
+      val dismiss = dismissAccessibilityView(host)
+      val node = dismiss.createAccessibilityNodeInfo()
+      val nodeBounds = Rect()
+      val viewBounds = Rect()
+      node.getBoundsInScreen(nodeBounds)
+      dismiss.getGlobalVisibleRect(viewBounds)
       val expectedBottom =
         HOST_HEIGHT - (OPEN_DETENT_DP * activity.resources.displayMetrics.density).roundToInt()
+      val expectedBounds = Rect(0, 0, HOST_WIDTH, expectedBottom)
 
       assertEquals("android.widget.Button", node.className)
       assertEquals("Dismiss", node.contentDescription)
@@ -104,11 +127,19 @@ class BottomSheetHostViewScrimTest {
       assertTrue(node.isDismissable)
       assertTrue(node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK })
       assertTrue(node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_DISMISS })
-      assertEquals(Rect(0, 0, HOST_WIDTH, expectedBottom), bounds)
-      assertEquals(sheetContainer(host).id, scrim.accessibilityTraversalAfter)
-      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_YES, scrim.importantForAccessibility)
-      assertTrue(scrim.isFocusable)
-      assertTrue(scrim.isClickable)
+      assertEquals(expectedBounds, nodeBounds)
+      assertEquals(expectedBounds, viewBounds)
+      assertEquals(expectedBottom.toFloat() / HOST_HEIGHT, dismiss.scaleY, 0.001f)
+      assertEquals(sheetContainer(host).id, dismiss.accessibilityTraversalAfter)
+      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_YES, dismiss.importantForAccessibility)
+      assertTrue(dismiss.isFocusable)
+      assertTrue(dismiss.isClickable)
+
+      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO, visualScrim.importantForAccessibility)
+      assertEquals(null, visualScrim.contentDescription)
+      assertFalse(visualScrim.isFocusable)
+      assertFalse(visualScrim.isClickable)
+      assertFalse(visualScrim.createAccessibilityNodeInfo().isDismissable)
     }
   }
 
@@ -123,17 +154,17 @@ class BottomSheetHostViewScrimTest {
         activity.setContentView(host)
         layout(host)
 
-        val scrim = scrim(host)
-        assertTrue(scrim.performAccessibilityAction(action, null))
+        val dismiss = dismissAccessibilityView(host)
+        assertTrue(dismiss.performAccessibilityAction(action, null))
         assertEquals(listOf(0), listener.indexChanges)
         assertEquals(0, listener.closeRequestCount)
-        assertFalse(scrim.isClickable)
+        assertFalse(dismiss.isClickable)
       }
     }
   }
 
   @Test
-  fun `confirm keys on focused scrim each snap closed exactly once`() {
+  fun `confirm keys on focused Dismiss control each snap closed exactly once`() {
     val confirmKeys =
       listOf(KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_DPAD_CENTER)
     confirmKeys.forEach { keyCode ->
@@ -142,8 +173,8 @@ class BottomSheetHostViewScrimTest {
         val host = configuredHost(activity, listener = listener)
         activity.setContentView(host)
         layout(host)
-        val scrim = scrim(host)
-        assertTrue(scrim.requestFocus())
+        val dismiss = dismissAccessibilityView(host)
+        assertTrue(dismiss.requestFocus())
 
         assertTrue(host.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode)))
         assertTrue(host.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode)))
@@ -155,7 +186,7 @@ class BottomSheetHostViewScrimTest {
   }
 
   @Test
-  fun `focused sheet content receives confirm keys regardless of scrim availability`() {
+  fun `focused sheet content receives confirm keys regardless of Dismiss control availability`() {
     listOf(false, true).forEach { modal ->
       withActivity { activity ->
         val host = configuredHost(activity, modal = modal)
@@ -226,17 +257,23 @@ class BottomSheetHostViewScrimTest {
 
       assertEquals(2, contentTouchCount)
       assertTrue(listener.indexChanges.isEmpty())
-      assertFalse(scrim(host).onTouchEvent(motionEvent(MotionEvent.ACTION_DOWN, 100f)))
+      assertFalse(visualScrim(host).onTouchEvent(motionEvent(MotionEvent.ACTION_DOWN, 100f)))
+      assertFalse(
+        dismissAccessibilityView(host).onTouchEvent(motionEvent(MotionEvent.ACTION_DOWN, 100f))
+      )
     }
   }
 
   @Test
-  fun `scrim disables accessibility and activation when dismissal is unavailable`() {
+  fun `Dismiss requires positive stable geometry and direct dismissal`() {
     listOf(
         HostState(modal = false),
         HostState(index = 0),
         HostState(openDetent = 1.0, openDetentKind = "percentage"),
+        HostState(openDetent = 2_000.0),
         HostState(closedDetentProgrammatic = true),
+        HostState(scrimOpacity = 0f),
+        HostState(includeClosedDetent = false, index = 0),
       )
       .forEach { state ->
         withActivity { activity ->
@@ -250,40 +287,68 @@ class BottomSheetHostViewScrimTest {
               openDetent = state.openDetent,
               openDetentKind = state.openDetentKind,
               closedDetentProgrammatic = state.closedDetentProgrammatic,
+              scrimOpacity = state.scrimOpacity,
+              includeClosedDetent = state.includeClosedDetent,
             )
+          val dismissBeforeLayout = dismissAccessibilityView(host)
+          assertEquals(0f, dismissBeforeLayout.scaleY, 0f)
+          assertEquals(View.INVISIBLE, dismissBeforeLayout.visibility)
+          assertEquals(
+            View.IMPORTANT_FOR_ACCESSIBILITY_NO,
+            dismissBeforeLayout.importantForAccessibility,
+          )
           activity.setContentView(host)
           layout(host)
-          val scrim = scrim(host)
+          val dismiss = dismissAccessibilityView(host)
 
-          assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO, scrim.importantForAccessibility)
-          assertFalse(scrim.isFocusable)
-          assertFalse(scrim.isClickable)
-          assertFalse(scrim.performClick())
+          assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO, dismiss.importantForAccessibility)
+          assertFalse(dismiss.isFocusable)
+          assertFalse(dismiss.isClickable)
+          assertFalse(dismiss.performClick())
           assertTrue(listener.indexChanges.isEmpty())
           assertEquals(0, listener.closeRequestCount)
-          assertFalse(scrim.visibility == View.GONE)
+          assertEquals(View.INVISIBLE, dismiss.visibility)
         }
       }
   }
 
   @Test
-  fun `disabling a modal scrim clears focus and pressed state without removing the view`() {
+  fun `Dismiss becomes unavailable when host layout reaches zero size`() {
     withActivity { activity ->
       val host = configuredHost(activity)
       activity.setContentView(host)
       layout(host)
-      val scrim = scrim(host)
-      assertTrue(scrim.requestFocus())
-      scrim.isPressed = true
+      val dismiss = dismissAccessibilityView(host)
+      assertTrue(dismiss.isClickable)
+
+      layout(host, width = 0, height = 0)
+
+      assertEquals(0f, dismiss.scaleY, 0f)
+      assertEquals(View.INVISIBLE, dismiss.visibility)
+      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO, dismiss.importantForAccessibility)
+      assertFalse(dismiss.isFocusable)
+      assertFalse(dismiss.isClickable)
+    }
+  }
+
+  @Test
+  fun `disabling Dismiss clears focus and pressed state without removing private children`() {
+    withActivity { activity ->
+      val host = configuredHost(activity)
+      activity.setContentView(host)
+      layout(host)
+      val dismiss = dismissAccessibilityView(host)
+      assertTrue(dismiss.requestFocus())
+      dismiss.isPressed = true
 
       host.modal = false
 
-      assertFalse(scrim.hasFocus())
-      assertFalse(scrim.isPressed)
-      assertFalse(scrim.isFocusable)
-      assertFalse(scrim.isClickable)
-      assertEquals(View.INVISIBLE, scrim.visibility)
-      assertEquals(2, host.childCount)
+      assertFalse(dismiss.hasFocus())
+      assertFalse(dismiss.isPressed)
+      assertFalse(dismiss.isFocusable)
+      assertFalse(dismiss.isClickable)
+      assertEquals(View.INVISIBLE, dismiss.visibility)
+      assertEquals(3, host.childCount)
     }
   }
 
@@ -295,30 +360,47 @@ class BottomSheetHostViewScrimTest {
     openDetent: Double = OPEN_DETENT_DP.toDouble(),
     openDetentKind: String = "points",
     closedDetentProgrammatic: Boolean = false,
+    scrimOpacity: Float = 1f,
+    includeClosedDetent: Boolean = true,
   ) =
     BottomSheetHostView(activity).apply {
       this.listener = listener
       animateIn = false
       this.modal = modal
+      setScrimOpacities(listOf(0f, scrimOpacity))
+      val closedDetents =
+        if (includeClosedDetent) {
+          listOf(
+            mapOf<String, Any>(
+              "value" to 0.0,
+              "kind" to "points",
+              "programmatic" to closedDetentProgrammatic,
+            )
+          )
+        } else {
+          emptyList()
+        }
       setDetents(
-        listOf(
-          mapOf(
-            "value" to 0.0,
-            "kind" to "points",
-            "programmatic" to closedDetentProgrammatic,
-          ),
-          mapOf("value" to openDetent, "kind" to openDetentKind, "programmatic" to false),
-        )
+        closedDetents +
+          mapOf<String, Any>(
+            "value" to openDetent,
+            "kind" to openDetentKind,
+            "programmatic" to false,
+          )
       )
       setIndex(index)
     }
 
-  private fun layout(host: ViewGroup) {
+  private fun layout(
+    host: ViewGroup,
+    width: Int = HOST_WIDTH,
+    height: Int = HOST_HEIGHT,
+  ) {
     host.measure(
-      View.MeasureSpec.makeMeasureSpec(HOST_WIDTH, View.MeasureSpec.EXACTLY),
-      View.MeasureSpec.makeMeasureSpec(HOST_HEIGHT, View.MeasureSpec.EXACTLY),
+      View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+      View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
     )
-    host.layout(0, 0, HOST_WIDTH, HOST_HEIGHT)
+    host.layout(0, 0, width, height)
   }
 
   private fun dispatchTap(host: View, y: Float) {
@@ -329,9 +411,11 @@ class BottomSheetHostViewScrimTest {
   private fun motionEvent(action: Int, y: Float): MotionEvent =
     MotionEvent.obtain(1L, 2L, action, 100f, y, 0)
 
-  private fun scrim(host: BottomSheetHostView): View = host.getChildAt(0)
+  private fun visualScrim(host: BottomSheetHostView): View = host.getChildAt(0)
 
-  private fun sheetContainer(host: BottomSheetHostView): ViewGroup = host.getChildAt(1) as ViewGroup
+  private fun dismissAccessibilityView(host: BottomSheetHostView): View = host.getChildAt(1)
+
+  private fun sheetContainer(host: BottomSheetHostView): ViewGroup = host.getChildAt(2) as ViewGroup
 
   private inline fun withActivity(block: (Activity) -> Unit) {
     Robolectric.buildActivity(Activity::class.java).setup().use { controller ->
@@ -352,6 +436,8 @@ class BottomSheetHostViewScrimTest {
     val openDetent: Double = OPEN_DETENT_DP.toDouble(),
     val openDetentKind: String = "points",
     val closedDetentProgrammatic: Boolean = false,
+    val scrimOpacity: Float = 1f,
+    val includeClosedDetent: Boolean = true,
   )
 
   private class RecordingListener : BottomSheetViewListener {

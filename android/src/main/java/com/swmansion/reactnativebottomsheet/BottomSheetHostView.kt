@@ -123,25 +123,29 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
   // MARK: - Internal
 
   private val sheetContainer = FrameLayout(context)
-  private val scrimView =
+  private val visualScrimView =
+    object : View(context) {
+      override fun onTouchEvent(event: MotionEvent): Boolean = false
+    }
+  private val dismissAccessibilityView =
     object : View(context) {
       override fun onTouchEvent(event: MotionEvent): Boolean = false
 
       override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (!isScrimConfirmKey(keyCode)) return super.onKeyDown(keyCode, event)
+        if (!isDismissConfirmKey(keyCode)) return super.onKeyDown(keyCode, event)
 
         if (event.repeatCount == 0) isPressed = true
         return true
       }
 
       override fun performClick(): Boolean {
-        if (!isScrimAccessibilityAvailable) return false
+        if (!isDismissAccessibilityAvailable) return false
         super.performClick()
         return attemptScrimDismissal()
       }
 
       override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (!isScrimConfirmKey(keyCode)) return super.onKeyUp(keyCode, event)
+        if (!isDismissConfirmKey(keyCode)) return super.onKeyUp(keyCode, event)
 
         val shouldClick = isPressed
         isPressed = false
@@ -175,12 +179,12 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
   private var scrimProgress = 0f
     set(value) {
       field = value
-      scrimView.alpha = value
+      visualScrimView.alpha = value
       updateScrimPresentationState()
     }
 
-  private var isScrimRendered = false
-  private var isScrimAccessibilityEnabled = false
+  private var isVisualScrimRendered = false
+  private var isDismissAccessibilityEnabled = false
 
   private var suppressScrimForClosingTarget = false
   private var scrimPinnedFull = false
@@ -209,23 +213,31 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
     sheetContainer.clipChildren = false
     sheetContainer.clipToPadding = false
     sheetContainer.id = View.generateViewId()
-    scrimView.apply {
+    visualScrimView.apply {
       alpha = 0f
       visibility = View.INVISIBLE
       setBackgroundColor(scrimColor)
+      importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+    dismissAccessibilityView.apply {
+      alpha = 1f
+      pivotY = 0f
+      scaleY = 0f
+      visibility = View.INVISIBLE
       contentDescription = context.getString(R.string.bottom_sheet_dismiss)
       importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
       accessibilityTraversalAfter = sheetContainer.id
     }
     ViewCompat.setAccessibilityDelegate(
-      scrimView,
-      ScrimAccessibilityDelegate(
-        isDismissAvailable = { isScrimAccessibilityAvailable },
-        scrimBottom = { currentSheetTop },
-      ),
+      dismissAccessibilityView,
+      DismissAccessibilityDelegate(isDismissAvailable = { isDismissAccessibilityAvailable }),
     )
     super.addView(
-      scrimView,
+      visualScrimView,
+      LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
+    )
+    super.addView(
+      dismissAccessibilityView,
       LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
     )
     super.addView(
@@ -259,7 +271,9 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
   // MARK: - Child view management
 
   override fun addView(child: View, index: Int, params: ViewGroup.LayoutParams) {
-    if (child === scrimView || child === sheetContainer) {
+    if (
+      child === visualScrimView || child === dismissAccessibilityView || child === sheetContainer
+    ) {
       super.addView(child, index, params)
     } else {
       sheetContainer.addView(child, index, params)
@@ -267,7 +281,7 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
   }
 
   override fun removeView(view: View) {
-    if (view === scrimView || view === sheetContainer) {
+    if (view === visualScrimView || view === dismissAccessibilityView || view === sheetContainer) {
       super.removeView(view)
     } else {
       sheetContainer.removeView(view)
@@ -362,7 +376,12 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
     super.onLayout(changed, left, top, right, bottom)
     val w = right - left
     val h = bottom - top
-    if (w <= 0 || h <= 0) return
+    if (w <= 0 || h <= 0) {
+      hasPerformedHostLayoutSinceAttach = false
+      syncDismissGeometry()
+      updateScrimPresentationState()
+      return
+    }
 
     performHostLayout(w, h)
   }
@@ -374,7 +393,8 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
     refreshContentHeightMarker()
     refreshDetentsFromLayout()
     hasPerformedHostLayoutSinceAttach = true
-    scrimView.layout(0, 0, w, h)
+    visualScrimView.layout(0, 0, w, h)
+    dismissAccessibilityView.layout(0, 0, w, h)
     layoutSheetContainer(w, h)
 
     if (!hasLaidOut && detentSpecs.isNotEmpty()) {
@@ -419,6 +439,8 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
     presentationLifecycleTracker.onTransitionSettled()
     sheetContainer.translationY = translationY(targetIndex)
     updateShadowState(sheetContainer.translationY)
+    syncDismissGeometry()
+    updateScrimPresentationState()
     notifyPresentationStateChanged()
   }
 
@@ -503,7 +525,7 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
 
   fun setScrimColor(color: Int?) {
     scrimColor = color ?: Color.TRANSPARENT
-    scrimView.setBackgroundColor(scrimColor)
+    visualScrimView.setBackgroundColor(scrimColor)
   }
 
   fun setScrimOpacities(values: List<Float>) {
@@ -1077,6 +1099,7 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
             sheetContainer.translationY = translationY(index)
             hideScrim()
           }
+          syncDismissGeometry()
           emitPosition()
           presentationLifecycleTracker.onTransitionSettled()
           notifyPresentationStateChanged()
@@ -1854,36 +1877,56 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
 
   private fun isScrimVisible(): Boolean = modal && scrimProgress > 0.001f
 
-  private val isScrimAccessibilityAvailable: Boolean
-    get() = isScrimDismissalAvailable && width > 0 && currentSheetTop > 0f
+  private val isDismissAccessibilityAvailable: Boolean
+    get() =
+      isLayoutReady &&
+        isScrimDismissalAvailable &&
+        width > 0 &&
+        dismissAccessibilityView.scaleY > 0f
 
-  private fun isScrimConfirmKey(keyCode: Int): Boolean =
+  private fun isDismissConfirmKey(keyCode: Int): Boolean =
     keyCode == KeyEvent.KEYCODE_ENTER ||
       keyCode == KeyEvent.KEYCODE_SPACE ||
       keyCode == KeyEvent.KEYCODE_DPAD_CENTER
 
+  private fun syncDismissGeometry() {
+    val scale =
+      if (isAttachedToWindow && hasPerformedHostLayoutSinceAttach && height > 0) {
+        (currentSheetTop / height).coerceIn(0f, 1f)
+      } else {
+        0f
+      }
+    if (dismissAccessibilityView.scaleY != scale) {
+      dismissAccessibilityView.scaleY = scale
+    }
+  }
+
   private fun updateScrimPresentationState() {
+    if (!isDismissAccessibilityEnabled) {
+      syncDismissGeometry()
+    }
     val rendered = isScrimVisible()
-    if (rendered != isScrimRendered) {
-      isScrimRendered = rendered
-      scrimView.visibility = if (rendered) View.VISIBLE else View.INVISIBLE
+    if (rendered != isVisualScrimRendered) {
+      isVisualScrimRendered = rendered
+      visualScrimView.visibility = if (rendered) View.VISIBLE else View.INVISIBLE
     }
 
-    val accessibilityEnabled = isScrimAccessibilityAvailable
-    if (accessibilityEnabled == isScrimAccessibilityEnabled) return
+    val accessibilityEnabled = isDismissAccessibilityAvailable
+    if (accessibilityEnabled == isDismissAccessibilityEnabled) return
 
-    isScrimAccessibilityEnabled = accessibilityEnabled
-    scrimView.importantForAccessibility =
+    isDismissAccessibilityEnabled = accessibilityEnabled
+    dismissAccessibilityView.visibility = if (accessibilityEnabled) View.VISIBLE else View.INVISIBLE
+    dismissAccessibilityView.importantForAccessibility =
       if (accessibilityEnabled) {
         View.IMPORTANT_FOR_ACCESSIBILITY_YES
       } else {
         View.IMPORTANT_FOR_ACCESSIBILITY_NO
       }
-    scrimView.isFocusable = accessibilityEnabled
-    scrimView.isClickable = accessibilityEnabled
+    dismissAccessibilityView.isFocusable = accessibilityEnabled
+    dismissAccessibilityView.isClickable = accessibilityEnabled
     if (!accessibilityEnabled) {
-      scrimView.clearFocus()
-      scrimView.isPressed = false
+      dismissAccessibilityView.clearFocus()
+      dismissAccessibilityView.isPressed = false
     }
   }
 

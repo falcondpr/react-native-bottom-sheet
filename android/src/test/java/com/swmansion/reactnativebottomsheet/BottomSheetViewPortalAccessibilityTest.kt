@@ -73,7 +73,7 @@ class BottomSheetViewPortalAccessibilityTest {
       activity.get().setContentView(root)
       layout(root)
       val host = sheet.getChildAt(0) as ViewGroup
-      val dismiss = host.getChildAt(0)
+      val dismiss = host.getChildAt(1)
 
       val activeTree = accessibleTree(root)
       assertFalse(activeTree.contains(background))
@@ -138,7 +138,7 @@ class BottomSheetViewPortalAccessibilityTest {
       activity.get().setContentView(root)
       layout(root)
       sheet.onHostResume()
-      val dismiss = (sheet.getChildAt(0) as ViewGroup).getChildAt(0)
+      val dismiss = (sheet.getChildAt(0) as ViewGroup).getChildAt(1)
 
       assertFalse(accessibleTree(root).contains(background))
       assertTrue(accessibleTree(root).contains(sheetContent))

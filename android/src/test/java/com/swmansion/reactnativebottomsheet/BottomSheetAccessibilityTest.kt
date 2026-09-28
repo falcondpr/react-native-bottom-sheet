@@ -21,53 +21,49 @@ class BottomSheetAccessibilityTest {
   private val context = ApplicationProvider.getApplicationContext<Context>()
 
   @Test
-  fun `scrim delegate exposes button semantics and visible bounds`() {
-    val scrim =
+  fun `Dismiss delegate adds semantics without replacing transformed default bounds`() {
+    val dismiss =
       laidOutView(width = 100, height = 200).apply {
         contentDescription = "Dismiss"
         isClickable = true
       }
-    val delegate =
-      ScrimAccessibilityDelegate(
-        isDismissAvailable = { true },
-        scrimBottom = { 80f },
-      )
-    ViewCompat.setAccessibilityDelegate(scrim, delegate)
+    val delegate = DismissAccessibilityDelegate(isDismissAvailable = { true })
+    val defaultBounds = Rect()
+    dismiss.createAccessibilityNodeInfo().getBoundsInScreen(defaultBounds)
+    ViewCompat.setAccessibilityDelegate(dismiss, delegate)
 
-    val scrimNode = scrim.createAccessibilityNodeInfo()
-    val bounds = Rect()
-    scrimNode.getBoundsInScreen(bounds)
+    val dismissNode = dismiss.createAccessibilityNodeInfo()
+    val nodeBounds = Rect()
+    dismissNode.getBoundsInScreen(nodeBounds)
 
-    assertEquals("android.widget.Button", scrimNode.className)
-    assertEquals("Dismiss", scrimNode.contentDescription)
-    assertTrue(scrimNode.isClickable)
-    assertTrue(scrimNode.isDismissable)
-    assertEquals(Rect(0, 0, 100, 80), bounds)
+    assertEquals("android.widget.Button", dismissNode.className)
+    assertEquals("Dismiss", dismissNode.contentDescription)
+    assertTrue(dismissNode.isClickable)
+    assertTrue(dismissNode.isDismissable)
+    assertEquals(defaultBounds, nodeBounds)
   }
 
   @Test
-  fun `scrim delegate does not expose or perform dismissal while unavailable`() {
+  fun `Dismiss delegate does not expose or perform dismissal while unavailable`() {
     var dismissAvailable = false
     var clickCount = 0
-    val scrim =
+    val dismiss =
       laidOutView(width = 100, height = 200).apply {
         isClickable = true
         setOnClickListener { clickCount++ }
       }
-    val delegate =
-      ScrimAccessibilityDelegate(
-        isDismissAvailable = { dismissAvailable },
-        scrimBottom = { 80f },
-      )
-    ViewCompat.setAccessibilityDelegate(scrim, delegate)
+    val delegate = DismissAccessibilityDelegate(isDismissAvailable = { dismissAvailable })
+    ViewCompat.setAccessibilityDelegate(dismiss, delegate)
 
-    val unavailableInfo = scrim.createAccessibilityNodeInfo()
+    val unavailableInfo = dismiss.createAccessibilityNodeInfo()
     assertFalse(unavailableInfo.isDismissable)
-    assertFalse(scrim.performAccessibilityAction(AccessibilityNodeInfoCompat.ACTION_DISMISS, null))
+    assertFalse(
+      dismiss.performAccessibilityAction(AccessibilityNodeInfoCompat.ACTION_DISMISS, null)
+    )
 
     dismissAvailable = true
-    assertTrue(scrim.performAccessibilityAction(AccessibilityNodeInfoCompat.ACTION_DISMISS, null))
-    assertTrue(scrim.performAccessibilityAction(AccessibilityNodeInfoCompat.ACTION_CLICK, null))
+    assertTrue(dismiss.performAccessibilityAction(AccessibilityNodeInfoCompat.ACTION_DISMISS, null))
+    assertTrue(dismiss.performAccessibilityAction(AccessibilityNodeInfoCompat.ACTION_CLICK, null))
     assertEquals(2, clickCount)
   }
 
