@@ -80,7 +80,7 @@ class PortalModalAccessibilityInstrumentedTest {
           root.addView(background, matchParent())
           root.addView(portalWrapper, matchParent())
           activity.setContentView(root)
-          dismiss = (sheet.getChildAt(0) as ViewGroup).getChildAt(0)
+          dismiss = (sheet.getChildAt(0) as ViewGroup).getChildAt(1)
         }
 
         val instrumentation = InstrumentationRegistry.getInstrumentation()
