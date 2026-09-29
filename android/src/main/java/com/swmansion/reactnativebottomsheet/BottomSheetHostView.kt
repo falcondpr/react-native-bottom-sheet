@@ -50,6 +50,13 @@ private data class RawDetentSpec(val value: Float, val kind: DetentKind, val pro
 
 private data class DetentSpec(val height: Float, val programmatic: Boolean)
 
+private data class StateSnapshot(
+  val contentOffsetY: Double,
+  val frameWidth: Double,
+  val frameHeight: Double,
+  val contentRegionInset: Double,
+)
+
 interface BottomSheetViewListener {
   fun onIndexChange(index: Int)
 
@@ -73,7 +80,9 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
   var stateWrapper: StateWrapper? = null
     set(value) {
       field = value
-      if (value != null) {
+      if (value == null) {
+        lastSentStateSnapshot = null
+      } else {
         pushStateSnapshot()
         recomputeNativeGeometry()
       }
@@ -941,6 +950,7 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
   private var lastGeometryStateWidth = 0
   private var lastGeometryStateHeight = 0
   private var lastGeometryStateInsetTop = Float.NaN
+  private var lastSentStateSnapshot: StateSnapshot? = null
   // The natively computed detent cap: this view's height minus the part of the
   // window's top (status bar / display cutout) inset that actually overlaps it.
   // Measured from real window geometry in every mode — inline, portal, and
@@ -1014,18 +1024,25 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
    */
   private fun pushStateSnapshot() {
     val sw = stateWrapper ?: return
+    val snapshot =
+      StateSnapshot(
+        contentOffsetY = if (lastShadowOffsetY.isNaN()) 0.0 else lastShadowOffsetY.toDouble(),
+        frameWidth = (lastGeometryStateWidth / density).toDouble(),
+        frameHeight = (lastGeometryStateHeight / density).toDouble(),
+        contentRegionInset =
+          ((if (lastGeometryStateInsetTop.isNaN()) 0f else lastGeometryStateInsetTop) / density)
+            .toDouble(),
+      )
+    // Fabric replaces the wrapper after committing our state. Republishing the same
+    // snapshot from its setter would start another commit, even while the sheet is idle.
+    // Keep this cache across wrapper replacements, but never mark an unsent snapshot.
+    if (snapshot == lastSentStateSnapshot) return
     val map = Arguments.createMap()
-    map.putDouble(
-      "contentOffsetY",
-      if (lastShadowOffsetY.isNaN()) 0.0 else lastShadowOffsetY.toDouble(),
-    )
-    map.putDouble("frameWidth", (lastGeometryStateWidth / density).toDouble())
-    map.putDouble("frameHeight", (lastGeometryStateHeight / density).toDouble())
-    map.putDouble(
-      "contentRegionInset",
-      ((if (lastGeometryStateInsetTop.isNaN()) 0f else lastGeometryStateInsetTop) / density)
-        .toDouble(),
-    )
+    map.putDouble("contentOffsetY", snapshot.contentOffsetY)
+    map.putDouble("frameWidth", snapshot.frameWidth)
+    map.putDouble("frameHeight", snapshot.frameHeight)
+    map.putDouble("contentRegionInset", snapshot.contentRegionInset)
+    lastSentStateSnapshot = snapshot
     sw.updateState(map)
   }
 
