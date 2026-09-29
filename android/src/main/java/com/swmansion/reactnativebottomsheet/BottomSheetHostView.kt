@@ -367,7 +367,8 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
 
   override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
     // The cap depends on the top inset, which can change without a resize.
-    recomputeNativeGeometry(WindowInsetsCompat.toWindowInsetsCompat(insets))
+    lastAppliedWindowInsetTopPx = systemTopInset(WindowInsetsCompat.toWindowInsetsCompat(insets))
+    recomputeNativeGeometry()
     return super.onApplyWindowInsets(insets)
   }
 
@@ -951,6 +952,9 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
   private var lastGeometryStateHeight = 0
   private var lastGeometryStateInsetTop = Float.NaN
   private var lastSentStateSnapshot: StateSnapshot? = null
+  // onApplyWindowInsets is authoritative once it has delivered a value. The root lookup can lag
+  // behind that callback, so keep the applied top inset for later layout and state-wrapper passes.
+  private var lastAppliedWindowInsetTopPx: Int? = null
   // The natively computed detent cap: this view's height minus the part of the
   // window's top (status bar / display cutout) inset that actually overlaps it.
   // Measured from real window geometry in every mode — inline, portal, and
@@ -974,15 +978,11 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
    * instead of JS-provided dimensions (issue #48). In overlay mode this view fills the dialog, so
    * its own metrics are the dialog's.
    */
-  private fun recomputeNativeGeometry(
-    windowInsets: WindowInsetsCompat? = ViewCompat.getRootWindowInsets(this)
-  ) {
+  private fun recomputeNativeGeometry() {
     if (width <= 0 || height <= 0 || !isAttachedToWindow) return
 
     val topInset =
-      windowInsets
-        ?.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout())
-        ?.top ?: 0
+      lastAppliedWindowInsetTopPx ?: systemTopInset(ViewCompat.getRootWindowInsets(this))
     val location = IntArray(2)
     getLocationInWindow(location)
     // Only the part of the inset this view actually extends under matters: a
@@ -1000,6 +1000,11 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
       requestLayout()
     }
   }
+
+  private fun systemTopInset(windowInsets: WindowInsetsCompat?): Int =
+    windowInsets
+      ?.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout())
+      ?.top ?: 0
 
   private fun pushGeometryState(widthPx: Int, heightPx: Int, insetTopPx: Float) {
     if (
@@ -1766,6 +1771,7 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
     lastGeometryStateWidth = 0
     lastGeometryStateHeight = 0
     lastGeometryStateInsetTop = Float.NaN
+    lastAppliedWindowInsetTopPx = null
     clearPendingInitialContentDetentSnap()
     contentHeightMarker?.removeOnLayoutChangeListener(contentHeightMarkerLayoutListener)
     contentHeightMarker = null
