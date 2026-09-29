@@ -358,13 +358,14 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
 
   override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
     // The cap depends on the top inset, which can change without a resize.
-    recomputeNativeGeometry()
+    recomputeNativeGeometry(WindowInsetsCompat.toWindowInsetsCompat(insets))
     return super.onApplyWindowInsets(insets)
   }
 
   override fun onDetachedFromWindow() {
     removeCallbacks(ensureHostLayoutAfterAttach)
     hasPerformedHostLayoutSinceAttach = false
+    updateScrimPresentationState()
     notifyPresentationStateChanged()
     // Release the listener from the soon-to-be-replaced observer and clear our
     // references so a later re-attach registers on the new live observer.
@@ -378,7 +379,6 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
     val h = bottom - top
     if (w <= 0 || h <= 0) {
       hasPerformedHostLayoutSinceAttach = false
-      syncDismissGeometry()
       updateScrimPresentationState()
       return
     }
@@ -439,7 +439,6 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
     presentationLifecycleTracker.onTransitionSettled()
     sheetContainer.translationY = translationY(targetIndex)
     updateShadowState(sheetContainer.translationY)
-    syncDismissGeometry()
     updateScrimPresentationState()
     notifyPresentationStateChanged()
   }
@@ -965,11 +964,13 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
    * instead of JS-provided dimensions (issue #48). In overlay mode this view fills the dialog, so
    * its own metrics are the dialog's.
    */
-  private fun recomputeNativeGeometry() {
+  private fun recomputeNativeGeometry(
+    windowInsets: WindowInsetsCompat? = ViewCompat.getRootWindowInsets(this)
+  ) {
     if (width <= 0 || height <= 0 || !isAttachedToWindow) return
 
     val topInset =
-      ViewCompat.getRootWindowInsets(this)
+      windowInsets
         ?.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout())
         ?.top ?: 0
     val location = IntArray(2)
@@ -1099,7 +1100,6 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
             sheetContainer.translationY = translationY(index)
             hideScrim()
           }
-          syncDismissGeometry()
           emitPosition()
           presentationLifecycleTracker.onTransitionSettled()
           notifyPresentationStateChanged()
@@ -1902,9 +1902,7 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
   }
 
   private fun updateScrimPresentationState() {
-    if (!isDismissAccessibilityEnabled) {
-      syncDismissGeometry()
-    }
+    syncDismissGeometry()
     val rendered = isScrimVisible()
     if (rendered != isVisualScrimRendered) {
       isVisualScrimRendered = rendered

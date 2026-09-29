@@ -2,13 +2,22 @@ package com.swmansion.reactnativebottomsheet
 
 import android.app.Activity
 import android.graphics.Color
+import android.graphics.Insets
 import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
+import android.os.Looper
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
 import android.view.accessibility.AccessibilityNodeInfo
+import android.widget.FrameLayout
+import android.widget.ScrollView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.dynamicanimation.animation.SpringAnimation
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsForTests
 import kotlin.math.roundToInt
@@ -20,7 +29,9 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.util.ReflectionHelpers
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35], qualifiers = "w600dp-h1000dp-mdpi")
@@ -332,6 +343,228 @@ class BottomSheetHostViewScrimTest {
   }
 
   @Test
+  fun `direct drag keeps Dismiss control geometry synchronized without relayout`() {
+    withActivity { activity ->
+      val host = threeDetentHost(activity)
+      activity.setContentView(host)
+      layout(host)
+      val dismiss = dismissAccessibilityView(host)
+      assertEquals(0.9f, dismiss.scaleY, 0.001f)
+
+      assertFalse(host.onInterceptTouchEvent(motionEvent(MotionEvent.ACTION_DOWN, 950f)))
+      assertTrue(host.onInterceptTouchEvent(motionEvent(MotionEvent.ACTION_MOVE, 850f)))
+      assertTrue(host.onTouchEvent(motionEvent(MotionEvent.ACTION_MOVE, 850f)))
+      assertTrue(host.onTouchEvent(motionEvent(MotionEvent.ACTION_MOVE, 800f)))
+
+      assertEquals(850f, sheetContainer(host).translationY, 0.001f)
+      assertEquals(0.85f, dismiss.scaleY, 0.001f)
+      assertFalse(host.isLayoutRequested)
+      assertFalse(dismiss.isLayoutRequested)
+    }
+  }
+
+  @Test
+  fun `nested movement keeps Dismiss control geometry synchronized`() {
+    withActivity { activity ->
+      val scrollView =
+        object : ScrollView(activity) {
+          override fun canScrollVertically(direction: Int): Boolean = true
+        }
+      scrollView.addView(View(activity), ViewGroup.LayoutParams(HOST_WIDTH, 600))
+      val host = threeDetentHost(activity).apply { addSheetChild(scrollView, 0) }
+      scrollView.measure(
+        View.MeasureSpec.makeMeasureSpec(HOST_WIDTH, View.MeasureSpec.EXACTLY),
+        View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY),
+      )
+      activity.setContentView(host)
+      layout(host)
+      val dismiss = dismissAccessibilityView(host)
+
+      assertFalse(host.onInterceptTouchEvent(motionEvent(MotionEvent.ACTION_DOWN, 950f)))
+      assertTrue(
+        host.onStartNestedScroll(
+          scrollView,
+          scrollView,
+          ViewCompat.SCROLL_AXIS_VERTICAL,
+          ViewCompat.TYPE_TOUCH,
+        )
+      )
+      host.onNestedScrollAccepted(
+        scrollView,
+        scrollView,
+        ViewCompat.SCROLL_AXIS_VERTICAL,
+        ViewCompat.TYPE_TOUCH,
+      )
+      val consumed = IntArray(2)
+      host.onNestedPreScroll(scrollView, 0, 50, consumed, ViewCompat.TYPE_TOUCH)
+
+      assertEquals(50, consumed[1])
+      assertEquals(850f, sheetContainer(host).translationY, 0.001f)
+      assertEquals(0.85f, dismiss.scaleY, 0.001f)
+      assertFalse(dismiss.isLayoutRequested)
+    }
+  }
+
+  @Test
+  fun `detach hides Dismiss control until reattach layout publishes fresh geometry`() {
+    withActivity { activity ->
+      val root = FrameLayout(activity)
+      val host = configuredHost(activity)
+      root.addView(host)
+      activity.setContentView(root)
+      layout(root)
+      val dismiss = dismissAccessibilityView(host)
+      assertEquals(View.VISIBLE, dismiss.visibility)
+      assertEquals(0.9f, dismiss.scaleY, 0.001f)
+
+      root.removeView(host)
+
+      assertEquals(View.INVISIBLE, dismiss.visibility)
+      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO, dismiss.importantForAccessibility)
+      assertFalse(dismiss.isFocusable)
+      assertFalse(dismiss.isClickable)
+      assertEquals(0f, dismiss.scaleY, 0f)
+
+      root.addView(host)
+      assertEquals(View.INVISIBLE, dismiss.visibility)
+      assertEquals(0f, dismiss.scaleY, 0f)
+
+      shadowOf(Looper.getMainLooper()).idle()
+
+      assertEquals(View.VISIBLE, dismiss.visibility)
+      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_YES, dismiss.importantForAccessibility)
+      assertEquals(0.9f, dismiss.scaleY, 0.001f)
+    }
+  }
+
+  @Test
+  fun `opening and open to open spring publish moving and stable Dismiss control geometry`() {
+    withActivity { activity ->
+      val host = threeDetentHost(activity, animateIn = true)
+      activity.setContentView(host)
+      layout(host)
+      val dismiss = dismissAccessibilityView(host)
+      var hostLayoutCount = 0
+      var dismissLayoutCount = 0
+      host.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> hostLayoutCount++ }
+      dismiss.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> dismissLayoutCount++ }
+
+      val opening = activeAnimationDriver(host)
+      opening.advance(frameCount = 2)
+
+      val openingTop = sheetTop(host)
+      assertTrue(openingTop in 900f..999.999f)
+      assertEquals(openingTop / host.height, dismiss.scaleY, 0.001f)
+      opening.finish()
+
+      assertEquals(900f, sheetContainer(host).translationY, 0.001f)
+      assertEquals(0.9f, dismiss.scaleY, 0.001f)
+      assertEquals(View.VISIBLE, dismiss.visibility)
+
+      host.setIndex(2)
+      val openToOpen = activeAnimationDriver(host)
+      openToOpen.advance(frameCount = 2)
+
+      val movingTop = sheetTop(host)
+      assertTrue(movingTop in 700f..899.999f)
+      assertEquals(movingTop / host.height, dismiss.scaleY, 0.001f)
+      openToOpen.finish()
+
+      assertEquals(700f, sheetContainer(host).translationY, 0.001f)
+      assertEquals(0.7f, dismiss.scaleY, 0.001f)
+      assertEquals(0, hostLayoutCount)
+      assertEquals(0, dismissLayoutCount)
+      assertFalse(dismiss.isLayoutRequested)
+    }
+  }
+
+  @Test
+  fun `reanchor and closing reopen publish fresh Dismiss control geometry before exposure`() {
+    withActivity { activity ->
+      val host = configuredHost(activity)
+      activity.setContentView(host)
+      layout(host)
+      val dismiss = dismissAccessibilityView(host)
+
+      host.setDetents(
+        listOf(
+          mapOf("value" to 0.0, "kind" to "points", "programmatic" to false),
+          mapOf("value" to 200.0, "kind" to "points", "programmatic" to false),
+        )
+      )
+      activeAnimationDriver(host).finish()
+
+      assertEquals(800f, sheetTop(host), 0.001f)
+      assertEquals(0.8f, dismiss.scaleY, 0.001f)
+      assertTrue(dismiss.requestFocus())
+      dismiss.isPressed = true
+
+      host.setIndex(0)
+
+      assertEquals(View.INVISIBLE, dismiss.visibility)
+      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO, dismiss.importantForAccessibility)
+      assertFalse(dismiss.hasFocus())
+      assertFalse(dismiss.isPressed)
+      val closing = activeAnimationDriver(host)
+      closing.advance(frameCount = 2)
+      val closingTop = sheetTop(host)
+      assertTrue(closingTop in 800.001f..1000f)
+
+      host.setIndex(1)
+
+      assertEquals(closingTop / host.height, dismiss.scaleY, 0.001f)
+      assertEquals(View.VISIBLE, dismiss.visibility)
+      assertTrue(dismiss.isClickable)
+      val reopening = activeAnimationDriver(host)
+      reopening.advance(frameCount = 2)
+
+      val reopeningTop = sheetTop(host)
+      assertEquals(reopeningTop / host.height, dismiss.scaleY, 0.001f)
+      assertEquals(View.VISIBLE, dismiss.visibility)
+      assertTrue(dismiss.isClickable)
+      reopening.finish()
+
+      assertEquals(800f, sheetTop(host), 0.001f)
+      assertEquals(0.8f, dismiss.scaleY, 0.001f)
+    }
+  }
+
+  @Test
+  fun `changed status bar insets republish Dismiss control bounds`() {
+    withActivity(visible = true) { activity ->
+      val host =
+        configuredHost(
+          activity,
+          openDetent = 1.0,
+          openDetentKind = "percentage",
+          extendUnderStatusBar = false,
+        )
+      activity.setContentView(host)
+      layout(host)
+      val dismiss = dismissAccessibilityView(host)
+      assertTrue(host.isAttachedToWindow)
+      val location = IntArray(2)
+      host.getLocationInWindow(location)
+      assertEquals(0, location[1])
+      assertEquals(0f, dismiss.scaleY, 0f)
+      assertEquals(View.INVISIBLE, dismiss.visibility)
+
+      val insets =
+        WindowInsets.Builder()
+          .setInsets(WindowInsets.Type.statusBars(), Insets.of(0, 100, 0, 0))
+          .setVisible(WindowInsets.Type.statusBars(), true)
+          .build()
+      host.onApplyWindowInsets(insets)
+
+      assertEquals(100, sheetContainer(host).top)
+      assertEquals(0f, sheetContainer(host).translationY, 0.001f)
+      assertEquals(100f, sheetContainer(host).top + sheetContainer(host).translationY, 0.001f)
+      assertEquals(0.1f, dismiss.scaleY, 0.001f)
+      assertEquals(View.VISIBLE, dismiss.visibility)
+    }
+  }
+
+  @Test
   fun `disabling Dismiss clears focus and pressed state without removing private children`() {
     withActivity { activity ->
       val host = configuredHost(activity)
@@ -362,11 +595,13 @@ class BottomSheetHostViewScrimTest {
     closedDetentProgrammatic: Boolean = false,
     scrimOpacity: Float = 1f,
     includeClosedDetent: Boolean = true,
+    extendUnderStatusBar: Boolean = false,
   ) =
     BottomSheetHostView(activity).apply {
       this.listener = listener
       animateIn = false
       this.modal = modal
+      this.extendUnderStatusBar = extendUnderStatusBar
       setScrimOpacities(listOf(0f, scrimOpacity))
       val closedDetents =
         if (includeClosedDetent) {
@@ -391,6 +626,21 @@ class BottomSheetHostViewScrimTest {
       setIndex(index)
     }
 
+  private fun threeDetentHost(activity: Activity, animateIn: Boolean = false) =
+    BottomSheetHostView(activity).apply {
+      this.animateIn = animateIn
+      modal = true
+      setScrimOpacities(listOf(0f, 1f, 1f))
+      setDetents(
+        listOf(
+          mapOf("value" to 0.0, "kind" to "points", "programmatic" to false),
+          mapOf("value" to 100.0, "kind" to "points", "programmatic" to false),
+          mapOf("value" to 300.0, "kind" to "points", "programmatic" to false),
+        )
+      )
+      setIndex(1)
+    }
+
   private fun layout(
     host: ViewGroup,
     width: Int = HOST_WIDTH,
@@ -402,6 +652,11 @@ class BottomSheetHostViewScrimTest {
     )
     host.layout(0, 0, width, height)
   }
+
+  private fun sheetTop(host: BottomSheetHostView): Float =
+    sheetContainer(host).top + sheetContainer(host).translationY
+
+  private fun activeAnimationDriver(host: BottomSheetHostView) = AnimationDriver(host)
 
   private fun dispatchTap(host: View, y: Float) {
     host.dispatchTouchEvent(motionEvent(MotionEvent.ACTION_DOWN, y))
@@ -417,14 +672,20 @@ class BottomSheetHostViewScrimTest {
 
   private fun sheetContainer(host: BottomSheetHostView): ViewGroup = host.getChildAt(2) as ViewGroup
 
-  private inline fun withActivity(block: (Activity) -> Unit) {
-    Robolectric.buildActivity(Activity::class.java).setup().use { controller ->
-      val activity = controller.get()
-      try {
-        block(activity)
-      } finally {
-        (activity.findViewById<View>(android.R.id.content) as? ViewGroup)?.let { content ->
-          (content.getChildAt(0) as? BottomSheetHostView)?.destroy()
+  private inline fun withActivity(visible: Boolean = false, block: (Activity) -> Unit) {
+    Robolectric.buildActivity(Activity::class.java).setup().let { controller ->
+      if (visible) {
+        WindowCompat.setDecorFitsSystemWindows(controller.get().window, false)
+        controller.visible()
+      }
+      controller.use {
+        val activity = controller.get()
+        try {
+          block(activity)
+        } finally {
+          (activity.findViewById<View>(android.R.id.content) as? ViewGroup)?.let { content ->
+            (content.getChildAt(0) as? BottomSheetHostView)?.destroy()
+          }
         }
       }
     }
@@ -439,6 +700,30 @@ class BottomSheetHostViewScrimTest {
     val scrimOpacity: Float = 1f,
     val includeClosedDetent: Boolean = true,
   )
+
+  private class AnimationDriver(host: BottomSheetHostView) {
+    private val animation =
+      requireNotNull(ReflectionHelpers.getField<SpringAnimation?>(host, "activeAnimation"))
+    private var frameTimeMillis = SystemClock.uptimeMillis()
+
+    fun advance(frameCount: Int) {
+      repeat(frameCount) {
+        frameTimeMillis += 16
+        assertFalse(
+          "SpringAnimation settled before the observed frame",
+          animation.doAnimationFrame(frameTimeMillis),
+        )
+      }
+    }
+
+    fun finish() {
+      repeat(240) {
+        frameTimeMillis += 16
+        if (animation.doAnimationFrame(frameTimeMillis)) return
+      }
+      throw AssertionError("SpringAnimation did not settle within 240 frames")
+    }
+  }
 
   private class RecordingListener : BottomSheetViewListener {
     val indexChanges = mutableListOf<Int>()
