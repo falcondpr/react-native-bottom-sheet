@@ -376,6 +376,9 @@ using namespace facebook::react;
   }
   self.contentView = nil;
   self.contentView = _sheetView;
+  _sheetView.frame = self.bounds;
+  [_sheetView setNeedsLayout];
+  [_sheetView layoutIfNeeded];
   _overlayContainer = nil;
 }
 

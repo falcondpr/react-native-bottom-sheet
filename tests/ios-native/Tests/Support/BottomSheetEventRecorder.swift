@@ -9,6 +9,7 @@ final class BottomSheetEventRecorder: NSObject, @preconcurrency BottomSheetHosti
     let position: CGFloat
     let isPresentationActive: Bool
     let isPresentationBoundaryModal: Bool?
+    let dismissAccessibilityFrame: CGRect?
   }
 
   var changedIndices: [Int] = []
@@ -45,7 +46,8 @@ final class BottomSheetEventRecorder: NSObject, @preconcurrency BottomSheetHosti
       PositionSample(
         position: position,
         isPresentationActive: view.isModalAccessibilityActive,
-        isPresentationBoundaryModal: observedPresentationBoundary?.accessibilityViewIsModal
+        isPresentationBoundaryModal: observedPresentationBoundary?.accessibilityViewIsModal,
+        dismissAccessibilityFrame: findDismiss(in: view)?.accessibilityFrame
       )
     )
   }

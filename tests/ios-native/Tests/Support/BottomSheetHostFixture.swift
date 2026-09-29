@@ -1,5 +1,62 @@
 import ReactNativeBottomSheet
 import UIKit
+import XCTest
+
+@MainActor
+func findDismiss(in view: UIView) -> UIView? {
+  if view.isAccessibilityElement,
+    view.accessibilityTraits.contains(.button),
+    view.accessibilityLabel == "Dismiss"
+  {
+    return view
+  }
+  return view.subviews.lazy.compactMap(findDismiss).first
+}
+
+@MainActor
+func expectedDismissFrame(
+  in host: BottomSheetHostingView,
+  sheetPosition: CGFloat
+) -> CGRect {
+  UIAccessibility.convertToScreenCoordinates(
+    CGRect(
+      x: host.bounds.minX,
+      y: host.bounds.minY,
+      width: host.bounds.width,
+      height: max(0, host.bounds.height - sheetPosition)
+    ),
+    in: host
+  )
+}
+
+@MainActor
+func assertDismissFrame(
+  _ dismiss: UIView,
+  in host: BottomSheetHostingView,
+  sheetPosition: CGFloat,
+  file: StaticString = #filePath,
+  line: UInt = #line
+) {
+  assertRect(
+    dismiss.accessibilityFrame,
+    equals: expectedDismissFrame(in: host, sheetPosition: sheetPosition),
+    file: file,
+    line: line
+  )
+}
+
+func assertRect(
+  _ actual: CGRect,
+  equals expected: CGRect,
+  accuracy: CGFloat = 0.5,
+  file: StaticString = #filePath,
+  line: UInt = #line
+) {
+  XCTAssertEqual(actual.minX, expected.minX, accuracy: accuracy, file: file, line: line)
+  XCTAssertEqual(actual.minY, expected.minY, accuracy: accuracy, file: file, line: line)
+  XCTAssertEqual(actual.width, expected.width, accuracy: accuracy, file: file, line: line)
+  XCTAssertEqual(actual.height, expected.height, accuracy: accuracy, file: file, line: line)
+}
 
 enum BottomSheetTestPresentationMode {
   case portal

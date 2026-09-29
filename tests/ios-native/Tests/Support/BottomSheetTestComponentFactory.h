@@ -8,6 +8,8 @@ NS_ASSUME_NONNULL_BEGIN
 + (UIView *)makeProductionComponentWithNativeOverlay:(BOOL)nativeOverlay index:(NSInteger)index;
 + (void)setIndex:(NSInteger)index forProductionComponent:(UIView *)component;
 + (void)setNativeOverlay:(BOOL)nativeOverlay forProductionComponent:(UIView *)component;
++ (void)setClosedDetentProgrammatic:(BOOL)programmatic
+             forProductionComponent:(UIView *)component;
 + (void)setLayoutSize:(CGSize)size forProductionComponent:(UIView *)component;
 + (void)prepareForRecycle:(UIView *)component;
 + (void)invalidateProductionComponent:(UIView *)component;

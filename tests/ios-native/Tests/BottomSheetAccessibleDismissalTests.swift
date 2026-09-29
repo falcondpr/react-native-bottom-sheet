@@ -4,6 +4,53 @@ import XCTest
 
 @MainActor
 final class BottomSheetAccessibleDismissalTests: XCTestCase {
+  func testStableDismissUsesOutsideSheetScreenFrameWithoutResizingScrim() throws {
+    let fixture = BottomSheetHostFixture()
+    defer { fixture.tearDown() }
+    let host = fixture.host
+    let dismiss = try XCTUnwrap(findDismiss(in: host))
+    let expectedHostRect = CGRect(
+      x: host.bounds.minX,
+      y: host.bounds.minY,
+      width: host.bounds.width,
+      height: 524
+    )
+    let expectedScreenFrame = UIAccessibility.convertToScreenCoordinates(
+      expectedHostRect,
+      in: host
+    )
+
+    XCTAssertEqual(dismiss.frame, host.bounds, "the visual scrim must remain full-screen")
+    assertRect(dismiss.accessibilityFrame, equals: expectedScreenFrame)
+  }
+
+  func testDismissRequiresDirectClosedDetentAndPositiveOutsideSheetArea() {
+    let fixture = BottomSheetHostFixture()
+    defer { fixture.tearDown() }
+    let host = fixture.host
+
+    host.setDetents([
+      ["value": 0.0, "kind": "points", "programmatic": true],
+      ["value": 320.0, "kind": "points", "programmatic": false],
+    ])
+    host.layoutIfNeeded()
+    XCTAssertNil(findDismiss(in: host), "programmatic-only close must not expose Dismiss")
+
+    host.setDetents([
+      ["value": 320.0, "kind": "points", "programmatic": false]
+    ])
+    host.layoutIfNeeded()
+    XCTAssertNil(findDismiss(in: host), "a sheet without a closed detent must not expose Dismiss")
+
+    host.animateContentHeight = false
+    host.setDetents([
+      ["value": 0.0, "kind": "points", "programmatic": false],
+      ["value": 844.0, "kind": "points", "programmatic": false],
+    ])
+    host.layoutIfNeeded()
+    XCTAssertNil(findDismiss(in: host), "an empty outside-sheet area must not expose Dismiss")
+  }
+
   func testActivationRemovesDismissAtCloseCommitAndRejectsRetries() async throws {
     let fixture = BottomSheetHostFixture()
     defer { fixture.tearDown() }
@@ -82,13 +129,4 @@ final class BottomSheetAccessibleDismissalTests: XCTestCase {
     XCTAssertEqual(events.positionSamples.last?.isPresentationActive, false)
   }
 
-  private func findDismiss(in view: UIView) -> UIView? {
-    if view.isAccessibilityElement,
-      view.accessibilityTraits.contains(.button),
-      view.accessibilityLabel == "Dismiss"
-    {
-      return view
-    }
-    return view.subviews.lazy.compactMap { self.findDismiss(in: $0) }.first
-  }
 }

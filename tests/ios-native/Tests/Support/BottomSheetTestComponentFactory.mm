@@ -10,11 +10,12 @@ using namespace facebook::react;
 
 static std::shared_ptr<BottomSheetViewProps> BottomSheetMakeTestProps(
     BOOL nativeOverlay,
-    NSInteger index)
+    NSInteger index,
+    BOOL closedDetentProgrammatic)
 {
   auto props = std::make_shared<BottomSheetViewProps>();
   props->detents = {
-      BottomSheetViewDetentsStruct{0, "points", false},
+      BottomSheetViewDetentsStruct{0, "points", closedDetentProgrammatic},
       BottomSheetViewDetentsStruct{320, "points", false},
   };
   props->index = static_cast<int>(index);
@@ -45,7 +46,7 @@ static std::shared_ptr<BottomSheetViewProps> BottomSheetMakeTestProps(
   auto descriptor = [factory createComponentViewWithComponentHandle:BottomSheetViewShadowNode::Handle()];
   UIView<RCTComponentViewProtocol> *component = descriptor.view;
 
-  auto props = BottomSheetMakeTestProps(nativeOverlay, index);
+  auto props = BottomSheetMakeTestProps(nativeOverlay, index, NO);
   Props::Shared sharedProps = props;
   [component updateProps:sharedProps oldProps:component.props];
   return component;
@@ -55,7 +56,11 @@ static std::shared_ptr<BottomSheetViewProps> BottomSheetMakeTestProps(
 {
   UIView<RCTComponentViewProtocol> *typedComponent = (UIView<RCTComponentViewProtocol> *)component;
   const auto &currentProps = static_cast<const BottomSheetViewProps &>(*typedComponent.props);
-  auto props = BottomSheetMakeTestProps(currentProps.nativeOverlay, index);
+  BOOL closedDetentProgrammatic = currentProps.detents.empty()
+      ? NO
+      : currentProps.detents.front().programmatic;
+  auto props =
+      BottomSheetMakeTestProps(currentProps.nativeOverlay, index, closedDetentProgrammatic);
   Props::Shared sharedProps = props;
   [typedComponent updateProps:sharedProps oldProps:typedComponent.props];
 }
@@ -64,7 +69,24 @@ static std::shared_ptr<BottomSheetViewProps> BottomSheetMakeTestProps(
 {
   UIView<RCTComponentViewProtocol> *typedComponent = (UIView<RCTComponentViewProtocol> *)component;
   const auto &currentProps = static_cast<const BottomSheetViewProps &>(*typedComponent.props);
-  auto props = BottomSheetMakeTestProps(nativeOverlay, currentProps.index);
+  BOOL closedDetentProgrammatic = currentProps.detents.empty()
+      ? NO
+      : currentProps.detents.front().programmatic;
+  auto props =
+      BottomSheetMakeTestProps(nativeOverlay, currentProps.index, closedDetentProgrammatic);
+  Props::Shared sharedProps = props;
+  [typedComponent updateProps:sharedProps oldProps:typedComponent.props];
+}
+
++ (void)setClosedDetentProgrammatic:(BOOL)programmatic
+             forProductionComponent:(UIView *)component
+{
+  UIView<RCTComponentViewProtocol> *typedComponent = (UIView<RCTComponentViewProtocol> *)component;
+  const auto &currentProps = static_cast<const BottomSheetViewProps &>(*typedComponent.props);
+  auto props = BottomSheetMakeTestProps(
+      currentProps.nativeOverlay,
+      currentProps.index,
+      programmatic);
   Props::Shared sharedProps = props;
   [typedComponent updateProps:sharedProps oldProps:typedComponent.props];
 }

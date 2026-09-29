@@ -23,6 +23,7 @@
 		A20000000000000000000012 /* BottomSheetPresentationModalIsolationControllerTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000017 /* BottomSheetPresentationModalIsolationControllerTests.mm */; };
 		A20000000000000000000013 /* BottomSheetPresentationLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000018 /* BottomSheetPresentationLifecycleTests.swift */; };
 		A20000000000000000000014 /* BottomSheetPresentationModeIntegrationTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000019 /* BottomSheetPresentationModeIntegrationTests.mm */; };
+		A20000000000000000000015 /* BottomSheetAccessibilityObservation.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000020 /* BottomSheetAccessibilityObservation.mm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -58,6 +59,8 @@
 		A30000000000000000000017 /* BottomSheetPresentationModalIsolationControllerTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = BottomSheetPresentationModalIsolationControllerTests.mm; sourceTree = "<group>"; };
 		A30000000000000000000018 /* BottomSheetPresentationLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomSheetPresentationLifecycleTests.swift; sourceTree = "<group>"; };
 		A30000000000000000000019 /* BottomSheetPresentationModeIntegrationTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = BottomSheetPresentationModeIntegrationTests.mm; sourceTree = "<group>"; };
+		A30000000000000000000020 /* BottomSheetAccessibilityObservation.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = BottomSheetAccessibilityObservation.mm; sourceTree = "<group>"; };
+		A30000000000000000000021 /* BottomSheetAccessibilityObservation.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BottomSheetAccessibilityObservation.h; sourceTree = "<group>"; };
 		C577E0CAB61E0CDA09F92FA3 /* libPods-BottomSheetNativeTestHost.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-BottomSheetNativeTestHost.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CADF3CD6D1B7A344694F886D /* libPods-BottomSheetNativeTests.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-BottomSheetNativeTests.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		D58BA040A6195B33CF4A612C /* Pods-BottomSheetNativeTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-BottomSheetNativeTests.debug.xcconfig"; path = "Target Support Files/Pods-BottomSheetNativeTests/Pods-BottomSheetNativeTests.debug.xcconfig"; sourceTree = "<group>"; };
@@ -154,6 +157,8 @@
 		A70000000000000000000005 /* Support */ = {
 			isa = PBXGroup;
 			children = (
+				A30000000000000000000020 /* BottomSheetAccessibilityObservation.mm */,
+				A30000000000000000000021 /* BottomSheetAccessibilityObservation.h */,
 				A30000000000000000000005 /* BottomSheetHostFixture.swift */,
 				A30000000000000000000006 /* BottomSheetEventRecorder.swift */,
 				A30000000000000000000014 /* BottomSheetTestComponentFactory.mm */,
@@ -365,6 +370,7 @@
 				A20000000000000000000012 /* BottomSheetPresentationModalIsolationControllerTests.mm in Sources */,
 				A20000000000000000000013 /* BottomSheetPresentationLifecycleTests.swift in Sources */,
 				A20000000000000000000014 /* BottomSheetPresentationModeIntegrationTests.mm in Sources */,
+				A20000000000000000000015 /* BottomSheetAccessibilityObservation.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
