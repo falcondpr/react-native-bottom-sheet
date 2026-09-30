@@ -91,6 +91,66 @@ final class BottomSheetAccessibleDismissalTests: XCTestCase {
     XCTAssertEqual(events.positionSamples.last?.isPresentationActive, false)
   }
 
+  func testDuplicateZeroTargetRejectsDismissalAndRetainsOwnershipUntilSettle() async throws {
+    let fixture = BottomSheetHostFixture(
+      presentations: [.portal],
+      initialIndices: [2],
+      detents: [
+        ["value": 0.0, "kind": "points", "programmatic": false],
+        ["value": 0.0, "kind": "points", "programmatic": false],
+        ["value": 320.0, "kind": "points", "programmatic": false],
+      ]
+    )
+    defer { fixture.tearDown() }
+    let host = fixture.host
+    let events = fixture.events
+    let boundary = try XCTUnwrap(host.superview)
+    let dismiss = try XCTUnwrap(findDismiss(in: host))
+    let topIdentity = try XCTUnwrap(
+      BottomSheetPresentationCoordinator.topPresentationIdentity(in: fixture.window)
+    )
+    let settle = expectation(description: "second zero detent settles through the real spring")
+    settle.assertForOverFulfill = true
+    events.didSettleExpectation = settle
+    events.observedPresentationBoundary = boundary
+
+    XCTAssertEqual(host.currentContentOffsetY, host.bounds.height - 320, accuracy: 0.5)
+    XCTAssertNil(host.sheetContainer.layer.animation(forKey: "bottomSheetSettle"))
+    XCTAssertTrue(boundary.accessibilityViewIsModal)
+
+    host.setDetentIndex(1)
+
+    let closingAnimation = try XCTUnwrap(
+      host.sheetContainer.layer.animation(forKey: "bottomSheetSettle")
+    )
+    XCTAssertNil(findDismiss(in: host), "every zero-height target must remove Dismiss immediately")
+    XCTAssertFalse(dismiss.accessibilityActivate(), "activation during closing must reject dismissal")
+    XCTAssertEqual(events.changedIndices, [], "programmatic closing must not emit a dismissal to index 0")
+    XCTAssertTrue(host.accessibilityPerformEscape(), "closing Top must consume Escape")
+    XCTAssertEqual(events.changedIndices, [], "Escape must not emit an additional index event")
+    XCTAssertTrue(host.sheetContainer.layer.animation(forKey: "bottomSheetSettle") === closingAnimation)
+    XCTAssertEqual(events.settledIndices, [])
+    XCTAssertTrue(host.isModalAccessibilityActive)
+    XCTAssertTrue(boundary.accessibilityViewIsModal)
+    XCTAssertTrue(
+      BottomSheetPresentationCoordinator.topPresentationIdentity(in: fixture.window) === topIdentity
+    )
+
+    await fulfillment(of: [settle], timeout: 2.0)
+
+    XCTAssertEqual(events.changedIndices, [])
+    XCTAssertEqual(events.settledIndices, [1])
+    XCTAssertNil(findDismiss(in: host))
+    XCTAssertFalse(dismiss.accessibilityActivate())
+    XCTAssertFalse(host.accessibilityPerformEscape())
+    XCTAssertFalse(host.isModalAccessibilityActive)
+    XCTAssertFalse(boundary.accessibilityViewIsModal)
+    XCTAssertNil(BottomSheetPresentationCoordinator.topPresentationIdentity(in: fixture.window))
+    XCTAssertGreaterThan(events.positionSamples.count, 1)
+    XCTAssertTrue(events.positionSamples.dropLast().allSatisfy(\.isPresentationActive))
+    XCTAssertTrue(events.positionSamples.allSatisfy { $0.isPresentationBoundaryModal == true })
+  }
+
   func testHostEscapeRemovesDismissAtCloseCommitAndConsumesRetries() async throws {
     let fixture = BottomSheetHostFixture(presentations: [.portal])
     defer { fixture.tearDown() }

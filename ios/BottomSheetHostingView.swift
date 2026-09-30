@@ -632,7 +632,7 @@ public final class BottomSheetHostingView: UIView {
       isScrimVisible,
       let closedIndex,
       !detentSpecs[closedIndex].programmatic,
-      targetIndex != closedIndex,
+      detent(at: targetIndex).height > 0,
       activeSpring == nil || currentSheetHeight > 0.5,
       dismissAccessibilityFrame != nil
     else {

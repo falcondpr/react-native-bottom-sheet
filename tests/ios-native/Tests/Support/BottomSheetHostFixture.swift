@@ -112,6 +112,7 @@ final class BottomSheetHostFixture {
   init(
     presentations: [BottomSheetTestPresentationMode],
     initialIndices: [Int]? = nil,
+    detents: [NSDictionary]? = nil,
     separateNativeRootBranches: Bool = false
   ) {
     precondition(!presentations.isEmpty)
@@ -131,6 +132,9 @@ final class BottomSheetHostFixture {
         preconditionFailure("The production component must contain a BottomSheetHostingView")
       }
       return host
+    }
+    if let detents {
+      hosts.forEach { $0.setDetents(detents) }
     }
     self.components = components
     componentRootBranches = separateNativeRootBranches
