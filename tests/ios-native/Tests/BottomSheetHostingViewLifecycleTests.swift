@@ -262,11 +262,11 @@ final class BottomSheetHostingViewLifecycleTests: XCTestCase {
 
     XCTAssertGreaterThan(events.positionSamples.count, 1)
     XCTAssertTrue(
-      events.positionSamples.dropLast().allSatisfy(\.isPresentationActive),
-      "active presentation must remain a modal boundary for every nonterminal spring sample"
+      events.positionSamples.dropLast().allSatisfy(\.isModalScrimVisible),
+      "modal scrim must remain visible for every nonterminal spring sample"
     )
     XCTAssertEqual(events.positionSamples.last?.position ?? .nan, 0, accuracy: 0.5)
-    XCTAssertEqual(events.positionSamples.last?.isPresentationActive, false)
+    XCTAssertEqual(events.positionSamples.last?.isModalScrimVisible, false)
   }
 
 }

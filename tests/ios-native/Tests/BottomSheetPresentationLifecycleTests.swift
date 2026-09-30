@@ -55,15 +55,15 @@ final class BottomSheetPresentationLifecycleTests: XCTestCase {
 
     XCTAssertTrue(upperHost.accessibilityPerformEscape())
 
+    XCTAssertTrue(upperBoundary.accessibilityViewIsModal)
+    XCTAssertFalse(lowerBoundary.accessibilityViewIsModal)
+    XCTAssertNotNil(upperHost.sheetContainer.layer.animation(forKey: "bottomSheetSettle"))
     XCTAssertNil(findDismiss(in: upperHost))
     XCTAssertFalse(retainedDismiss.accessibilityActivate())
     XCTAssertTrue(upperHost.accessibilityPerformEscape())
     XCTAssertTrue(lowerHost.accessibilityPerformEscape())
     XCTAssertEqual(upperEvents.changedIndices, [0])
     XCTAssertEqual(lowerEvents.changedIndices, [])
-    XCTAssertTrue(upperBoundary.accessibilityViewIsModal)
-    XCTAssertFalse(lowerBoundary.accessibilityViewIsModal)
-    XCTAssertNotNil(upperHost.sheetContainer.layer.animation(forKey: "bottomSheetSettle"))
 
     await fulfillment(of: [settle], timeout: 2.0)
 

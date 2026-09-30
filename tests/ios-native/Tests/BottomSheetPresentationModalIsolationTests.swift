@@ -85,19 +85,23 @@ final class BottomSheetPresentationModalIsolationTests: XCTestCase {
     XCTAssertTrue(secondBoundary.accessibilityViewIsModal)
   }
 
-  func testTopChangeTransfersModalBoundaryAfterSynchronousRevalidation() throws {
+  func testTopChangeTransfersModalBoundaryAtMountCompletion() throws {
     let fixture = BottomSheetHostFixture(presentations: [.portal, .portal])
     defer { fixture.tearDown() }
     let firstBoundary = try XCTUnwrap(fixture.hosts[0].superview)
     let secondBoundary = try XCTUnwrap(fixture.hosts[1].superview)
+    let firstBranch = try XCTUnwrap(firstBoundary.superview)
+    let secondBranch = try XCTUnwrap(secondBoundary.superview)
 
-    fixture.bringComponentToFront(at: 0)
-    XCTAssertNotNil(
-      BottomSheetPresentationCoordinator.topPresentationIdentity(in: fixture.window)
-    )
+    fixture.bringComponentToFrontDuringMount(at: 0)
 
     XCTAssertTrue(firstBoundary.accessibilityViewIsModal)
     XCTAssertFalse(secondBoundary.accessibilityViewIsModal)
+    XCTAssertFalse(firstBranch.accessibilityElementsHidden)
+    XCTAssertTrue(secondBranch.accessibilityElementsHidden)
+    XCTAssertNotNil(
+      BottomSheetPresentationCoordinator.topPresentationIdentity(in: fixture.window)
+    )
   }
 
   func testRemovingLowerPresentationKeepsUpperBoundaryModal() throws {
@@ -138,10 +142,6 @@ final class BottomSheetPresentationModalIsolationTests: XCTestCase {
     dynamicTopContent.accessibilityLabel = "dynamic top content"
     topBoundary.addSubview(dynamicTopContent)
 
-    XCTAssertNotNil(
-      BottomSheetPresentationCoordinator.topPresentationIdentity(in: fixture.window)
-    )
-
     XCTAssertTrue(applicationBranch.accessibilityElementsHidden)
     XCTAssertTrue(applicationBranch.accessibilityViewIsModal)
     XCTAssertTrue(applicationBranch.isAccessibilityElement)
@@ -149,6 +149,9 @@ final class BottomSheetPresentationModalIsolationTests: XCTestCase {
     XCTAssertTrue(dynamicTopContent.isDescendant(of: topBoundary))
     XCTAssertFalse(lowerBoundary.accessibilityViewIsModal)
     XCTAssertTrue(topBoundary.accessibilityViewIsModal)
+    XCTAssertNotNil(
+      BottomSheetPresentationCoordinator.topPresentationIdentity(in: fixture.window)
+    )
 
     dynamicTopContent.removeFromSuperview()
     XCTAssertTrue(topBoundary.accessibilityViewIsModal)

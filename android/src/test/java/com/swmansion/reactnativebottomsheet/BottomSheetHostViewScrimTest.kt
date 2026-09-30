@@ -82,7 +82,7 @@ class BottomSheetHostViewScrimTest {
   }
 
   @Test
-  fun `accessibility tree excludes visual scrim and contains sheet content then Dismiss`() {
+  fun `accessibility tree exposes sheet content and Dismiss with a traversal hint`() {
     withActivity { activity ->
       val host = configuredHost(activity)
       val sheetChild =
@@ -104,6 +104,7 @@ class BottomSheetHostViewScrimTest {
       assertTrue(hostAccessibleChildren.contains(dismissAccessibilityView(host)))
       assertTrue(hostAccessibleChildren.contains(sheetContainer(host)))
       assertTrue(sheetAccessibleChildren.contains(sheetChild))
+      // This verifies the traversal hint, not TalkBack's effective descendant order.
       assertEquals(
         sheetContainer(host).createAccessibilityNodeInfo(),
         dismissAccessibilityView(host).createAccessibilityNodeInfo().traversalAfter,

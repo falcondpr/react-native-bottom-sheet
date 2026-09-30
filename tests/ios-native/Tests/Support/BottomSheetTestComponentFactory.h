@@ -11,6 +11,8 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)setClosedDetentProgrammatic:(BOOL)programmatic
              forProductionComponent:(UIView *)component;
 + (void)setLayoutSize:(CGSize)size forProductionComponent:(UIView *)component;
++ (void)performObservedMountForProductionComponent:(UIView *)component
+                                         mutation:(void (^)(void))mutation;
 + (void)prepareForRecycle:(UIView *)component;
 + (void)invalidateProductionComponent:(UIView *)component;
 

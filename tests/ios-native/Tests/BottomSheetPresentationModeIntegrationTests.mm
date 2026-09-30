@@ -1,12 +1,9 @@
 #import <UIKit/UIKit.h>
 #import <XCTest/XCTest.h>
 
-#import <React/RCTMountingTransactionObserving.h>
 #import "../../../ios/BottomSheetPresentationOwnership.h"
 #import "ReactNativeBottomSheet-Swift.h"
 #import "Support/BottomSheetTestComponentFactory.h"
-
-using namespace facebook::react;
 
 static UIWindow *BottomSheetMakeIntegrationWindow(void)
 {
@@ -90,18 +87,6 @@ static void BottomSheetLayoutIntegrationTree(UIView *view)
   }
 }
 
-static void BottomSheetPerformObservedMount(UIView *component, void (^mutation)(void))
-{
-  id<RCTMountingTransactionObserving> observer = (id<RCTMountingTransactionObserving>)component;
-  XCTAssertTrue([component conformsToProtocol:@protocol(RCTMountingTransactionObserving)]);
-  TransactionTelemetry transactionTelemetry;
-  MountingTransaction transaction{1, 1, {}, std::move(transactionTelemetry)};
-  SurfaceTelemetry surfaceTelemetry;
-  [observer mountingTransactionWillMount:transaction withSurfaceTelemetry:surfaceTelemetry];
-  mutation();
-  [observer mountingTransactionDidMount:transaction withSurfaceTelemetry:surfaceTelemetry];
-}
-
 static void BottomSheetTearDownIntegrationComponent(UIView *component)
 {
   [BottomSheetTestComponentFactory prepareForRecycle:component];
@@ -171,13 +156,14 @@ static void BottomSheetTearDownIntegrationWindow(UIWindow *window)
       [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:window];
   XCTAssertNotNil(upperIdentity);
 
-  BottomSheetPerformObservedMount(upperComponent, ^{
+  [BottomSheetTestComponentFactory performObservedMountForProductionComponent:upperComponent
+                                                                  mutation:^{
     [upperComponent removeFromSuperview];
     [backBranch addSubview:upperComponent];
     XCTAssertTrue(upperBoundary.accessibilityViewIsModal);
     XCTAssertEqualObjects(
         [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:window], upperIdentity);
-  });
+  }];
 
   XCTAssertFalse(upperBoundary.accessibilityViewIsModal);
   BottomSheetPresentationIdentity *lowerIdentity =
@@ -185,9 +171,10 @@ static void BottomSheetTearDownIntegrationWindow(UIWindow *window)
   XCTAssertNotNil(lowerIdentity);
   XCTAssertNotEqualObjects(lowerIdentity, upperIdentity);
 
-  BottomSheetPerformObservedMount(upperComponent, ^{
+  [BottomSheetTestComponentFactory performObservedMountForProductionComponent:upperComponent
+                                                                  mutation:^{
     [window.rootViewController.view bringSubviewToFront:backBranch];
-  });
+  }];
 
   XCTAssertTrue(upperBoundary.accessibilityViewIsModal);
   XCTAssertEqualObjects(
@@ -221,9 +208,10 @@ static void BottomSheetTearDownIntegrationWindow(UIWindow *window)
   XCTAssertFalse(firstBoundary.accessibilityViewIsModal);
   XCTAssertTrue(secondBoundary.accessibilityViewIsModal);
 
-  BottomSheetPerformObservedMount(firstComponent, ^{
+  [BottomSheetTestComponentFactory performObservedMountForProductionComponent:firstComponent
+                                                                  mutation:^{
     firstBranch.layer.zPosition = 2;
-  });
+  }];
 
   XCTAssertTrue(firstBoundary.accessibilityViewIsModal);
   XCTAssertFalse(secondBoundary.accessibilityViewIsModal);
@@ -253,18 +241,18 @@ static void BottomSheetTearDownIntegrationWindow(UIWindow *window)
   XCTAssertEqual(host.superview, boundary);
   XCTAssertTrue(boundary.accessibilityViewIsModal);
   XCTAssertFalse(boundary.superview.accessibilityViewIsModal);
+  XCTAssertEqual(BottomSheetAssertIntegrationDismissGeometry(host), dismiss);
   XCTAssertEqualObjects(
       [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:window], identity);
-  XCTAssertEqual(BottomSheetAssertIntegrationDismissGeometry(host), dismiss);
 
   [BottomSheetTestComponentFactory setNativeOverlay:NO forProductionComponent:component];
   BottomSheetLayoutIntegrationTree(window);
 
   XCTAssertEqual(host.superview, boundary);
   XCTAssertTrue(boundary.accessibilityViewIsModal);
+  XCTAssertEqual(BottomSheetAssertIntegrationDismissGeometry(host), dismiss);
   XCTAssertEqualObjects(
       [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:window], identity);
-  XCTAssertEqual(BottomSheetAssertIntegrationDismissGeometry(host), dismiss);
 
   BottomSheetTearDownIntegrationComponent(component);
   BottomSheetTearDownIntegrationWindow(window);
@@ -296,10 +284,10 @@ static void BottomSheetTearDownIntegrationWindow(UIWindow *window)
 
   [component removeFromSuperview];
 
-  XCTAssertNil([BottomSheetPresentationCoordinator topPresentationIdentityInWindow:firstWindow]);
   XCTAssertFalse(boundary.accessibilityViewIsModal);
   XCTAssertFalse(dismiss.isAccessibilityElement);
   XCTAssertTrue(CGRectEqualToRect(dismiss.accessibilityFrame, CGRectZero));
+  XCTAssertNil([BottomSheetPresentationCoordinator topPresentationIdentityInWindow:firstWindow]);
   component.frame = secondWindow.bounds;
   [secondWindow.rootViewController.view addSubview:component];
 
@@ -307,19 +295,19 @@ static void BottomSheetTearDownIntegrationWindow(UIWindow *window)
   XCTAssertTrue(CGRectEqualToRect(dismiss.accessibilityFrame, CGRectZero));
   BottomSheetLayoutIntegrationTree(secondWindow);
 
-  XCTAssertEqualObjects(
-      [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:secondWindow], identity);
   XCTAssertTrue(boundary.accessibilityViewIsModal);
   XCTAssertTrue(firstSentinel.accessibilityElementsHidden);
   XCTAssertTrue(secondSentinel.accessibilityViewIsModal);
   XCTAssertEqual(BottomSheetAssertIntegrationDismissGeometry(host), dismiss);
+  XCTAssertEqualObjects(
+      [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:secondWindow], identity);
 
   [component removeFromSuperview];
 
-  XCTAssertNil([BottomSheetPresentationCoordinator topPresentationIdentityInWindow:secondWindow]);
   XCTAssertFalse(boundary.accessibilityViewIsModal);
   XCTAssertFalse(dismiss.isAccessibilityElement);
   XCTAssertTrue(CGRectEqualToRect(dismiss.accessibilityFrame, CGRectZero));
+  XCTAssertNil([BottomSheetPresentationCoordinator topPresentationIdentityInWindow:secondWindow]);
   component.frame = firstWindow.bounds;
   [firstWindow.rootViewController.view addSubview:component];
 
@@ -327,12 +315,12 @@ static void BottomSheetTearDownIntegrationWindow(UIWindow *window)
   XCTAssertTrue(CGRectEqualToRect(dismiss.accessibilityFrame, CGRectZero));
   BottomSheetLayoutIntegrationTree(firstWindow);
 
-  XCTAssertEqualObjects(
-      [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:firstWindow], identity);
   XCTAssertTrue(boundary.accessibilityViewIsModal);
   XCTAssertTrue(firstSentinel.accessibilityElementsHidden);
   XCTAssertTrue(secondSentinel.accessibilityViewIsModal);
   XCTAssertEqual(BottomSheetAssertIntegrationDismissGeometry(host), dismiss);
+  XCTAssertEqualObjects(
+      [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:firstWindow], identity);
 
   BottomSheetTearDownIntegrationComponent(component);
   BottomSheetTearDownIntegrationWindow(secondWindow);
@@ -348,6 +336,7 @@ static void BottomSheetTearDownIntegrationWindow(UIWindow *window)
   UIView *component =
       [BottomSheetTestComponentFactory makeProductionComponentWithNativeOverlay:YES];
   BottomSheetHostingView *host = BottomSheetFindIntegrationHost(component);
+  UIView *boundary = host.superview;
   component.frame = firstWindow.bounds;
   [firstWindow.rootViewController.view addSubview:component];
   BottomSheetLayoutIntegrationTree(firstWindow);
@@ -356,35 +345,39 @@ static void BottomSheetTearDownIntegrationWindow(UIWindow *window)
   XCTAssertNotNil(identity);
   UIView *dismiss = BottomSheetAssertIntegrationDismissGeometry(host);
 
-  BottomSheetPerformObservedMount(component, ^{
+  [BottomSheetTestComponentFactory performObservedMountForProductionComponent:component
+                                                                  mutation:^{
     [component removeFromSuperview];
     component.frame = secondWindow.bounds;
     [secondWindow.rootViewController.view addSubview:component];
-  });
+  }];
 
   XCTAssertFalse(dismiss.isAccessibilityElement);
   XCTAssertTrue(CGRectEqualToRect(dismiss.accessibilityFrame, CGRectZero));
   BottomSheetLayoutIntegrationTree(secondWindow);
 
+  XCTAssertTrue(boundary.accessibilityViewIsModal);
+  XCTAssertEqual(BottomSheetAssertIntegrationDismissGeometry(host), dismiss);
   XCTAssertNil([BottomSheetPresentationCoordinator topPresentationIdentityInWindow:firstWindow]);
   XCTAssertEqualObjects(
       [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:secondWindow], identity);
-  XCTAssertEqual(BottomSheetAssertIntegrationDismissGeometry(host), dismiss);
 
-  BottomSheetPerformObservedMount(component, ^{
+  [BottomSheetTestComponentFactory performObservedMountForProductionComponent:component
+                                                                  mutation:^{
     [component removeFromSuperview];
     component.frame = firstWindow.bounds;
     [firstWindow.rootViewController.view addSubview:component];
-  });
+  }];
 
   XCTAssertFalse(dismiss.isAccessibilityElement);
   XCTAssertTrue(CGRectEqualToRect(dismiss.accessibilityFrame, CGRectZero));
   BottomSheetLayoutIntegrationTree(firstWindow);
 
+  XCTAssertTrue(boundary.accessibilityViewIsModal);
+  XCTAssertEqual(BottomSheetAssertIntegrationDismissGeometry(host), dismiss);
   XCTAssertNil([BottomSheetPresentationCoordinator topPresentationIdentityInWindow:secondWindow]);
   XCTAssertEqualObjects(
       [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:firstWindow], identity);
-  XCTAssertEqual(BottomSheetAssertIntegrationDismissGeometry(host), dismiss);
 
   BottomSheetTearDownIntegrationComponent(component);
   BottomSheetTearDownIntegrationWindow(secondWindow);
@@ -403,13 +396,16 @@ static void BottomSheetTearDownIntegrationWindow(UIWindow *window)
       [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:window];
   XCTAssertNotNil(oldIdentity);
   BottomSheetHostingView *host = BottomSheetFindIntegrationHost(component);
+  UIView *boundary = host.superview;
   UIView *oldDismiss = BottomSheetAssertIntegrationDismissGeometry(host);
 
   [component removeFromSuperview];
+  XCTAssertFalse(boundary.accessibilityViewIsModal);
   XCTAssertFalse(oldDismiss.isAccessibilityElement);
   XCTAssertTrue(CGRectEqualToRect(oldDismiss.accessibilityFrame, CGRectZero));
   [BottomSheetTestComponentFactory prepareForRecycle:component];
 
+  XCTAssertFalse(boundary.accessibilityViewIsModal);
   XCTAssertNil([BottomSheetPresentationCoordinator topPresentationIdentityInWindow:window]);
 
   [BottomSheetTestComponentFactory setIndex:1 forProductionComponent:component];
@@ -417,12 +413,13 @@ static void BottomSheetTearDownIntegrationWindow(UIWindow *window)
                           forProductionComponent:component];
   [window.rootViewController.view addSubview:component];
   BottomSheetLayoutIntegrationTree(window);
+  XCTAssertTrue(host.superview.accessibilityViewIsModal);
+  XCTAssertEqual(BottomSheetAssertIntegrationDismissGeometry(host), oldDismiss);
   BottomSheetPresentationIdentity *newIdentity =
       [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:window];
 
   XCTAssertNotNil(newIdentity);
   XCTAssertNotEqualObjects(newIdentity, oldIdentity);
-  XCTAssertEqual(BottomSheetAssertIntegrationDismissGeometry(host), oldDismiss);
 
   BottomSheetTearDownIntegrationComponent(component);
   BottomSheetTearDownIntegrationWindow(window);
@@ -456,17 +453,17 @@ static void BottomSheetTearDownIntegrationWindow(UIWindow *window)
   [upperComponent removeFromSuperview];
   [BottomSheetTestComponentFactory invalidateProductionComponent:upperComponent];
 
-  BottomSheetPresentationIdentity *remainingIdentity =
-      [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:window];
-  XCTAssertNotNil(remainingIdentity);
-  XCTAssertNotEqualObjects(remainingIdentity, upperIdentity);
   XCTAssertTrue(lowerBoundary.accessibilityViewIsModal);
   XCTAssertFalse(upperBoundary.accessibilityViewIsModal);
   XCTAssertNil([upperHost.sheetContainer.layer animationForKey:@"bottomSheetSettle"]);
   XCTAssertEqual(upperHost.sheetContainer.alpha, 0);
-  XCTAssertFalse([upperHost accessibilityPerformEscape]);
   XCTAssertNil(upperBoundary.superview);
   XCTAssertNil(overlayContainer.superview);
+  BottomSheetPresentationIdentity *remainingIdentity =
+      [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:window];
+  XCTAssertNotNil(remainingIdentity);
+  XCTAssertNotEqualObjects(remainingIdentity, upperIdentity);
+  XCTAssertFalse([upperHost accessibilityPerformEscape]);
 
   BottomSheetTearDownIntegrationComponent(lowerComponent);
   BottomSheetTearDownIntegrationWindow(window);

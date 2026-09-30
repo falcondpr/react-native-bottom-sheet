@@ -204,6 +204,12 @@ final class BottomSheetHostFixture {
     Self.layoutTree(window)
   }
 
+  func bringComponentToFrontDuringMount(at index: Int) {
+    BottomSheetTestComponentFactory.performObservedMount(forProductionComponent: components[index]) {
+      self.bringComponentToFront(at: index)
+    }
+  }
+
   private static func findHost(in view: UIView) -> BottomSheetHostingView? {
     if let host = view as? BottomSheetHostingView {
       return host

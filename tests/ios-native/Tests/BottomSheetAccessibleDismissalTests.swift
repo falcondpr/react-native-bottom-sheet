@@ -87,8 +87,8 @@ final class BottomSheetAccessibleDismissalTests: XCTestCase {
     XCTAssertTrue(dismiss.isHidden)
     XCTAssertNil(host.hitTest(CGPoint(x: host.bounds.midX, y: 1), with: nil))
     XCTAssertGreaterThan(events.positionSamples.count, 1)
-    XCTAssertTrue(events.positionSamples.dropLast().allSatisfy(\.isPresentationActive))
-    XCTAssertEqual(events.positionSamples.last?.isPresentationActive, false)
+    XCTAssertTrue(events.positionSamples.dropLast().allSatisfy(\.isModalScrimVisible))
+    XCTAssertEqual(events.positionSamples.last?.isModalScrimVisible, false)
   }
 
   func testDuplicateZeroTargetRejectsDismissalAndRetainsOwnershipUntilSettle() async throws {
@@ -124,14 +124,14 @@ final class BottomSheetAccessibleDismissalTests: XCTestCase {
       host.sheetContainer.layer.animation(forKey: "bottomSheetSettle")
     )
     XCTAssertNil(findDismiss(in: host), "every zero-height target must remove Dismiss immediately")
+    XCTAssertTrue(host.isModalAccessibilityActive)
+    XCTAssertTrue(boundary.accessibilityViewIsModal)
     XCTAssertFalse(dismiss.accessibilityActivate(), "activation during closing must reject dismissal")
     XCTAssertEqual(events.changedIndices, [], "programmatic closing must not emit a dismissal to index 0")
     XCTAssertTrue(host.accessibilityPerformEscape(), "closing Top must consume Escape")
     XCTAssertEqual(events.changedIndices, [], "Escape must not emit an additional index event")
     XCTAssertTrue(host.sheetContainer.layer.animation(forKey: "bottomSheetSettle") === closingAnimation)
     XCTAssertEqual(events.settledIndices, [])
-    XCTAssertTrue(host.isModalAccessibilityActive)
-    XCTAssertTrue(boundary.accessibilityViewIsModal)
     XCTAssertTrue(
       BottomSheetPresentationCoordinator.topPresentationIdentity(in: fixture.window) === topIdentity
     )
@@ -141,13 +141,13 @@ final class BottomSheetAccessibleDismissalTests: XCTestCase {
     XCTAssertEqual(events.changedIndices, [])
     XCTAssertEqual(events.settledIndices, [1])
     XCTAssertNil(findDismiss(in: host))
-    XCTAssertFalse(dismiss.accessibilityActivate())
-    XCTAssertFalse(host.accessibilityPerformEscape())
     XCTAssertFalse(host.isModalAccessibilityActive)
     XCTAssertFalse(boundary.accessibilityViewIsModal)
+    XCTAssertFalse(dismiss.accessibilityActivate())
+    XCTAssertFalse(host.accessibilityPerformEscape())
     XCTAssertNil(BottomSheetPresentationCoordinator.topPresentationIdentity(in: fixture.window))
     XCTAssertGreaterThan(events.positionSamples.count, 1)
-    XCTAssertTrue(events.positionSamples.dropLast().allSatisfy(\.isPresentationActive))
+    XCTAssertTrue(events.positionSamples.dropLast().allSatisfy(\.isModalScrimVisible))
     XCTAssertTrue(events.positionSamples.allSatisfy { $0.isPresentationBoundaryModal == true })
   }
 
@@ -177,16 +177,16 @@ final class BottomSheetAccessibleDismissalTests: XCTestCase {
     await fulfillment(of: [settle], timeout: 2.0)
 
     XCTAssertNil(findDismiss(in: host))
+    XCTAssertFalse(host.isModalAccessibilityActive)
+    XCTAssertTrue(dismiss.isHidden)
     XCTAssertFalse(host.accessibilityPerformEscape())
     XCTAssertEqual(events.changedIndices, [0])
     XCTAssertEqual(events.settledIndices, [0])
     XCTAssertEqual(host.currentContentOffsetY, host.bounds.height, accuracy: 0.5)
     XCTAssertNil(host.sheetContainer.layer.animation(forKey: "bottomSheetSettle"))
-    XCTAssertFalse(host.isModalAccessibilityActive)
-    XCTAssertTrue(dismiss.isHidden)
     XCTAssertGreaterThan(events.positionSamples.count, 1)
-    XCTAssertTrue(events.positionSamples.dropLast().allSatisfy(\.isPresentationActive))
-    XCTAssertEqual(events.positionSamples.last?.isPresentationActive, false)
+    XCTAssertTrue(events.positionSamples.dropLast().allSatisfy(\.isModalScrimVisible))
+    XCTAssertEqual(events.positionSamples.last?.isModalScrimVisible, false)
   }
 
 }

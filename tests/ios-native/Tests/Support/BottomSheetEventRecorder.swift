@@ -7,7 +7,7 @@ import XCTest
 final class BottomSheetEventRecorder: NSObject, @preconcurrency BottomSheetHostingViewDelegate {
   struct PositionSample {
     let position: CGFloat
-    let isPresentationActive: Bool
+    let isModalScrimVisible: Bool
     let isPresentationBoundaryModal: Bool?
     let dismissAccessibilityFrame: CGRect?
   }
@@ -45,7 +45,7 @@ final class BottomSheetEventRecorder: NSObject, @preconcurrency BottomSheetHosti
     positionSamples.append(
       PositionSample(
         position: position,
-        isPresentationActive: view.isModalAccessibilityActive,
+        isModalScrimVisible: view.isModalAccessibilityActive,
         isPresentationBoundaryModal: observedPresentationBoundary?.accessibilityViewIsModal,
         dismissAccessibilityFrame: findDismiss(in: view)?.accessibilityFrame
       )

@@ -1,13 +1,8 @@
 #import <UIKit/UIKit.h>
 #import <XCTest/XCTest.h>
 
-#import <React/RCTComponentViewFactory.h>
-#import <React/RCTFabricComponentsPlugins.h>
-#import <ReactCodegen/RCTThirdPartyComponentsProvider.h>
 #import "ReactNativeBottomSheet-Swift.h"
-#import <react/renderer/components/ReactNativeBottomSheetSpec/ShadowNodes.h>
-
-using namespace facebook::react;
+#import "Support/BottomSheetTestComponentFactory.h"
 
 // Forward every callback to the real adapter before observing its UIKit output.
 @interface BottomSheetOverlayBoundaryRecorder : NSObject <BottomSheetHostingViewDelegate>
@@ -80,32 +75,8 @@ static BottomSheetHostingView *BottomSheetFindHost(UIView *view)
   UIWindow *window = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, 390, 844)];
   window.rootViewController = [UIViewController new];
 
-  // Mirror RN factory lookup order: built-in provider, then Codegen's third-party map.
-  Class<RCTComponentViewProtocol> componentClass =
-      RCTFabricComponentsProvider("BottomSheetView");
-  if (componentClass == Nil) {
-    componentClass = [RCTThirdPartyComponentsProvider thirdPartyFabricComponents][@"BottomSheetView"];
-  }
-  XCTAssertNotNil(componentClass);
-  if (componentClass == Nil) {
-    return;
-  }
-  RCTComponentViewFactory *factory = [RCTComponentViewFactory new];
-  [factory registerComponentViewClass:componentClass];
-  auto descriptor = [factory createComponentViewWithComponentHandle:BottomSheetViewShadowNode::Handle()];
-  UIView<RCTComponentViewProtocol> *component = descriptor.view;
-  auto openProps = std::make_shared<BottomSheetViewProps>();
-  openProps->detents = {
-      BottomSheetViewDetentsStruct{0, "points", false},
-      BottomSheetViewDetentsStruct{320, "points", false},
-  };
-  openProps->index = 1;
-  openProps->animateIn = false;
-  openProps->modal = true;
-  openProps->nativeOverlay = true;
-  openProps->scrimOpacities = {0, 1};
-  Props::Shared sharedOpenProps = openProps;
-  [component updateProps:sharedOpenProps oldProps:component.props];
+  UIView *component =
+      [BottomSheetTestComponentFactory makeProductionComponentWithNativeOverlay:YES];
   component.frame = window.bounds;
   [window.rootViewController.view addSubview:component];
   [window makeKeyAndVisible];
@@ -153,7 +124,7 @@ static BottomSheetHostingView *BottomSheetFindHost(UIView *view)
     XCTAssertFalse(overlayContainer.accessibilityViewIsModal);
     host.eventDelegate = recorder.adapter;
   } @finally {
-    [component prepareForRecycle];
+    [BottomSheetTestComponentFactory prepareForRecycle:component];
     [component removeFromSuperview];
     window.hidden = YES;
     window.rootViewController = nil;

@@ -3,6 +3,7 @@
 #import <React/RCTComponentViewFactory.h>
 #import <React/RCTComponentViewProtocol.h>
 #import <React/RCTFabricComponentsPlugins.h>
+#import <React/RCTMountingTransactionObserving.h>
 #import <ReactCodegen/RCTThirdPartyComponentsProvider.h>
 #import <react/renderer/components/ReactNativeBottomSheetSpec/ShadowNodes.h>
 
@@ -105,6 +106,20 @@ static std::shared_ptr<BottomSheetViewProps> BottomSheetMakeTestProps(
 + (void)prepareForRecycle:(UIView *)component
 {
   [(UIView<RCTComponentViewProtocol> *)component prepareForRecycle];
+}
+
++ (void)performObservedMountForProductionComponent:(UIView *)component
+                                         mutation:(void (^)(void))mutation
+{
+  NSCAssert([component conformsToProtocol:@protocol(RCTMountingTransactionObserving)],
+            @"The production component must observe Fabric mounting transactions");
+  id<RCTMountingTransactionObserving> observer = (id<RCTMountingTransactionObserving>)component;
+  TransactionTelemetry transactionTelemetry;
+  MountingTransaction transaction{1, 1, {}, std::move(transactionTelemetry)};
+  SurfaceTelemetry surfaceTelemetry;
+  [observer mountingTransactionWillMount:transaction withSurfaceTelemetry:surfaceTelemetry];
+  mutation();
+  [observer mountingTransactionDidMount:transaction withSurfaceTelemetry:surfaceTelemetry];
 }
 
 + (void)invalidateProductionComponent:(UIView *)component
