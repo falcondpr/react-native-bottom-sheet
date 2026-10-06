@@ -18,9 +18,10 @@ using namespace facebook::react;
 
 /// Full-window container hosting the sheet in native-overlay mode. It is added
 /// directly to the host `UIWindow` (above any modal presented in that window)
-/// and forwards hit-testing to its single subview—the sheet—so touches outside
-/// the sheet and its scrim fall through to the content underneath.
+/// and forwards hit-testing to the sheet, then blocks its inactive background
+/// for the complete Active window-modal presentation.
 @interface BottomSheetOverlayContainerView : UIView
+@property (nonatomic) BOOL blocksBackgroundTouches;
 @end
 
 @implementation BottomSheetOverlayContainerView
@@ -30,9 +31,8 @@ using namespace facebook::react;
   if (!self.isUserInteractionEnabled || self.isHidden || self.alpha < 0.01) {
     return nil;
   }
-  // Bypass UIKit's strict containment policy and hit-test subviews directly: the
-  // sheet's own hitTest returns nil outside the sheet/scrim, which is how a tap
-  // on empty space passes through to whatever sits below the overlay.
+  // Preserve the sheet's content/scrim hit recipients even when its bounds
+  // differ from this container during reanchoring.
   for (UIView *subview in [self.subviews reverseObjectEnumerator]) {
     CGPoint convertedPoint = [subview convertPoint:point fromView:self];
     UIView *hit = [subview hitTest:convertedPoint withEvent:event];
@@ -40,7 +40,8 @@ using namespace facebook::react;
       return hit;
     }
   }
-  return nil;
+  // Modality does not depend on whether the scrim can handle or dismiss a tap.
+  return self.blocksBackgroundTouches && CGRectContainsPoint(self.bounds, point) ? self : nil;
 }
 
 - (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event
@@ -517,6 +518,8 @@ using namespace facebook::react;
 
 - (void)reconcilePresentationOwnership
 {
+  _overlayContainer.blocksBackgroundTouches =
+      _nativeOverlay && _sheetView.modal && _sheetView.isPresentationActive;
   BottomSheetPresentationMode mode = _nativeOverlay
       ? BottomSheetPresentationModeNativeOverlay
       : BottomSheetPresentationModePortal;

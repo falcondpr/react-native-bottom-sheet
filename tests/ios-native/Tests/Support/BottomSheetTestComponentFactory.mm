@@ -22,6 +22,9 @@ static std::shared_ptr<BottomSheetViewProps> BottomSheetMakeTestProps(
   props->index = static_cast<int>(index);
   props->animateIn = false;
   props->modal = true;
+  // Match the NativeView prop used by BottomSheet.tsx, including its empty
+  // in-tree slot after the sheet has been hoisted into the window.
+  props->pointerEvents = PointerEventsMode::BoxNone;
   props->nativeOverlay = nativeOverlay;
   props->scrimOpacities = {0, 1};
   return props;
@@ -36,6 +39,19 @@ static std::shared_ptr<BottomSheetViewProps> BottomSheetMakeTestProps(
 
 + (UIView *)makeProductionComponentWithNativeOverlay:(BOOL)nativeOverlay index:(NSInteger)index
 {
+  auto props = BottomSheetMakeTestProps(nativeOverlay, index, NO);
+  return [self makeProductionComponentWithProps:props];
+}
+
++ (UIView *)makeProductionOverlayWithoutClosedDetent
+{
+  auto props = BottomSheetMakeTestProps(YES, 0, NO);
+  props->detents = {BottomSheetViewDetentsStruct{320, "points", false}};
+  return [self makeProductionComponentWithProps:props];
+}
+
++ (UIView *)makeProductionComponentWithProps:(const std::shared_ptr<BottomSheetViewProps> &)props
+{
   Class<RCTComponentViewProtocol> componentClass = RCTFabricComponentsProvider("BottomSheetView");
   if (componentClass == Nil) {
     componentClass = [RCTThirdPartyComponentsProvider thirdPartyFabricComponents][@"BottomSheetView"];
@@ -47,7 +63,6 @@ static std::shared_ptr<BottomSheetViewProps> BottomSheetMakeTestProps(
   auto descriptor = [factory createComponentViewWithComponentHandle:BottomSheetViewShadowNode::Handle()];
   UIView<RCTComponentViewProtocol> *component = descriptor.view;
 
-  auto props = BottomSheetMakeTestProps(nativeOverlay, index, NO);
   Props::Shared sharedProps = props;
   [component updateProps:sharedProps oldProps:component.props];
   return component;
