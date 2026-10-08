@@ -14,6 +14,7 @@
 		A20000000000000000000003 /* BottomSheetHostingViewLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000004 /* BottomSheetHostingViewLifecycleTests.swift */; };
 		A20000000000000000000004 /* BottomSheetHostFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000005 /* BottomSheetHostFixture.swift */; };
 		A20000000000000000000005 /* BottomSheetEventRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000006 /* BottomSheetEventRecorder.swift */; };
+		A20000000000000000000017 /* BottomSheetPresentationPolicyTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000023 /* BottomSheetPresentationPolicyTests.mm */; };
 		A20000000000000000000006 /* BottomSheetPresentationOwnershipTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000009 /* BottomSheetPresentationOwnershipTests.mm */; };
 		A20000000000000000000007 /* BottomSheetAccessibleDismissalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000010 /* BottomSheetAccessibleDismissalTests.swift */; };
 		A20000000000000000000008 /* BottomSheetNativeOverlayAccessibilityTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000011 /* BottomSheetNativeOverlayAccessibilityTests.mm */; };
@@ -48,6 +49,7 @@
 		A30000000000000000000006 /* BottomSheetEventRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomSheetEventRecorder.swift; sourceTree = "<group>"; };
 		A30000000000000000000007 /* BottomSheetNativeTestHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BottomSheetNativeTestHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A30000000000000000000008 /* BottomSheetNativeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BottomSheetNativeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A30000000000000000000023 /* BottomSheetPresentationPolicyTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = BottomSheetPresentationPolicyTests.mm; sourceTree = "<group>"; };
 		A30000000000000000000009 /* BottomSheetPresentationOwnershipTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = BottomSheetPresentationOwnershipTests.mm; sourceTree = "<group>"; };
 		A30000000000000000000010 /* BottomSheetAccessibleDismissalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomSheetAccessibleDismissalTests.swift; sourceTree = "<group>"; };
 		A30000000000000000000011 /* BottomSheetNativeOverlayAccessibilityTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = BottomSheetNativeOverlayAccessibilityTests.mm; sourceTree = "<group>"; };
@@ -141,6 +143,7 @@
 			isa = PBXGroup;
 			children = (
 				A30000000000000000000004 /* BottomSheetHostingViewLifecycleTests.swift */,
+				A30000000000000000000023 /* BottomSheetPresentationPolicyTests.mm */,
 				A30000000000000000000009 /* BottomSheetPresentationOwnershipTests.mm */,
 				A30000000000000000000010 /* BottomSheetAccessibleDismissalTests.swift */,
 				A30000000000000000000011 /* BottomSheetNativeOverlayAccessibilityTests.mm */,
@@ -361,6 +364,7 @@
 				A20000000000000000000003 /* BottomSheetHostingViewLifecycleTests.swift in Sources */,
 				A20000000000000000000004 /* BottomSheetHostFixture.swift in Sources */,
 				A20000000000000000000005 /* BottomSheetEventRecorder.swift in Sources */,
+				A20000000000000000000017 /* BottomSheetPresentationPolicyTests.mm in Sources */,
 				A20000000000000000000006 /* BottomSheetPresentationOwnershipTests.mm in Sources */,
 				A20000000000000000000007 /* BottomSheetAccessibleDismissalTests.swift in Sources */,
 				A20000000000000000000008 /* BottomSheetNativeOverlayAccessibilityTests.mm in Sources */,

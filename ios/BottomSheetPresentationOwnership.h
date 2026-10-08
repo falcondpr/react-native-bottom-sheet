@@ -1,4 +1,4 @@
-#import <Foundation/Foundation.h>
+#import "BottomSheetPresentationPolicy.h"
 #import <UIKit/UIKit.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -7,55 +7,6 @@ typedef NS_ENUM(NSInteger, BottomSheetPresentationMode) {
   BottomSheetPresentationModePortal,
   BottomSheetPresentationModeNativeOverlay,
 };
-
-@class BottomSheetPresentationIdentity;
-
-typedef NS_ENUM(NSInteger, BottomSheetPresentationOrder) {
-  BottomSheetPresentationOrderUnknown,
-  BottomSheetPresentationOrderBelow,
-  BottomSheetPresentationOrderAbove,
-};
-
-typedef NS_ENUM(NSInteger, BottomSheetPresentationEscapeRoute) {
-  BottomSheetPresentationEscapeRoutePassThrough,
-  BottomSheetPresentationEscapeRouteAttemptLocal,
-  BottomSheetPresentationEscapeRouteConsume,
-};
-
-typedef BottomSheetPresentationOrder (^BottomSheetPresentationOrderProvider)(
-    BottomSheetPresentationIdentity *first,
-    BottomSheetPresentationIdentity *second);
-
-@interface BottomSheetPresentationCandidate : NSObject
-
-- (instancetype)initWithIdentity:(BottomSheetPresentationIdentity *)identity
-                           active:(BOOL)active
-                         eligible:(BOOL)eligible NS_DESIGNATED_INITIALIZER;
-- (instancetype)init NS_UNAVAILABLE;
-
-@property (nonatomic, strong, readonly) BottomSheetPresentationIdentity *identity;
-@property (nonatomic, readonly, getter=isActive) BOOL active;
-@property (nonatomic, readonly, getter=isEligible) BOOL eligible;
-
-@end
-
-@interface BottomSheetPresentationResolver : NSObject
-
-+ (nullable BottomSheetPresentationIdentity *)topPresentationIdentityFromCandidates:
-                                                   (NSArray<BottomSheetPresentationCandidate *> *)candidates
-                                                                    orderProvider:
-                                                                        (BottomSheetPresentationOrderProvider)orderProvider;
-
-@end
-
-@interface BottomSheetPresentationEscapeResolver : NSObject
-
-+ (BottomSheetPresentationEscapeRoute)routeForCallerIdentity:
-                                          (BottomSheetPresentationIdentity *)callerIdentity
-                                               topPresentationIdentity:
-                                                   (nullable BottomSheetPresentationIdentity *)topPresentationIdentity;
-
-@end
 
 @interface BottomSheetPresentationUIKitOrderResolver : NSObject
 
@@ -83,9 +34,6 @@ typedef BottomSheetPresentationOrder (^BottomSheetPresentationOrderProvider)(
 - (BottomSheetPresentationEscapeRoute)routeForVoiceOverEscape;
 - (void)invalidate;
 
-@end
-
-@interface BottomSheetPresentationIdentity : NSObject <NSCopying>
 @end
 
 @interface BottomSheetPresentationCoordinator : NSObject
