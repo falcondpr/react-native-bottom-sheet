@@ -8,13 +8,8 @@ import java.util.IdentityHashMap
 
 /** Applies the accessibility path cut for one nearest React Native root. */
 internal class PortalAccessibilityReconciler(root: ViewGroup) {
-  private class MaskRecord(view: View, var restoreCandidate: Int) {
-    val view = WeakReference(view)
-    val coordinatorWrite = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-  }
-
   private val root = WeakReference(root)
-  private val maskRecords = mutableListOf<MaskRecord>()
+  private val maskLedger = PortalAccessibilityMaskLedger()
 
   fun reconcile(retainedAnchors: Collection<View>): Boolean {
     val root = root.get()
@@ -33,30 +28,7 @@ internal class PortalAccessibilityReconciler(root: ViewGroup) {
         parent.getChildAt(index).takeIf { it !in retained }?.let(desiredMasks::add)
       }
     }
-    desiredMasks.forEach { view ->
-      val record = maskRecords.firstOrNull { it.view.get() === view }
-      if (record == null) {
-        // If the application already owns the same NO_HIDE_DESCENDANTS scalar, that write is
-        // indistinguishable from ours. The last distinguishable value remains the best restore
-        // candidate, as required by ADR-0002's explicit same-value limitation.
-        maskRecords.add(MaskRecord(view, view.importantForAccessibility))
-        view.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-      } else if (view.importantForAccessibility != record.coordinatorWrite) {
-        record.restoreCandidate = view.importantForAccessibility
-        view.importantForAccessibility = record.coordinatorWrite
-      }
-    }
-    val records = maskRecords.iterator()
-    while (records.hasNext()) {
-      val record = records.next()
-      val view = record.view.get()
-      if (view == null || view !in desiredMasks) {
-        if (view?.importantForAccessibility == record.coordinatorWrite) {
-          view.importantForAccessibility = record.restoreCandidate
-        }
-        records.remove()
-      }
-    }
+    maskLedger.reconcile(desiredMasks)
     return retainedChildren.isNotEmpty()
   }
 

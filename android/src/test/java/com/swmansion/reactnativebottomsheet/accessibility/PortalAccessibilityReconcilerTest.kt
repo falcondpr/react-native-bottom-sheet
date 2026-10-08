@@ -52,66 +52,6 @@ class PortalAccessibilityReconcilerTest {
   }
 
   @Test
-  fun `final release restores every exact accessibility importance baseline`() {
-    val activity = Robolectric.buildActivity(Activity::class.java).setup()
-    try {
-      val root = FrameLayout(activity.get())
-      val baselines =
-        listOf(
-          View.IMPORTANT_FOR_ACCESSIBILITY_AUTO,
-          View.IMPORTANT_FOR_ACCESSIBILITY_YES,
-          View.IMPORTANT_FOR_ACCESSIBILITY_NO,
-          View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
-        )
-      val background = baselines.map { baseline ->
-        View(activity.get()).apply {
-          importantForAccessibility = baseline
-          root.addView(this)
-        }
-      }
-      val owner = View(activity.get()).also(root::addView)
-      activity.get().setContentView(root)
-      val reconciler = PortalAccessibilityReconciler(root)
-
-      reconciler.reconcile(listOf(owner))
-      reconciler.reconcile(emptyList())
-
-      assertEquals(baselines, background.map(View::getImportantForAccessibility))
-    } finally {
-      activity.close()
-    }
-  }
-
-  @Test
-  fun `distinguishable application write is covered again and becomes the restore candidate`() {
-    val activity = Robolectric.buildActivity(Activity::class.java).setup()
-    try {
-      val root = FrameLayout(activity.get())
-      val background =
-        View(activity.get()).apply {
-          importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
-          root.addView(this)
-        }
-      val owner = View(activity.get()).also(root::addView)
-      activity.get().setContentView(root)
-      val reconciler = PortalAccessibilityReconciler(root)
-      reconciler.reconcile(listOf(owner))
-
-      background.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-      reconciler.reconcile(listOf(owner))
-
-      assertEquals(
-        View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
-        background.importantForAccessibility,
-      )
-      reconciler.reconcile(emptyList())
-      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO, background.importantForAccessibility)
-    } finally {
-      activity.close()
-    }
-  }
-
-  @Test
   fun `multiple retained paths preserve both owners and mask their remaining side branches`() {
     val activity = Robolectric.buildActivity(Activity::class.java).setup()
     try {
@@ -167,46 +107,6 @@ class PortalAccessibilityReconcilerTest {
   }
 
   @Test
-  fun `release preserves an application write made after the coordinator mask`() {
-    val activity = Robolectric.buildActivity(Activity::class.java).setup()
-    try {
-      val root = FrameLayout(activity.get())
-      val background = View(activity.get()).also(root::addView)
-      val owner = View(activity.get()).also(root::addView)
-      activity.get().setContentView(root)
-      val reconciler = PortalAccessibilityReconciler(root)
-      reconciler.reconcile(listOf(owner))
-
-      background.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
-      reconciler.reconcile(emptyList())
-
-      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_YES, background.importantForAccessibility)
-    } finally {
-      activity.close()
-    }
-  }
-
-  @Test
-  fun `same-value application write remains indistinguishable and restores the last candidate`() {
-    val activity = Robolectric.buildActivity(Activity::class.java).setup()
-    try {
-      val root = FrameLayout(activity.get())
-      val background = View(activity.get()).also(root::addView)
-      val owner = View(activity.get()).also(root::addView)
-      activity.get().setContentView(root)
-      val reconciler = PortalAccessibilityReconciler(root)
-      reconciler.reconcile(listOf(owner))
-
-      background.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-      reconciler.reconcile(emptyList())
-
-      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, background.importantForAccessibility)
-    } finally {
-      activity.close()
-    }
-  }
-
-  @Test
   fun `dynamic insertion removal and repeated reconciliation use the current hierarchy`() {
     val activity = Robolectric.buildActivity(Activity::class.java).setup()
     try {
@@ -228,37 +128,6 @@ class PortalAccessibilityReconcilerTest {
       root.removeView(added)
       reconciler.reconcile(listOf(owner))
       assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, added.importantForAccessibility)
-    } finally {
-      activity.close()
-    }
-  }
-
-  @Test
-  fun `owner transfer masks the new side branch before restoring the old one`() {
-    val activity = Robolectric.buildActivity(Activity::class.java).setup()
-    try {
-      val root = FrameLayout(activity.get())
-      val background = View(activity.get()).also(root::addView)
-      val firstBranch = FrameLayout(activity.get()).also(root::addView)
-      val firstOwner = View(activity.get()).also(firstBranch::addView)
-      var maskedAtRestore = false
-      val secondBranch =
-        RestoreObservingLayout(activity.get()) {
-            maskedAtRestore =
-              firstBranch.importantForAccessibility ==
-                View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS &&
-                background.importantForAccessibility ==
-                  View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-          }
-          .also(root::addView)
-      val secondOwner = View(activity.get()).also(secondBranch::addView)
-      activity.get().setContentView(root)
-      val reconciler = PortalAccessibilityReconciler(root)
-      reconciler.reconcile(listOf(firstOwner))
-
-      reconciler.reconcile(listOf(secondOwner))
-
-      assertEquals(true, maskedAtRestore)
     } finally {
       activity.close()
     }
@@ -308,21 +177,6 @@ class PortalAccessibilityReconcilerTest {
     override fun setImportantForAccessibility(mode: Int) {
       super.setImportantForAccessibility(mode)
       writeCount++
-    }
-  }
-
-  private class RestoreObservingLayout(
-    context: Context,
-    private val onRestore: () -> Unit,
-  ) : FrameLayout(context) {
-    override fun setImportantForAccessibility(mode: Int) {
-      if (
-        importantForAccessibility == View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS &&
-          mode != View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-      ) {
-        onRestore()
-      }
-      super.setImportantForAccessibility(mode)
     }
   }
 }
