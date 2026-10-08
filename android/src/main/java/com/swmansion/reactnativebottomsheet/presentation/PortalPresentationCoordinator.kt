@@ -185,23 +185,19 @@ internal object PortalPresentationCoordinator {
       return
     }
     window.observeDrawing(root)
-    val top =
-      contexts.keys.singleOrNull { candidate ->
-        contexts.all { (other, context) ->
-          candidate === other ||
-            NativePortalOrderResolver.compare(contexts.getValue(candidate), context) ==
-              NativePortalOrder.ABOVE
-        }
+    val ownership =
+      resolvePresentationOwnership(contexts.keys.toList()) { candidate, other ->
+        NativePortalOrderResolver.compare(contexts.getValue(candidate), contexts.getValue(other))
       }
-    val closeOwner = top ?: entries.lastOrNull { it in contexts }
+    val closeOwner = ownership.top ?: ownership.closeFallbackOwner
     // Registration order is only a Close fallback, never evidence for Top.
     // Withdraw the previous assignment synchronously before enabling its successor.
     entries.filter { it !== closeOwner }.forEach { it.assign(PortalPresentationAssignment.NONE) }
     closeOwner?.assign(
-      if (top != null) PortalPresentationAssignment.TOP
+      if (ownership.top != null) PortalPresentationAssignment.TOP
       else PortalPresentationAssignment.CLOSE_FALLBACK
     )
-    val retainedEntries = top?.let(::listOf) ?: contexts.keys.toList()
+    val retainedEntries = ownership.retainedPresentations
     val retainedContexts = retainedEntries.mapNotNull(contexts::get)
     publishAccessibilityPolicy(
       root,
