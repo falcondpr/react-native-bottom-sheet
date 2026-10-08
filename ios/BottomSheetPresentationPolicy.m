@@ -115,3 +115,120 @@
 }
 
 @end
+
+@implementation BottomSheetPresentationContextIdentity
+
+- (id)copyWithZone:(NSZone *)zone
+{
+  return self;
+}
+
+@end
+
+@implementation BottomSheetInputContextCandidate
+
+- (instancetype)initWithIdentity:(BottomSheetPresentationContextIdentity *)identity
+                           active:(BOOL)active
+{
+  if (self = [super init]) {
+    _identity = identity;
+    _active = active;
+  }
+  return self;
+}
+
+@end
+
+@interface BottomSheetAccessibilityActionOrigin ()
+
+- (instancetype)initWithState:(BottomSheetAccessibilityActionOriginState)state
+           containingContexts:(NSArray<BottomSheetInputContextCandidate *> *)contexts;
+
+@end
+
+@implementation BottomSheetAccessibilityActionOrigin
+
+- (instancetype)initWithState:(BottomSheetAccessibilityActionOriginState)state
+           containingContexts:(NSArray<BottomSheetInputContextCandidate *> *)contexts
+{
+  if (self = [super init]) {
+    _state = state;
+    _containingContexts = [contexts copy];
+  }
+  return self;
+}
+
++ (instancetype)insideContexts:(NSArray<BottomSheetInputContextCandidate *> *)contexts
+{
+  return [[self alloc] initWithState:BottomSheetAccessibilityActionOriginStateInside
+                containingContexts:contexts];
+}
+
++ (instancetype)knownOutside
+{
+  return [[self alloc] initWithState:BottomSheetAccessibilityActionOriginStateKnownOutside
+                containingContexts:@[]];
+}
+
++ (instancetype)absent
+{
+  return [[self alloc] initWithState:BottomSheetAccessibilityActionOriginStateAbsent
+                containingContexts:@[]];
+}
+
++ (instancetype)unmappable
+{
+  return [[self alloc] initWithState:BottomSheetAccessibilityActionOriginStateUnmappable
+                containingContexts:@[]];
+}
+
+@end
+
+@interface BottomSheetActiveInputContext ()
+
+- (instancetype)initWithKind:(BottomSheetActiveInputContextKind)kind
+      portalContextIdentity:(nullable BottomSheetPresentationContextIdentity *)identity;
+
+@end
+
+@implementation BottomSheetActiveInputContext
+
+- (instancetype)initWithKind:(BottomSheetActiveInputContextKind)kind
+      portalContextIdentity:(nullable BottomSheetPresentationContextIdentity *)identity
+{
+  if (self = [super init]) {
+    _kind = kind;
+    _portalContextIdentity = identity;
+  }
+  return self;
+}
+
+@end
+
+@implementation BottomSheetAccessibilityInputContextResolver
+
++ (nullable BottomSheetActiveInputContext *)contextForActionOrigin:(BottomSheetAccessibilityActionOrigin *)origin
+                  hasForegroundWindowModalPresentation:(BOOL)hasForegroundWindowModalPresentation
+{
+  if (hasForegroundWindowModalPresentation) {
+    return [[BottomSheetActiveInputContext alloc] initWithKind:BottomSheetActiveInputContextKindWindowModal
+                                       portalContextIdentity:nil];
+  }
+  if (origin.state == BottomSheetAccessibilityActionOriginStateKnownOutside) {
+    return [[BottomSheetActiveInputContext alloc] initWithKind:BottomSheetActiveInputContextKindHost
+                                       portalContextIdentity:nil];
+  }
+  if (origin.state == BottomSheetAccessibilityActionOriginStateInside) {
+    for (BottomSheetInputContextCandidate *candidate in origin.containingContexts) {
+      if (candidate.isActive) {
+        return [[BottomSheetActiveInputContext alloc] initWithKind:BottomSheetActiveInputContextKindPortal
+                                           portalContextIdentity:candidate.identity];
+      }
+    }
+    return [[BottomSheetActiveInputContext alloc] initWithKind:BottomSheetActiveInputContextKindHost
+                                       portalContextIdentity:nil];
+  }
+  return nil;
+}
+
+@end

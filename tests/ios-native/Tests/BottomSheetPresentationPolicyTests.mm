@@ -9,6 +9,127 @@
 
 @implementation BottomSheetPresentationPolicyTests
 
+- (void)testAccessibilityActionInsideBSelectsItsPortalContext
+{
+  BottomSheetPresentationContextIdentity *contextB = [BottomSheetPresentationContextIdentity new];
+  BottomSheetAccessibilityActionOrigin *origin = [BottomSheetAccessibilityActionOrigin insideContexts:@[
+    [[BottomSheetInputContextCandidate alloc] initWithIdentity:contextB active:YES],
+  ]];
+
+  BottomSheetActiveInputContext *context =
+      [BottomSheetAccessibilityInputContextResolver contextForActionOrigin:origin
+                                    hasForegroundWindowModalPresentation:NO];
+
+  XCTAssertEqual(context.kind, BottomSheetActiveInputContextKindPortal);
+  XCTAssertEqualObjects(context.portalContextIdentity, contextB);
+}
+
+- (void)testInactiveInnerActionContextUsesItsActiveEnclosingContext
+{
+  BottomSheetPresentationContextIdentity *contextA = [BottomSheetPresentationContextIdentity new];
+  BottomSheetPresentationContextIdentity *contextB = [BottomSheetPresentationContextIdentity new];
+  BottomSheetAccessibilityActionOrigin *origin = [BottomSheetAccessibilityActionOrigin insideContexts:@[
+    [[BottomSheetInputContextCandidate alloc] initWithIdentity:contextB active:NO],
+    [[BottomSheetInputContextCandidate alloc] initWithIdentity:contextA active:YES],
+  ]];
+
+  BottomSheetActiveInputContext *context =
+      [BottomSheetAccessibilityInputContextResolver contextForActionOrigin:origin
+                                    hasForegroundWindowModalPresentation:NO];
+
+  XCTAssertEqual(context.kind, BottomSheetActiveInputContextKindPortal);
+  XCTAssertEqualObjects(context.portalContextIdentity, contextA);
+}
+
+- (void)testKnownOutsideAccessibilityActionSelectsHost
+{
+  BottomSheetActiveInputContext *context =
+      [BottomSheetAccessibilityInputContextResolver
+          contextForActionOrigin:[BottomSheetAccessibilityActionOrigin knownOutside]
+          hasForegroundWindowModalPresentation:NO];
+
+  XCTAssertEqual(context.kind, BottomSheetActiveInputContextKindHost);
+  XCTAssertNil(context.portalContextIdentity);
+}
+
+- (void)testActionInsideContextsWithoutActivePresentationSelectsHost
+{
+  BottomSheetPresentationContextIdentity *contextA = [BottomSheetPresentationContextIdentity new];
+  BottomSheetAccessibilityActionOrigin *origin = [BottomSheetAccessibilityActionOrigin insideContexts:@[
+    [[BottomSheetInputContextCandidate alloc] initWithIdentity:contextA active:NO],
+  ]];
+
+  BottomSheetActiveInputContext *context =
+      [BottomSheetAccessibilityInputContextResolver contextForActionOrigin:origin
+                                    hasForegroundWindowModalPresentation:NO];
+
+  XCTAssertEqual(context.kind, BottomSheetActiveInputContextKindHost);
+  XCTAssertNil(context.portalContextIdentity);
+}
+
+- (void)testForegroundWindowModalOverridesKnownOutsideActionOrigin
+{
+  BottomSheetActiveInputContext *context =
+      [BottomSheetAccessibilityInputContextResolver
+          contextForActionOrigin:[BottomSheetAccessibilityActionOrigin knownOutside]
+          hasForegroundWindowModalPresentation:YES];
+
+  XCTAssertEqual(context.kind, BottomSheetActiveInputContextKindWindowModal);
+  XCTAssertNil(context.portalContextIdentity);
+}
+
+- (void)testActiveInnerContextWinsOverItsActiveEnclosingContext
+{
+  BottomSheetPresentationContextIdentity *contextA = [BottomSheetPresentationContextIdentity new];
+  BottomSheetPresentationContextIdentity *contextB = [BottomSheetPresentationContextIdentity new];
+  BottomSheetAccessibilityActionOrigin *origin = [BottomSheetAccessibilityActionOrigin insideContexts:@[
+    [[BottomSheetInputContextCandidate alloc] initWithIdentity:contextB active:YES],
+    [[BottomSheetInputContextCandidate alloc] initWithIdentity:contextA active:YES],
+  ]];
+
+  BottomSheetActiveInputContext *context =
+      [BottomSheetAccessibilityInputContextResolver contextForActionOrigin:origin
+                                    hasForegroundWindowModalPresentation:NO];
+
+  XCTAssertEqual(context.kind, BottomSheetActiveInputContextKindPortal);
+  XCTAssertEqualObjects(context.portalContextIdentity, contextB);
+}
+
+- (void)testUnmappableActionOriginDoesNotInventAnInputContext
+{
+  BottomSheetActiveInputContext *context =
+      [BottomSheetAccessibilityInputContextResolver
+          contextForActionOrigin:[BottomSheetAccessibilityActionOrigin unmappable]
+          hasForegroundWindowModalPresentation:NO];
+
+  XCTAssertNil(context);
+}
+
+- (void)testAbsentActionOriginDoesNotInventAnInputContext
+{
+  BottomSheetActiveInputContext *context =
+      [BottomSheetAccessibilityInputContextResolver
+          contextForActionOrigin:[BottomSheetAccessibilityActionOrigin absent]
+          hasForegroundWindowModalPresentation:NO];
+
+  XCTAssertNil(context);
+}
+
+- (void)testForegroundWindowModalOverridesInsidePortalActionOrigin
+{
+  BottomSheetPresentationContextIdentity *contextB = [BottomSheetPresentationContextIdentity new];
+  BottomSheetAccessibilityActionOrigin *origin = [BottomSheetAccessibilityActionOrigin insideContexts:@[
+    [[BottomSheetInputContextCandidate alloc] initWithIdentity:contextB active:YES],
+  ]];
+
+  BottomSheetActiveInputContext *context =
+      [BottomSheetAccessibilityInputContextResolver contextForActionOrigin:origin
+                                    hasForegroundWindowModalPresentation:YES];
+
+  XCTAssertEqual(context.kind, BottomSheetActiveInputContextKindWindowModal);
+  XCTAssertNil(context.portalContextIdentity);
+}
+
 - (void)testPureResolverFiltersInactiveCandidate
 {
   BottomSheetPresentationIdentity *lowerIdentity = [BottomSheetPresentationIdentity new];
