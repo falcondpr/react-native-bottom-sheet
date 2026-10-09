@@ -48,12 +48,12 @@ static UIView *BottomSheetAssertIntegrationDismissGeometry(BottomSheetHostingVie
 {
   UIView *dismiss = BottomSheetFindIntegrationDismiss(host);
   XCTAssertNotNil(dismiss);
-  XCTAssertTrue(CGRectEqualToRect(dismiss.frame, host.bounds));
   CGRect hostRect = CGRectMake(
       CGRectGetMinX(host.bounds),
       CGRectGetMinY(host.bounds),
       CGRectGetWidth(host.bounds),
       MAX(0, host.currentContentOffsetY));
+  XCTAssertTrue(CGRectEqualToRect(dismiss.frame, hostRect));
   CGRect expectedFrame = UIAccessibilityConvertFrameToScreenCoordinates(hostRect, host);
   XCTAssertEqualWithAccuracy(
       CGRectGetMinX(dismiss.accessibilityFrame), CGRectGetMinX(expectedFrame), 0.5);

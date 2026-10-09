@@ -92,7 +92,7 @@ final class BottomSheetHostingViewLifecycleTests: XCTestCase {
     host.setNeedsLayout()
     host.layoutIfNeeded()
 
-    XCTAssertEqual(dismiss.frame, host.bounds)
+    XCTAssertEqual(dismiss.frame, CGRect(x: 0, y: 0, width: 360, height: 220))
     assertDismissFrame(dismiss, in: host, sheetPosition: 480)
     XCTAssertEqual(BottomSheetAccessibilityObservation.layoutChangedNotificationCount(), 1)
 

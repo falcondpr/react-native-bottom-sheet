@@ -114,7 +114,32 @@ private final class ActiveScrollViewState {
 /// a tap at the activation point; attempting dismissal directly keeps
 /// activation reliable even when the sheet overlaps that point mid-settle.
 private final class BottomSheetScrimControl: UIControl {
+  // Keep the native hit area outside the sheet while drawing the scrim behind
+  // the entire host, including the sheet's transparent rounded corners.
+  private let backgroundView = UIView()
   var onAccessibilityActivate: (() -> Bool)?
+
+  override var backgroundColor: UIColor? {
+    get { backgroundView.backgroundColor }
+    set { backgroundView.backgroundColor = newValue }
+  }
+
+  override init(frame: CGRect) {
+    super.init(frame: frame)
+    clipsToBounds = false
+    backgroundView.isUserInteractionEnabled = false
+    backgroundView.accessibilityElementsHidden = true
+    addSubview(backgroundView)
+  }
+
+  @available(*, unavailable)
+  required init?(coder _: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  func setBackgroundSize(_ size: CGSize) {
+    backgroundView.frame = CGRect(origin: .zero, size: size)
+  }
 
   override func accessibilityActivate() -> Bool {
     onAccessibilityActivate?() ?? false
@@ -339,7 +364,7 @@ public final class BottomSheetHostingView: UIView {
       beginStableDismissGeometryTransition()
     }
 
-    scrimView.frame = bounds
+    scrimView.setBackgroundSize(bounds.size)
     refreshDetentsFromLayout(commitsStableGeometry: false)
     let maxHeight = sheetContainerHeight
     lastAppliedMaxDetentHeight = maxHeight
@@ -1934,6 +1959,7 @@ private extension BottomSheetHostingView {
     }
 
     dismissAccessibilityFrame = screenFrame
+    scrimView.frame = outsideSheetRect
     scrimView.accessibilityFrame = screenFrame
   }
 
@@ -1941,6 +1967,7 @@ private extension BottomSheetHostingView {
     discardPendingStableDismissGeometry()
     dismissAccessibilityFrame = nil
     scrimView.accessibilityFrame = .zero
+    scrimView.frame = .zero
   }
 
   func beginStableDismissGeometryTransition(replacingPending: Bool = false) {

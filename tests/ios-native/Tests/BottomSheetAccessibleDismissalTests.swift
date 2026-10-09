@@ -4,7 +4,20 @@ import XCTest
 
 @MainActor
 final class BottomSheetAccessibleDismissalTests: XCTestCase {
-  func testStableDismissUsesOutsideSheetScreenFrameWithoutResizingScrim() throws {
+  func testDetachedHostDoesNotExposeADismissHitArea() throws {
+    let host = BottomSheetHostingView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+    host.setNeedsLayout()
+    host.layoutIfNeeded()
+    let dismiss = try XCTUnwrap(host.subviews.first { $0.accessibilityLabel == "Dismiss" })
+
+    XCTAssertFalse(dismiss.isAccessibilityElement)
+    XCTAssertTrue(dismiss.frame.isEmpty)
+    XCTAssertFalse(
+      dismiss.point(inside: dismiss.convert(CGPoint(x: 195, y: 200), from: host), with: nil)
+    )
+  }
+
+  func testStableDismissUsesOutsideSheetScreenFrameAndExcludesSheetInterior() throws {
     let fixture = BottomSheetHostFixture()
     defer { fixture.tearDown() }
     let host = fixture.host
@@ -20,8 +33,15 @@ final class BottomSheetAccessibleDismissalTests: XCTestCase {
       in: host
     )
 
-    XCTAssertEqual(dismiss.frame, host.bounds, "the visual scrim must remain full-screen")
+    assertRect(dismiss.frame, equals: expectedHostRect)
     assertRect(dismiss.accessibilityFrame, equals: expectedScreenFrame)
+    let outsidePoint = CGPoint(x: 195, y: 200)
+    XCTAssertTrue(dismiss.point(inside: dismiss.convert(outsidePoint, from: host), with: nil))
+    XCTAssertTrue(host.hitTest(outsidePoint, with: nil) === dismiss)
+    for point in [CGPoint(x: 195, y: 550), CGPoint(x: 195, y: 740)] {
+      XCTAssertFalse(dismiss.point(inside: dismiss.convert(point, from: host), with: nil))
+      XCTAssertFalse(host.hitTest(point, with: nil) === dismiss)
+    }
   }
 
   func testDismissRequiresDirectClosedDetentAndPositiveOutsideSheetArea() {
