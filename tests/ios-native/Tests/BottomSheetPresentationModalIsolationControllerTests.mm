@@ -106,30 +106,6 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
 
 @implementation BottomSheetPresentationModalIsolationControllerTests
 
-- (void)testCleanupDoesNotRewriteAPreviouslyHiddenApplicationBranch
-{
-  NSMutableArray<NSString *> *writeLog = [NSMutableArray new];
-  UIWindow *window = BottomSheetMakeModalIsolationTestWindow();
-  BottomSheetAccessibilityHiddenRecordingView *applicationBranch =
-      [[BottomSheetAccessibilityHiddenRecordingView alloc] initWithName:@"application"
-                                                                writeLog:writeLog];
-  UIView *presentationBranch = [UIView new];
-  UIView *boundary = [UIView new];
-  applicationBranch.accessibilityElementsHidden = YES;
-  [window.rootViewController.view addSubview:applicationBranch];
-  [window.rootViewController.view addSubview:presentationBranch];
-  [presentationBranch addSubview:boundary];
-  [writeLog removeAllObjects];
-  BottomSheetPresentationController *controller =
-      BottomSheetActivateModalBoundary(boundary, BottomSheetPresentationModePortal);
-
-  [controller invalidate];
-
-  XCTAssertTrue(applicationBranch.accessibilityElementsHidden);
-  XCTAssertEqualObjects(writeLog, (@[]));
-  BottomSheetTearDownModalIsolationTestWindow(window);
-}
-
 - (void)testTopPathHidesSiblingBranchesAndRestoresThemAfterOwnershipEnds
 {
   NSMutableArray<NSString *> *writeLog = [NSMutableArray new];

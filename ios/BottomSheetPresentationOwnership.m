@@ -1,5 +1,7 @@
 #import "BottomSheetPresentationOwnership.h"
 
+#import "BottomSheetAccessibilityMaskLedger.h"
+
 #import <math.h>
 #import <objc/runtime.h>
 
@@ -118,18 +120,10 @@ static void BottomSheetAssertMainThread(void)
 @implementation BottomSheetPresentationCandidateRecord
 @end
 
-@interface BottomSheetAccessibilityHiddenMutation : NSObject
-@property (nonatomic) BOOL baseline;
-@end
-
-@implementation BottomSheetAccessibilityHiddenMutation
-@end
-
 @interface BottomSheetPresentationModalIsolationAdapter : NSObject
 @property (nonatomic, strong) NSHashTable<UIView *> *boundaries;
 @property (nonatomic, strong) NSHashTable<UIView *> *pendingReleasedBoundaries;
-@property (nonatomic, strong)
-    NSMapTable<UIView *, BottomSheetAccessibilityHiddenMutation *> *hiddenBranchMutations;
+@property (nonatomic, strong) BottomSheetAccessibilityMaskLedger *maskLedger;
 
 - (void)registerBoundary:(UIView *)boundary;
 - (void)unregisterBoundary:(UIView *)boundary;
@@ -144,7 +138,7 @@ static void BottomSheetAssertMainThread(void)
   if (self = [super init]) {
     _boundaries = [NSHashTable weakObjectsHashTable];
     _pendingReleasedBoundaries = [NSHashTable weakObjectsHashTable];
-    _hiddenBranchMutations = [NSMapTable weakToStrongObjectsMapTable];
+    _maskLedger = [BottomSheetAccessibilityMaskLedger new];
   }
   return self;
 }
@@ -186,53 +180,26 @@ static void BottomSheetAssertMainThread(void)
   // modal boundary or any branch hidden for the previous Top. This mirrors the
   // boundary transfer order and prevents a synchronous Top swap from exposing
   // lower presentations or application content between writes.
-  for (UIView *branch in hiddenBranches) {
-    BottomSheetAccessibilityHiddenMutation *mutation =
-        [self.hiddenBranchMutations objectForKey:branch];
-    if (mutation == nil) {
-      mutation = [BottomSheetAccessibilityHiddenMutation new];
-      mutation.baseline = branch.accessibilityElementsHidden;
-      [self.hiddenBranchMutations setObject:mutation forKey:branch];
+  [self.maskLedger reconcileHiddenBranches:hiddenBranches
+                  beforeRestoringBranches:^{
+    NSArray<UIView *> *boundaries = self.boundaries.allObjects;
+    for (UIView *boundary in boundaries) {
+      if (boundary != topBoundary && boundary.accessibilityViewIsModal) {
+        boundary.accessibilityViewIsModal = NO;
+      }
     }
-    if (!branch.accessibilityElementsHidden) {
-      branch.accessibilityElementsHidden = YES;
-    }
-  }
 
-  NSArray<UIView *> *boundaries = self.boundaries.allObjects;
-  for (UIView *boundary in boundaries) {
-    if (boundary != topBoundary && boundary.accessibilityViewIsModal) {
-      boundary.accessibilityViewIsModal = NO;
+    NSArray<UIView *> *releasedBoundaries = self.pendingReleasedBoundaries.allObjects;
+    for (UIView *boundary in releasedBoundaries) {
+      if (boundary == topBoundary) {
+        continue;
+      }
+      if (boundary.accessibilityViewIsModal) {
+        boundary.accessibilityViewIsModal = NO;
+      }
+      [self.pendingReleasedBoundaries removeObject:boundary];
     }
-  }
-
-  NSArray<UIView *> *releasedBoundaries = self.pendingReleasedBoundaries.allObjects;
-  for (UIView *boundary in releasedBoundaries) {
-    if (boundary == topBoundary) {
-      continue;
-    }
-    if (boundary.accessibilityViewIsModal) {
-      boundary.accessibilityViewIsModal = NO;
-    }
-    [self.pendingReleasedBoundaries removeObject:boundary];
-  }
-
-  NSArray<UIView *> *previouslyHiddenBranches =
-      self.hiddenBranchMutations.keyEnumerator.allObjects;
-  for (UIView *branch in previouslyHiddenBranches) {
-    if ([hiddenBranches containsObject:branch]) {
-      continue;
-    }
-    BottomSheetAccessibilityHiddenMutation *mutation =
-        [self.hiddenBranchMutations objectForKey:branch];
-    // A later writer that made the branch visible wins. Restore only the
-    // library's hidden write; a branch whose baseline was already hidden does
-    // not need another setter invocation during cleanup.
-    if (mutation != nil && branch.accessibilityElementsHidden && !mutation.baseline) {
-      branch.accessibilityElementsHidden = NO;
-    }
-    [self.hiddenBranchMutations removeObjectForKey:branch];
-  }
+  }];
 }
 
 - (void)invalidate
@@ -240,7 +207,6 @@ static void BottomSheetAssertMainThread(void)
   [self reconcileTopBoundary:nil];
   [self.boundaries removeAllObjects];
   [self.pendingReleasedBoundaries removeAllObjects];
-  [self.hiddenBranchMutations removeAllObjects];
 }
 
 @end
