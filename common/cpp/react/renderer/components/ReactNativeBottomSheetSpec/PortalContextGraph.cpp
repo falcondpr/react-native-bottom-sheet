@@ -1,0 +1,200 @@
+#include "PortalContextGraph.h"
+#include <react/renderer/components/view/ViewProps.h>
+#include <react/renderer/core/LayoutableShadowNode.h>
+#include <react/renderer/core/ShadowNodeFamily.h>
+
+namespace facebook::react::bottomsheet {
+
+namespace {
+bool indexNodes(const ShadowNode& node, PortalShadowNodeIndex& nodes) {
+  if (!nodes.emplace(node.getTag(), &node).second) return false;
+  for (const auto& child : node.getChildren()) {
+    if (!indexNodes(*child, nodes)) return false;
+  }
+  return true;
+}
+
+// display:contents is unavailable in older supported Yoga releases.
+template <typename Display>
+bool isContents(Display value) {
+  if constexpr (requires { Display::Contents; }) {
+    return value == Display::Contents;
+  }
+  return false;
+}
+
+const ShadowNode* containingBlock(
+    const ShadowNode& root,
+    const ShadowNodeFamily& host) {
+  auto ancestors = host.getAncestors(root);
+  for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
+    const auto& node = it->first.get();
+    auto layoutable = dynamic_cast<const LayoutableShadowNode*>(&node);
+    if (!layoutable) continue;
+    auto props = dynamic_cast<const ViewProps*>(node.getProps().get());
+    if (!props || props->yogaStyle.display() == yoga::Display::None) {
+      return nullptr;
+    }
+    if (isContents(props->yogaStyle.display())) continue;
+    if (&node == &root ||
+        layoutable->getLayoutMetrics().positionType != PositionType::Static ||
+        props->transform != Transform::Identity() || !props->filter.empty()) {
+      return &node;
+    }
+  }
+  return nullptr;
+}
+} // namespace
+
+std::optional<PortalShadowNodeIndex> indexPortalShadowNodes(const ShadowNode& root) {
+  PortalShadowNodeIndex nodes;
+  if (!indexNodes(root, nodes)) return std::nullopt;
+  return nodes;
+}
+
+std::optional<PortalContextGraph> discoverPortalContexts(const ShadowNode& root) {
+  auto nodes = indexPortalShadowNodes(root);
+  if (!nodes) return std::nullopt;
+  PortalContextGraph graph{.nodes = std::move(*nodes)};
+  for (const auto& [tag, node] : graph.nodes) {
+    if (node->getProps()->nativeId != PortalHostNativeID) continue;
+    auto boundary = containingBlock(root, node->getFamily());
+    if (!boundary) return std::nullopt;
+    graph.hostContexts.emplace(tag, boundary->getTag());
+    auto [context, inserted] = graph.contexts.try_emplace(
+        boundary->getTag(), PortalContext{boundary, {}, std::nullopt});
+    context->second.hosts.insert(tag);
+  }
+  for (auto& [tag, context] : graph.contexts) {
+    auto ancestors = context.boundary->getFamily().getAncestors(root);
+    for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
+      Tag parent = it->first.get().getTag();
+      if (graph.contexts.contains(parent)) {
+        context.parent = parent;
+        break;
+      }
+    }
+  }
+  return graph;
+}
+
+std::optional<Tag> PortalContextGraph::hostForPresentation(
+    const ShadowNodeFamily& presentation,
+    const ShadowNode& root) const {
+  auto currentRoot = nodes.find(root.getTag());
+  auto currentNode = nodes.find(presentation.getTag());
+  if (currentRoot == nodes.end() || currentRoot->second != &root ||
+      currentNode == nodes.end() ||
+      &currentNode->second->getFamily() != &presentation) {
+    return std::nullopt;
+  }
+  auto ancestors = presentation.getAncestors(root);
+  for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
+    Tag tag = it->first.get().getTag();
+    if (hostContexts.contains(tag)) return tag;
+  }
+  return std::nullopt;
+}
+
+std::optional<PortalIsolationProjection> projectPortalIsolation(
+    const PortalContextGraph& graph,
+    const PortalNativeMembers& members,
+    const std::vector<PortalRetainedPaths>& requests) {
+  PortalIsolationProjection projection;
+  std::map<Tag, Tag> logicalParents;
+  for (const auto& [tag, node] : graph.nodes) {
+    for (const auto& child : node->getChildren()) {
+      logicalParents.emplace(child->getTag(), tag);
+    }
+  }
+  auto currentNode = [&](const ShadowNodeFamily* family) -> const ShadowNode* {
+    if (!family) return nullptr;
+    auto found = graph.nodes.find(family->getTag());
+    return found != graph.nodes.end() && &found->second->getFamily() == family
+        ? found->second
+        : nullptr;
+  };
+  using RetainedEdges = std::map<Tag, std::set<Tag>>;
+  std::map<Tag, RetainedEdges> contextEdges;
+  std::map<Tag, std::set<Tag>> retainedPresentations;
+  for (const auto& request : requests) {
+    auto host = currentNode(request.host);
+    if (!host || !graph.hostContexts.contains(host->getTag()) ||
+        !members.alive.contains(host->getTag()) || request.presentations.empty()) {
+      return std::nullopt;
+    }
+    Tag scope = graph.hostContexts.at(host->getTag());
+    auto& edges = contextEdges[scope];
+    for (const auto* family : request.presentations) {
+      auto presentation = currentNode(family);
+      if (!presentation || !members.alive.contains(presentation->getTag())) {
+        return std::nullopt;
+      }
+      Tag child = presentation->getTag();
+      bool passesHost = child == host->getTag();
+      while (child != scope) {
+        auto parent = logicalParents.find(child);
+        if (parent == logicalParents.end()) return std::nullopt;
+        edges[parent->second].insert(child);
+        child = parent->second;
+        passesHost |= child == host->getTag();
+      }
+      if (!passesHost) return std::nullopt;
+      retainedPresentations[scope].insert(presentation->getTag());
+    }
+  }
+  for (const auto& [scope, edges] : contextEdges) {
+    auto ancestor = graph.contexts.at(scope).parent;
+    while (ancestor && !contextEdges.contains(*ancestor)) {
+      ancestor = graph.contexts.at(*ancestor).parent;
+    }
+    if (!ancestor) continue;
+    // The nearest active containing context already connects this path to
+    // higher contexts. A retained whole presentation must keep its content
+    // outside the inner area; only an inactive presentation needs path lifting.
+    Tag child = scope;
+    auto& outerEdges = contextEdges.at(*ancestor);
+    const auto& whole = retainedPresentations.at(*ancestor);
+    while (child != *ancestor && !whole.contains(child)) {
+      auto parent = logicalParents.find(child);
+      if (parent == logicalParents.end()) return std::nullopt;
+      if (whole.contains(parent->second)) break;
+      outerEdges[parent->second].insert(child);
+      child = parent->second;
+    }
+  }
+  for (const auto& [scope, edges] : contextEdges) {
+    for (const auto& [parent, retained] : edges) {
+      auto& allRetained = projection.retainedChildren[parent];
+      allRetained.insert(retained.begin(), retained.end());
+    }
+  }
+  auto excludeFrontier = [&](auto&& visit, const ShadowNode& node,
+                             const std::set<Tag>& branch) -> bool {
+    Tag tag = node.getTag();
+    if (members.alive.contains(tag)) {
+      auto parent = members.parents.find(tag);
+      if (parent == members.parents.end()) return false;
+      if (!branch.contains(parent->second)) projection.hiddenBranches.insert(tag);
+    }
+    for (const auto& child : node.getChildren()) {
+      if (!visit(visit, *child, branch)) return false;
+    }
+    return true;
+  };
+  for (const auto& [parent, retained] : projection.retainedChildren) {
+    for (const auto& child : graph.nodes.at(parent)->getChildren()) {
+      if (retained.contains(child->getTag())) continue;
+      auto branch = indexPortalShadowNodes(*child);
+      if (!branch) return std::nullopt;
+      std::set<Tag> branchTags;
+      for (const auto& [tag, node] : *branch) branchTags.insert(tag);
+      if (!excludeFrontier(excludeFrontier, *child, branchTags)) {
+        return std::nullopt;
+      }
+    }
+  }
+  return projection;
+}
+
+} // namespace facebook::react::bottomsheet

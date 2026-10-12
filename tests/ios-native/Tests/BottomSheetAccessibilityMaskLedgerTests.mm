@@ -161,4 +161,79 @@
   XCTAssertFalse(oldBranch.accessibilityElementsHidden);
 }
 
+- (void)testRetirementRestoresDeletedNativeBranchesWithoutReleasingOtherMasksOrReusedViews
+{
+  BottomSheetAccessibilityMaskLedger *ledger = [BottomSheetAccessibilityMaskLedger new];
+  UIView *deletedSubtree = [UIView new];
+  UIView *nativeChild = [UIView new];
+  UIView *remaining = [UIView new];
+  UIView *preHiddenChild = [UIView new];
+  preHiddenChild.accessibilityElementsHidden = YES;
+  [deletedSubtree addSubview:nativeChild];
+  [deletedSubtree addSubview:preHiddenChild];
+  [ledger reconcileHiddenBranches:[NSSet setWithObjects:nativeChild, remaining, preHiddenChild, nil]
+         beforeRestoringBranches:nil];
+
+  auto deletion = [[BottomSheetNativeViewDeletion alloc]
+      initWithDeletedViews:[NSSet setWithObject:deletedSubtree]
+      survivingRegisteredViews:[NSSet set]];
+  [ledger retireHiddenBranchesForDeletion:deletion];
+
+  XCTAssertFalse(nativeChild.accessibilityElementsHidden);
+  XCTAssertTrue(preHiddenChild.accessibilityElementsHidden);
+  XCTAssertTrue(remaining.accessibilityElementsHidden);
+  // The registry can now reuse the view. Its new application-owned value must
+  // not be restored with the retired family's baseline during final cleanup.
+  [nativeChild removeFromSuperview];
+  nativeChild.accessibilityElementsHidden = YES;
+  [ledger reconcileHiddenBranches:[NSSet set] beforeRestoringBranches:nil];
+  XCTAssertTrue(nativeChild.accessibilityElementsHidden);
+  XCTAssertFalse(remaining.accessibilityElementsHidden);
+}
+
+- (void)testRetirementDoesNotRemaskAnUnrelatedApplicationWrite
+{
+  auto ledger = [BottomSheetAccessibilityMaskLedger new];
+  UIView *deleted = [UIView new];
+  UIView *unrelated = [UIView new];
+  [ledger reconcileHiddenBranches:[NSSet setWithObjects:deleted, unrelated, nil]
+         beforeRestoringBranches:nil];
+  unrelated.accessibilityElementsHidden = NO;
+  auto deletion = [[BottomSheetNativeViewDeletion alloc]
+      initWithDeletedViews:[NSSet setWithObject:deleted]
+      survivingRegisteredViews:[NSSet set]];
+
+  [ledger retireHiddenBranchesForDeletion:deletion];
+
+  XCTAssertFalse(deleted.accessibilityElementsHidden);
+  XCTAssertFalse(unrelated.accessibilityElementsHidden);
+}
+
+- (void)testInheritedMaskPrecedesRestorationOfADeletedAncestor
+{
+  auto ledger = [BottomSheetAccessibilityMaskLedger new];
+  auto deleted = [BottomSheetMaskRecordingView new];
+  UIView *survivor = [UIView new];
+  [deleted addSubview:survivor];
+  [ledger reconcileHiddenBranches:[NSSet setWithObject:deleted]
+         beforeRestoringBranches:nil];
+  __block BOOL restored = NO;
+  deleted.afterWrite = ^(BOOL hidden) {
+    if (!hidden) {
+      restored = YES;
+      XCTAssertTrue(survivor.accessibilityElementsHidden);
+    }
+  };
+  auto deletion = [[BottomSheetNativeViewDeletion alloc]
+      initWithDeletedViews:[NSSet setWithObject:deleted]
+      survivingRegisteredViews:[NSSet setWithObject:survivor]];
+
+  [ledger retireHiddenBranchesForDeletion:deletion];
+
+  XCTAssertTrue(restored);
+  XCTAssertTrue(survivor.accessibilityElementsHidden);
+  [ledger reconcileHiddenBranches:[NSSet set] beforeRestoringBranches:nil];
+  XCTAssertFalse(survivor.accessibilityElementsHidden);
+}
+
 @end

@@ -1,5 +1,6 @@
 #import "BottomSheetPresentationPolicy.h"
 #import <UIKit/UIKit.h>
+#import "BottomSheetNativeViewDeletion.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -39,6 +40,10 @@ typedef NS_ENUM(NSInteger, BottomSheetPresentationMode) {
 @interface BottomSheetPresentationCoordinator : NSObject
 
 + (nullable BottomSheetPresentationIdentity *)topPresentationIdentityInWindow:(UIWindow *)window;
+
+// Retire exact verified instances from existing ledgers before native Delete.
+// This does not select ownership or establish a new presentation boundary.
++ (void)retireNativeViewDeletion:(BottomSheetNativeViewDeletion *)deletion;
 
 @end
 

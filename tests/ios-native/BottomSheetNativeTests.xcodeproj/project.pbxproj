@@ -26,6 +26,9 @@
 		A20000000000000000000014 /* BottomSheetPresentationModeIntegrationTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000019 /* BottomSheetPresentationModeIntegrationTests.mm */; };
 		A20000000000000000000015 /* BottomSheetAccessibilityObservation.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000020 /* BottomSheetAccessibilityObservation.mm */; };
 		A20000000000000000000018 /* BottomSheetAccessibilityMaskLedgerTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000024 /* BottomSheetAccessibilityMaskLedgerTests.mm */; };
+		A20000000000000000000019 /* BottomSheetPortalContextGraphTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000025 /* BottomSheetPortalContextGraphTests.mm */; };
+		A20000000000000000000020 /* BottomSheetMountedPortalContextGraphTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000026 /* BottomSheetMountedPortalContextGraphTests.mm */; };
+		A20000000000000000000021 /* BottomSheetPortalMountingObserverTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000027 /* BottomSheetPortalMountingObserverTests.mm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -68,6 +71,9 @@
 		CADF3CD6D1B7A344694F886D /* libPods-BottomSheetNativeTests.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-BottomSheetNativeTests.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		D58BA040A6195B33CF4A612C /* Pods-BottomSheetNativeTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-BottomSheetNativeTests.debug.xcconfig"; path = "Target Support Files/Pods-BottomSheetNativeTests/Pods-BottomSheetNativeTests.debug.xcconfig"; sourceTree = "<group>"; };
 		A30000000000000000000024 /* BottomSheetAccessibilityMaskLedgerTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = BottomSheetAccessibilityMaskLedgerTests.mm; sourceTree = "<group>"; };
+		A30000000000000000000025 /* BottomSheetPortalContextGraphTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = BottomSheetPortalContextGraphTests.mm; sourceTree = "<group>"; };
+		A30000000000000000000026 /* BottomSheetMountedPortalContextGraphTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = BottomSheetMountedPortalContextGraphTests.mm; sourceTree = "<group>"; };
+		A30000000000000000000027 /* BottomSheetPortalMountingObserverTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = BottomSheetPortalMountingObserverTests.mm; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -147,6 +153,9 @@
 				A30000000000000000000004 /* BottomSheetHostingViewLifecycleTests.swift */,
 				A30000000000000000000023 /* BottomSheetPresentationPolicyTests.mm */,
 				A30000000000000000000024 /* BottomSheetAccessibilityMaskLedgerTests.mm */,
+				A30000000000000000000025 /* BottomSheetPortalContextGraphTests.mm */,
+				A30000000000000000000026 /* BottomSheetMountedPortalContextGraphTests.mm */,
+				A30000000000000000000027 /* BottomSheetPortalMountingObserverTests.mm */,
 				A30000000000000000000009 /* BottomSheetPresentationOwnershipTests.mm */,
 				A30000000000000000000010 /* BottomSheetAccessibleDismissalTests.swift */,
 				A30000000000000000000011 /* BottomSheetNativeOverlayAccessibilityTests.mm */,
@@ -369,6 +378,9 @@
 				A20000000000000000000005 /* BottomSheetEventRecorder.swift in Sources */,
 				A20000000000000000000017 /* BottomSheetPresentationPolicyTests.mm in Sources */,
 				A20000000000000000000018 /* BottomSheetAccessibilityMaskLedgerTests.mm in Sources */,
+				A20000000000000000000019 /* BottomSheetPortalContextGraphTests.mm in Sources */,
+				A20000000000000000000020 /* BottomSheetMountedPortalContextGraphTests.mm in Sources */,
+				A20000000000000000000021 /* BottomSheetPortalMountingObserverTests.mm in Sources */,
 				A20000000000000000000006 /* BottomSheetPresentationOwnershipTests.mm in Sources */,
 				A20000000000000000000007 /* BottomSheetAccessibleDismissalTests.swift in Sources */,
 				A20000000000000000000008 /* BottomSheetNativeOverlayAccessibilityTests.mm in Sources */,

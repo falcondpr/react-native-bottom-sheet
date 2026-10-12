@@ -236,6 +236,16 @@ static void BottomSheetAssertMainThread(void)
 static const void *BottomSheetPresentationCoordinatorAssociationKey =
     &BottomSheetPresentationCoordinatorAssociationKey;
 
+// Weak addresses of the existing per-window authority, for retiring leases even
+// after a deleted view has detached or migrated. No Active/order state is copied.
+static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresentationCoordinators(void)
+{
+  static NSHashTable<BottomSheetPresentationCoordinator *> *coordinators;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{ coordinators = [NSHashTable weakObjectsHashTable]; });
+  return coordinators;
+}
+
 @implementation BottomSheetPresentationCoordinator
 
 + (nullable instancetype)coordinatorForWindow:(UIWindow *)window createIfNeeded:(BOOL)createIfNeeded
@@ -248,6 +258,7 @@ static const void *BottomSheetPresentationCoordinatorAssociationKey =
     coordinator.window = window;
     coordinator.records = [NSMutableDictionary new];
     coordinator.modalIsolationAdapter = [BottomSheetPresentationModalIsolationAdapter new];
+    [BottomSheetLivePresentationCoordinators() addObject:coordinator];
     objc_setAssociatedObject(
         window,
         BottomSheetPresentationCoordinatorAssociationKey,
@@ -264,6 +275,17 @@ static const void *BottomSheetPresentationCoordinatorAssociationKey =
       [self coordinatorForWindow:window createIfNeeded:NO];
   [coordinator recomputeTopPresentation];
   return coordinator.topPresentationIdentity;
+}
+
++ (void)retireNativeViewDeletion:(BottomSheetNativeViewDeletion *)deletion
+{
+  BottomSheetAssertMainThread();
+  // Only leases already owned for these exact native instances are released.
+  // Other windows/contexts and their masks remain unchanged.
+  for (BottomSheetPresentationCoordinator *coordinator in
+       BottomSheetLivePresentationCoordinators().allObjects) {
+    [coordinator.modalIsolationAdapter.maskLedger retireHiddenBranchesForDeletion:deletion];
+  }
 }
 
 - (void)updateController:(BottomSheetPresentationController *)controller

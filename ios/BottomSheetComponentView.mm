@@ -1,6 +1,7 @@
 #import "BottomSheetComponentView.h"
 #import "BottomSheetContentView.h"
 #import "BottomSheetPresentationOwnership.h"
+#import "BottomSheetPortalMountingObserver.h"
 #import "BottomSheetSurfaceComponentView.h"
 #import "../common/cpp/react/renderer/components/ReactNativeBottomSheetSpec/BottomSheetStateHelper.h"
 #import "../common/cpp/react/renderer/components/ReactNativeBottomSheetSpec/ComponentDescriptors.h"
@@ -68,6 +69,7 @@ using namespace facebook::react;
   CGFloat _lastGeometryInset;
   BOOL _presentationMountTransactionOpen;
   NSUInteger _presentationLifecycleGeneration;
+  __weak BottomSheetPortalMountingObserver *_portalMountingObserver;
 }
 
 + (ComponentDescriptorProvider)componentDescriptorProvider
@@ -230,16 +232,21 @@ using namespace facebook::react;
 - (void)mountingTransactionWillMount:(const facebook::react::MountingTransaction &)transaction
                 withSurfaceTelemetry:(const facebook::react::SurfaceTelemetry &)surfaceTelemetry
 {
-  if (_presentationMountTransactionOpen) {
-    return;
+  if (!_presentationMountTransactionOpen) {
+    _presentationMountTransactionOpen = YES;
+    [_presentationController beginHierarchyMutation];
   }
-  _presentationMountTransactionOpen = YES;
-  [_presentationController beginHierarchyMutation];
+  _portalMountingObserver = BottomSheetPortalObserverForView(self);
+  [_portalMountingObserver willMount:transaction];
 }
 
 - (void)mountingTransactionDidMount:(const facebook::react::MountingTransaction &)transaction
                withSurfaceTelemetry:(const facebook::react::SurfaceTelemetry &)surfaceTelemetry
 {
+  if (_portalMountingObserver == nil) {
+    _portalMountingObserver = BottomSheetPortalObserverForView(self);
+  }
+  [_portalMountingObserver didMount:transaction owner:self];
   [self reconcilePresentationOwnership];
   if (!_presentationMountTransactionOpen) {
     return;
@@ -503,6 +510,8 @@ using namespace facebook::react;
 
 - (void)tearDownPresentationLifecycle
 {
+  [_portalMountingObserver withdrawOwner:self];
+  _portalMountingObserver = nil;
   _presentationLifecycleGeneration++;
   _presentationMountTransactionOpen = NO;
   [_presentationController invalidate];

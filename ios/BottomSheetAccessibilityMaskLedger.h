@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "BottomSheetNativeViewDeletion.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -9,6 +10,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)reconcileHiddenBranches:(NSSet<UIView *> *)hiddenBranches
        beforeRestoringBranches:(nullable void (NS_NOESCAPE ^)(void))transferBoundaries;
+
+// The mounting adapter verifies these exact native instances before Delete.
+// Restore their leases before the registry can recycle them into other families.
+- (void)retireHiddenBranchesForDeletion:(BottomSheetNativeViewDeletion *)deletion;
 
 @end
 

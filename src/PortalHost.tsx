@@ -11,6 +11,7 @@ export const renderPortalHost = (portals: PortalSnapshot) => {
     // their native sibling order to select the unique accessible Top portal.
     <View
       collapsable={false}
+      nativeID="__react_native_bottom_sheet_portal_host"
       style={StyleSheet.absoluteFill}
       pointerEvents="box-none"
     >
