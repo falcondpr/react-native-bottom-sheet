@@ -11,6 +11,19 @@
 using namespace facebook::react;
 using namespace facebook::react::bottomsheet;
 
+// A native application container may synchronously change lifecycle during a
+// getter. This is the UIKit boundary, not a replacement for the Fabric adapter.
+@interface ReentrantPortalNativeContainer : UIView
+@property (nonatomic, copy) void (^onReadSubviews)(void);
+@end
+@implementation ReentrantPortalNativeContainer
+- (NSArray<UIView *> *)subviews
+{
+  if (self.onReadSubviews) self.onReadSubviews();
+  return super.subviews;
+}
+@end
+
 namespace {
 using Children = std::vector<std::shared_ptr<const ShadowNode>>;
 struct RuntimeFixture {
@@ -308,6 +321,133 @@ struct RuntimeFixture {
       }];
 
   XCTAssertNil(isolation);
+}
+
+- (void)testCrossRuntimeCompositionKeepsOnlyCurrentRetainedPaths
+{
+  RuntimeFixture outer;
+  RuntimeFixture inner;
+  outer.mount({outer.node(11, {outer.node(12),
+      outer.node(13, {outer.node(14), outer.node(18)}, true)})});
+  inner.mount({inner.node(2), inner.node(21, {inner.node(22),
+      inner.node(23, {inner.node(24)}, true)})});
+  UIView *coveredOuter = outer.view(14);
+  UIView *nativeChrome = [UIView new];
+  UIView *bridge = [UIView new];
+  [coveredOuter addSubview:nativeChrome];
+  [coveredOuter addSubview:bridge];
+  [bridge addSubview:inner.viewport];
+  auto outerObserver = outer.observer();
+  auto innerObserver = inner.observer();
+  MountingTransaction first(1, 1, {}, {});
+  [outerObserver didMount:first owner:coveredOuter];
+  [outerObserver didMount:first owner:outer.view(18)];
+  [innerObserver didMount:first owner:inner.view(24)];
+  auto outerTop = [BottomSheetPresentationIdentity new];
+  auto innerTop = [BottomSheetPresentationIdentity new];
+  NSArray *presentations = @[
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:outerTop owner:outer.view(18)
+        observer:outerObserver active:YES eligible:YES],
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:innerTop owner:inner.view(24)
+        observer:innerObserver active:YES eligible:YES]];
+
+  auto isolation = [BottomSheetPortalIsolation projectionFromPresentations:presentations
+      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
+                                                  BottomSheetPresentationIdentity *b) {
+        return BottomSheetPresentationOrderUnknown;
+      }];
+
+  XCTAssertEqualObjects(isolation.hiddenBranches,
+      ([NSSet setWithObjects:outer.view(12), nativeChrome, inner.view(2), inner.view(22), nil]));
+  XCTAssertEqualObjects(isolation.topPresentationIdentities,
+      ([NSSet setWithObjects:outerTop, innerTop, nil]));
+
+  auto outerA = [BottomSheetPresentationIdentity new];
+  NSArray *wholeOuter = @[
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:outerA owner:coveredOuter
+        observer:outerObserver active:YES eligible:YES],
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:outerTop owner:outer.view(18)
+        observer:outerObserver active:NO eligible:YES],
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:innerTop owner:inner.view(24)
+        observer:innerObserver active:YES eligible:YES]];
+  auto whole = [BottomSheetPortalIsolation projectionFromPresentations:wholeOuter
+      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
+                                                  BottomSheetPresentationIdentity *b) {
+        return BottomSheetPresentationOrderUnknown;
+      }];
+  XCTAssertEqualObjects(whole.hiddenBranches,
+      ([NSSet setWithObjects:outer.view(12), outer.view(18), inner.view(22), nil]));
+  XCTAssertEqualObjects(whole.topPresentationIdentities,
+      ([NSSet setWithObjects:outerA, innerTop, nil]));
+
+  UIView *innerOwner = inner.view(24);
+  UIView *lateBackground = [UIView new];
+  UIView *innerRoot = inner.view(1);
+  ReentrantPortalNativeContainer *backgroundAccessor = [ReentrantPortalNativeContainer new];
+  [outer.view(11) addSubview:backgroundAccessor];
+  __block NSUInteger backgroundReads = 0;
+  backgroundAccessor.onReadSubviews = ^{
+    if (++backgroundReads == 2) [coveredOuter addSubview:lateBackground];
+  };
+  auto changedDuringLowerQuery = [BottomSheetPortalIsolation projectionFromPresentations:presentations
+      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
+                                                  BottomSheetPresentationIdentity *b) {
+        return BottomSheetPresentationOrderUnknown;
+      }];
+  XCTAssertNil(changedDuringLowerQuery);
+  XCTAssertEqual(backgroundReads, 0);
+  [backgroundAccessor removeFromSuperview];
+  [lateBackground removeFromSuperview];
+
+  ReentrantPortalNativeContainer *unsafeBridge = [ReentrantPortalNativeContainer new];
+  [bridge removeFromSuperview];
+  [coveredOuter addSubview:unsafeBridge];
+  [unsafeBridge addSubview:inner.viewport];
+  __block NSUInteger readCount = 0;
+  unsafeBridge.onReadSubviews = ^{
+    if (++readCount == 2) [innerRoot addSubview:lateBackground];
+  };
+  auto changedDuringValidation = [BottomSheetPortalIsolation projectionFromPresentations:presentations
+      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
+                                                  BottomSheetPresentationIdentity *b) {
+        return BottomSheetPresentationOrderUnknown;
+      }];
+  XCTAssertNil(changedDuringValidation);
+  XCTAssertEqual(readCount, 0);
+  unsafeBridge.onReadSubviews = nil;
+  [lateBackground removeFromSuperview];
+
+  __weak ReentrantPortalNativeContainer *weakBridge = unsafeBridge;
+  unsafeBridge.onReadSubviews = ^{
+    weakBridge.onReadSubviews = nil;
+    [coveredOuter addSubview:lateBackground];
+  };
+  auto changedChildren = [BottomSheetPortalIsolation projectionFromPresentations:presentations
+      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
+                                                  BottomSheetPresentationIdentity *b) {
+        return BottomSheetPresentationOrderUnknown;
+      }];
+  XCTAssertNil(changedChildren);
+  [lateBackground removeFromSuperview];
+
+  UIView *innerHost = innerOwner.superview;
+  unsafeBridge.onReadSubviews = ^{ [innerRoot addSubview:innerOwner]; };
+  auto reparented = [BottomSheetPortalIsolation projectionFromPresentations:presentations
+      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
+                                                  BottomSheetPresentationIdentity *b) {
+        return BottomSheetPresentationOrderUnknown;
+      }];
+  XCTAssertNil(reparented);
+  unsafeBridge.onReadSubviews = nil;
+  [innerHost addSubview:innerOwner];
+
+  unsafeBridge.onReadSubviews = ^{ [innerObserver withdrawOwner:innerOwner]; };
+  auto withdrawn = [BottomSheetPortalIsolation projectionFromPresentations:presentations
+      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
+                                                  BottomSheetPresentationIdentity *b) {
+        return BottomSheetPresentationOrderUnknown;
+      }];
+  XCTAssertNil(withdrawn);
 }
 
 - (void)testLastOwnObserverWithdrawalReleasesThePublicationAndCanBootstrapAgain

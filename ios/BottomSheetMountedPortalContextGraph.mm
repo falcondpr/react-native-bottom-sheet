@@ -19,7 +19,7 @@ bool hasConcreteComponentDescriptor(UIView *view) {
   // Fabric classes override this required provider; do not invoke its asserting
   // UIView default merely to distinguish a foreign component from native chrome.
   SEL selector = @selector(componentDescriptorProvider);
-  Method concrete = class_getClassMethod(view.class, selector);
+  Method concrete = class_getClassMethod(object_getClass(view), selector);
   Method fallback = class_getClassMethod(UIView.class, selector);
   return concrete && (!fallback ||
       method_getImplementation(concrete) != method_getImplementation(fallback));
@@ -102,22 +102,22 @@ Tag parentTag(const Mutation& mutation) {
   return [_manager.componentViewRegistry findComponentViewWithTag:tag];
 }
 
-- (Tag)registeredParentOf:(UIView *)view
+- (Tag)registeredParentOf:(UIView *)view hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy
 {
-  for (UIView *parent = view.superview; parent; parent = parent.superview) {
-    Tag tag = static_cast<Tag>(parent.tag);
+  for (UIView *parent = [hierarchy parentOfView:view]; parent; parent = [hierarchy parentOfView:parent]) {
+    Tag tag = static_cast<Tag>([hierarchy tagOfView:parent]);
     if ([self mounted:tag] == parent) return tag;
     if (hasConcreteComponentDescriptor(parent)) return 0;
     if ([parent conformsToProtocol:@protocol(BottomSheetPortalNativeContainer)]) {
       UIView *owner = ((id<BottomSheetPortalNativeContainer>)parent).portalNativeOwner;
-      Tag ownerTag = static_cast<Tag>(owner.tag);
+      Tag ownerTag = static_cast<Tag>([hierarchy tagOfView:owner]);
       return owner && [self mounted:ownerTag] == owner ? ownerTag : 0;
     }
   }
   return 0;
 }
 
-- (BOOL)validateBranch:(const ShadowNode &)node
+- (BOOL)validateBranch:(const ShadowNode &)node hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy
 {
   Tag tag = node.getTag();
   UIView *view = [self mounted:tag];
@@ -130,20 +130,21 @@ Tag parentTag(const Mutation& mutation) {
         identity->second.family.lock() != node.getFamilyShared()) return NO;
     auto parent = _members.parents.find(tag);
     if (parent == _members.parents.end() ||
-        parent->second != [self registeredParentOf:view]) return NO;
+        parent->second != [self registeredParentOf:view hierarchy:hierarchy]) return NO;
   } else if (view) {
     return NO;
   }
   for (const auto& child : node.getChildren()) {
-    if (![self validateBranch:*child]) return NO;
+    if (![self validateBranch:*child hierarchy:hierarchy]) return NO;
   }
-  return YES;
+  return hierarchy.isValid;
 }
 
 - (BOOL)addManagedContainer:(UIView *)container
                   parentTag:(Tag)parent
                       graph:(const PortalContextGraph &)graph
                    retained:(const std::set<Tag> &)retained
+                  hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy
                  toBranches:(NSMutableSet<UIView *> *)branches
 {
   UIView *owner = [self mounted:parent];
@@ -153,7 +154,7 @@ Tag parentTag(const Mutation& mutation) {
   while (pending.count) {
     UIView *view = pending.lastObject;
     [pending removeLastObject];
-    Tag tag = static_cast<Tag>(view.tag);
+    Tag tag = static_cast<Tag>([hierarchy tagOfView:view]);
     if ([self mounted:tag] == view) {
       auto node = graph.nodes.find(tag);
       auto edge = _members.parents.find(tag);
@@ -168,7 +169,8 @@ Tag parentTag(const Mutation& mutation) {
       }
       if (!logicalChild) return NO;
       if (retained.contains(*logicalChild)) {
-        for (UIView *path = view; path && path != container.superview; path = path.superview) {
+        UIView *outside = [hierarchy parentOfView:container];
+        for (UIView *path = view; path && path != outside; path = [hierarchy parentOfView:path]) {
           [keptNativePath addObject:path];
         }
       }
@@ -177,7 +179,7 @@ Tag parentTag(const Mutation& mutation) {
     if (hasConcreteComponentDescriptor(view)) return NO;
     if ([view conformsToProtocol:@protocol(BottomSheetPortalNativeContainer)] &&
         ((id<BottomSheetPortalNativeContainer>)view).portalNativeOwner != owner) return NO;
-    [pending addObjectsFromArray:view.subviews];
+    [pending addObjectsFromArray:[hierarchy childrenOfView:view] ?: @[]];
   }
 
   [pending addObject:container];
@@ -186,17 +188,26 @@ Tag parentTag(const Mutation& mutation) {
     [pending removeLastObject];
     if (![keptNativePath containsObject:view]) {
       [branches addObject:view];
-    } else if ([self mounted:static_cast<Tag>(view.tag)] != view) {
-      [pending addObjectsFromArray:view.subviews];
+    } else if ([self mounted:static_cast<Tag>([hierarchy tagOfView:view])] != view) {
+      [pending addObjectsFromArray:[hierarchy childrenOfView:view] ?: @[]];
     }
   }
-  return YES;
+  return hierarchy.isValid;
 }
 
 - (NSSet<UIView *> *)hiddenBranchesForRoot:
     (const std::shared_ptr<const facebook::react::RootShadowNode> &)root
                                     retainedPaths:
     (const std::vector<facebook::react::bottomsheet::PortalRetainedPaths> &)requests
+{
+  auto hierarchy = [BottomSheetNativeHierarchySnapshot new];
+  auto branches = [self hiddenBranchesForRoot:root retainedPaths:requests hierarchy:hierarchy];
+  return [hierarchy validate] ? branches : nil;
+}
+
+- (NSSet<UIView *> *)hiddenBranchesForRoot:(const RootShadowNode::Shared &)root
+                           retainedPaths:(const std::vector<PortalRetainedPaths> &)requests
+                               hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy
 {
   NSCAssert(NSThread.isMainThread, @"Native portal projection is main-thread only");
   if (!root || root != _root || !_manager) return nil;
@@ -214,7 +225,7 @@ Tag parentTag(const Mutation& mutation) {
     scopes.insert(host->second);
   }
   for (Tag scope : scopes) {
-    if (![self validateBranch:*graph->contexts.at(scope).boundary]) {
+    if (![self validateBranch:*graph->contexts.at(scope).boundary hierarchy:hierarchy]) {
       return nil;
     }
   }
@@ -229,28 +240,28 @@ Tag parentTag(const Mutation& mutation) {
   for (const auto& [parent, retained] : projection->retainedChildren) {
     UIView *view = [self mounted:parent];
     if (!view) continue; // A flattened logical parent has no native-only children.
-    for (UIView *child in view.subviews) {
-      Tag tag = static_cast<Tag>(child.tag);
+    for (UIView *child in [hierarchy childrenOfView:view]) {
+      Tag tag = static_cast<Tag>([hierarchy tagOfView:child]);
       if (graph->nodes.contains(tag) && [self mounted:tag] == child) continue;
       if ([child conformsToProtocol:@protocol(BottomSheetPortalNativeContainer)]) {
         if (![self addManagedContainer:child parentTag:parent graph:*graph
-                             retained:retained toBranches:branches]) return nil;
+                             retained:retained hierarchy:hierarchy toBranches:branches]) return nil;
         continue;
       }
       NSMutableArray<UIView *> *pending = [NSMutableArray arrayWithObject:child];
       while (pending.count) {
         UIView *next = pending.lastObject;
         [pending removeLastObject];
-        Tag nextTag = static_cast<Tag>(next.tag);
+        Tag nextTag = static_cast<Tag>([hierarchy tagOfView:next]);
         if ([self mounted:nextTag] == next || hasConcreteComponentDescriptor(next)) {
           return nil; // Opaque native ownership must be adapted explicitly.
         }
-        [pending addObjectsFromArray:next.subviews];
+        [pending addObjectsFromArray:[hierarchy childrenOfView:next] ?: @[]];
       }
       [branches addObject:child];
     }
   }
-  return branches;
+  return hierarchy.isValid ? branches : nil;
 }
 
 - (void)invalidate

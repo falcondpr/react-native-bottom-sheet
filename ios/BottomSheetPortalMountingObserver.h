@@ -34,6 +34,11 @@ typedef void (^BottomSheetNativeSubtreeRetirement)(BottomSheetNativeViewDeletion
 - (nullable NSSet<UIView *> *)hiddenBranchesForRoot:
     (const facebook::react::RootShadowNode::Shared &)root
                                      retainedPaths:
+    (const std::vector<facebook::react::bottomsheet::PortalRetainedPaths> &)requests
+                                         hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy;
+- (nullable NSSet<UIView *> *)hiddenBranchesForRoot:
+    (const facebook::react::RootShadowNode::Shared &)root
+                                     retainedPaths:
     (const std::vector<facebook::react::bottomsheet::PortalRetainedPaths> &)requests;
 - (void)invalidate;
 

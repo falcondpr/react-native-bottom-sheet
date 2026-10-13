@@ -91,6 +91,52 @@ struct MountedTree {
 @interface BottomSheetMountedPortalContextGraphTests : XCTestCase
 @end
 
+@interface UnsupportedHierarchyAccessors : UIView
+@property (nonatomic) NSUInteger reads;
+@end
+@implementation UnsupportedHierarchyAccessors
+- (NSArray<UIView *> *)subviews { self.reads++; return super.subviews; }
+- (UIView *)superview { self.reads++; return super.superview; }
+- (NSInteger)tag { self.reads++; return super.tag; }
+@end
+
+@interface BottomSheetNativeHierarchySnapshotTests : XCTestCase
+@end
+@implementation BottomSheetNativeHierarchySnapshotTests
+- (void)testSnapshotKeepsCapturedFactsAndRejectsAnUnpublishedChildInsertion
+{
+  UIView *parent = [UIView new];
+  UIView *child = [UIView new];
+  child.tag = 14;
+  [parent addSubview:child];
+  auto hierarchy = [BottomSheetNativeHierarchySnapshot new];
+  XCTAssertEqual([hierarchy parentOfView:child], parent);
+  XCTAssertEqual([hierarchy tagOfView:child], 14);
+  XCTAssertEqualObjects([hierarchy childrenOfView:parent], (@[child]));
+  XCTAssertTrue([hierarchy validate]);
+
+  [parent addSubview:[UIView new]];
+  XCTAssertEqualObjects([hierarchy childrenOfView:parent], (@[child]));
+  XCTAssertFalse([hierarchy validate]);
+}
+
+- (void)testStructuralOverridesAreRejectedBeforeAnyAccessorCallback
+{
+  UnsupportedHierarchyAccessors *view = [UnsupportedHierarchyAccessors new];
+  view.reads = 0;
+  auto children = [BottomSheetNativeHierarchySnapshot new];
+  XCTAssertNil([children childrenOfView:view]);
+  XCTAssertFalse(children.isValid);
+  auto parent = [BottomSheetNativeHierarchySnapshot new];
+  XCTAssertNil([parent parentOfView:view]);
+  XCTAssertFalse(parent.isValid);
+  auto tag = [BottomSheetNativeHierarchySnapshot new];
+  XCTAssertEqual([tag tagOfView:view], 0);
+  XCTAssertFalse(tag.isValid);
+  XCTAssertEqual(view.reads, 0);
+}
+@end
+
 @interface MountedPortalContainer : UIView <BottomSheetPortalNativeContainer>
 @property (nonatomic, weak, nullable) UIView *portalNativeOwner;
 @end

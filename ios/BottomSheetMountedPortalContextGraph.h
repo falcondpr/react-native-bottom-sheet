@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import "BottomSheetNativeViewDeletion.h"
+#import "BottomSheetNativeHierarchySnapshot.h"
 
 #include "../common/cpp/react/renderer/components/ReactNativeBottomSheetSpec/PortalContextGraph.h"
 #include <react/renderer/components/root/RootShadowNode.h>
@@ -28,6 +29,12 @@ NS_ASSUME_NONNULL_BEGIN
     (const std::shared_ptr<const facebook::react::RootShadowNode> &)root
                                     retainedPaths:
     (const std::vector<facebook::react::bottomsheet::PortalRetainedPaths> &)requests;
+
+- (nullable NSSet<UIView *> *)hiddenBranchesForRoot:
+    (const std::shared_ptr<const facebook::react::RootShadowNode> &)root
+                                    retainedPaths:
+    (const std::vector<facebook::react::bottomsheet::PortalRetainedPaths> &)requests
+                                        hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy;
 
 - (void)invalidate;
 

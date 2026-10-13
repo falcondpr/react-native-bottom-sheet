@@ -17,6 +17,45 @@ struct ContextPresentation {
   Tag host;
 };
 using ContextKey = std::pair<const RootShadowNode *, Tag>;
+
+NSSet<UIView *> *nativeCut(const AppliedPortalRoot& publication, BottomSheetNativeHierarchySnapshot *hierarchy) {
+  std::vector<PortalRetainedPaths> requests;
+  for (const auto& [host, retained] : publication.retainedByHost) {
+    requests.push_back({&publication.graph.nodes.at(host)->getFamily(), retained});
+  }
+  return [publication.observer hiddenBranchesForRoot:publication.root retainedPaths:requests hierarchy:hierarchy];
+}
+
+NSSet<UIView *> *composeNativeCuts(NSSet<UIView *> *branches, NSSet<UIView *> *retainedOwners,
+                                  BottomSheetNativeHierarchySnapshot *hierarchy) {
+  NSMutableSet<UIView *> *result = [NSMutableSet new];
+  for (UIView *branch in branches) {
+    NSMutableSet<UIView *> *retainedPath = [NSMutableSet new];
+    for (UIView *owner in retainedOwners) {
+      NSMutableArray<UIView *> *path = [NSMutableArray new];
+      UIView *current = owner;
+      while (current && current != branch) {
+        [path addObject:current];
+        current = [hierarchy parentOfView:current];
+      }
+      if (current == branch) {
+        [retainedPath addObjectsFromArray:path];
+        [retainedPath addObject:branch];
+      }
+    }
+    NSMutableArray<UIView *> *pending = [NSMutableArray arrayWithObject:branch];
+    while (pending.count) {
+      UIView *view = pending.lastObject;
+      [pending removeLastObject];
+      if (![retainedPath containsObject:view]) {
+        [result addObject:view];
+      } else if (![retainedOwners containsObject:view]) {
+        [pending addObjectsFromArray:[hierarchy childrenOfView:view] ?: @[]];
+      }
+    }
+  }
+  return hierarchy.isValid ? result : nil;
+}
 } // namespace
 
 @implementation BottomSheetPortalPresentation
@@ -57,6 +96,8 @@ using ContextKey = std::pair<const RootShadowNode *, Tag>;
                               orderProvider:(BottomSheetPresentationOrderProvider)orderProvider
 {
   NSCAssert(NSThread.isMainThread, @"Portal isolation must run on main");
+  auto hierarchy = [BottomSheetNativeHierarchySnapshot new];
+  if (!hierarchy.isValid) return nil;
   std::map<const RootShadowNode *, AppliedPortalRoot> roots;
   std::map<ContextKey, std::vector<ContextPresentation>> groups;
   NSMutableSet<BottomSheetPresentationIdentity *> *identities = [NSMutableSet new];
@@ -67,6 +108,8 @@ using ContextKey = std::pair<const RootShadowNode *, Tag>;
         [owners containsObject:presentation.owner]) return nil;
     [identities addObject:presentation.identity];
     [owners addObject:presentation.owner];
+    Tag ownerTag = static_cast<Tag>([hierarchy tagOfView:presentation.owner]);
+    if (!hierarchy.isValid) return nil;
     auto root = [presentation.observer currentRootForOwner:presentation.owner];
     if (!root) return nil;
     auto found = roots.find(root.get());
@@ -79,7 +122,7 @@ using ContextKey = std::pair<const RootShadowNode *, Tag>;
       return nil;
     }
     auto& graph = found->second.graph;
-    auto node = graph.nodes.find(static_cast<Tag>(presentation.owner.tag));
+    auto node = graph.nodes.find(ownerTag);
     if (node == graph.nodes.end()) return nil;
     auto host = graph.hostForPresentation(node->second->getFamily(), *root);
     if (!host) return nil;
@@ -88,6 +131,7 @@ using ContextKey = std::pair<const RootShadowNode *, Tag>;
   }
 
   NSMutableSet<BottomSheetPresentationIdentity *> *tops = [NSMutableSet new];
+  NSMutableSet<UIView *> *retainedOwners = [NSMutableSet new];
   for (const auto& [context, members] : groups) {
     NSMutableArray<BottomSheetPresentationCandidate *> *candidates = [NSMutableArray new];
     for (const auto& member : members) {
@@ -101,29 +145,32 @@ using ContextKey = std::pair<const RootShadowNode *, Tag>;
     for (const auto& member : members) {
       if ([decision.retainedPresentationIdentities containsObject:member.presentation.identity]) {
         retained[member.host].push_back(&member.node->getFamily());
+        [retainedOwners addObject:member.presentation.owner];
       }
     }
   }
 
   // An order provider can reenter native lifecycle. Every source, including a
   // covered presentation, must still belong to this exact completed root.
-  for (const auto& [context, members] : groups) {
-    for (const auto& member : members) {
-      if ([member.presentation.observer currentRootForOwner:member.presentation.owner] !=
-          roots.at(context.first).root) return nil;
+  auto sourcesAreCurrent = [&] {
+    for (const auto& [context, members] : groups) {
+      for (const auto& member : members) {
+        if ([member.presentation.observer currentRootForOwner:member.presentation.owner] !=
+            roots.at(context.first).root) return false;
+      }
     }
-  }
+    return true;
+  };
+  if (!sourcesAreCurrent()) return nil;
   NSMutableSet<UIView *> *hiddenBranches = [NSMutableSet new];
   for (const auto& [key, publication] : roots) {
-    std::vector<PortalRetainedPaths> requests;
-    for (const auto& [host, retained] : publication.retainedByHost) {
-      requests.push_back({&publication.graph.nodes.at(host)->getFamily(), retained});
-    }
-    auto branches = [publication.observer hiddenBranchesForRoot:publication.root
-                                                retainedPaths:requests];
+    auto branches = nativeCut(publication, hierarchy);
     if (!branches) return nil;
     [hiddenBranches unionSet:branches];
   }
-  return [[self alloc] initWithHiddenBranches:hiddenBranches tops:tops];
+  auto composed = composeNativeCuts(hiddenBranches, retainedOwners, hierarchy);
+  if (!composed || !sourcesAreCurrent()) return nil;
+  auto result = [[self alloc] initWithHiddenBranches:composed tops:tops];
+  return [hierarchy validate] ? result : nil;
 }
 @end

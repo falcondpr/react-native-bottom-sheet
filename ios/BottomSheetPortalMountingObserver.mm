@@ -166,6 +166,15 @@ AppliedRoot appliedRoot(const UIManager& manager, SurfaceId surface) {
   return [_surfaces.at(root->getSurfaceId()).graph hiddenBranchesForRoot:root retainedPaths:requests];
 }
 
+- (NSSet<UIView *> *)hiddenBranchesForRoot:(const RootShadowNode::Shared &)root
+                           retainedPaths:(const std::vector<PortalRetainedPaths> &)requests
+                               hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy
+{
+  if (!root || [self currentRootForSurface:root->getSurfaceId()] != root) return nil;
+  return [_surfaces.at(root->getSurfaceId()).graph hiddenBranchesForRoot:root
+      retainedPaths:requests hierarchy:hierarchy];
+}
+
 - (RootShadowNode::Shared)currentRootForOwner:(UIView *)owner
 {
   if (![self ownsNativeView:owner]) return {};
