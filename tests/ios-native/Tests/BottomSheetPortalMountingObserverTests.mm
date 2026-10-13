@@ -5,6 +5,9 @@
 #import "../../../ios/BottomSheetPortalMountingObserver.h"
 #import "../../../ios/BottomSheetAccessibilityMaskLedger.h"
 #import "../../../ios/BottomSheetPortalIsolation.h"
+#import "../../../ios/BottomSheetPresentationOwnership.h"
+#import "../../../ios/BottomSheetPresentationModalIsolationAdapter.h"
+#import "../../../ios/BottomSheetPortalNativeContainer.h"
 #include <react/renderer/components/view/ViewComponentDescriptor.h>
 #include <react/renderer/mounting/Differentiator.h>
 
@@ -22,6 +25,12 @@ using namespace facebook::react::bottomsheet;
   if (self.onReadSubviews) self.onReadSubviews();
   return super.subviews;
 }
+@end
+
+@interface PortalOwnedContentAnchor : UIView <BottomSheetPortalNativeContainer>
+@property (nonatomic, weak) UIView *portalNativeOwner;
+@end
+@implementation PortalOwnedContentAnchor
 @end
 
 namespace {
@@ -82,6 +91,215 @@ struct RuntimeFixture {
 @interface BottomSheetPortalMountingObserverTests : XCTestCase
 @end
 @implementation BottomSheetPortalMountingObserverTests
+
+- (void)testCompletedMountMasksNewBackgroundWithoutChangingActivePresentation
+{
+  RuntimeFixture fixture;
+  auto sheet = fixture.node(14);
+  auto host = fixture.node(13, {sheet}, true);
+  auto background = fixture.node(12);
+  auto area = fixture.node(11, {background, host});
+  auto outside = fixture.node(2);
+  auto firstRoot = fixture.mount({outside, area});
+  auto observer = fixture.observer();
+  MountingTransaction first(1, 1, {}, {});
+  UIView *owner = fixture.view(14);
+  UIView *oldBackground = fixture.view(12);
+  [observer didMount:first owner:owner];
+  auto identity = [BottomSheetPresentationIdentity new];
+  auto presentation = [BottomSheetPortalPresentation presentationForIdentity:identity
+      anchor:owner active:YES eligible:YES];
+  auto adapter = [BottomSheetPresentationModalIsolationAdapter new];
+  BottomSheetPresentationOrderProvider order = ^BottomSheetPresentationOrder(
+      BottomSheetPresentationIdentity *a, BottomSheetPresentationIdentity *b) {
+    return BottomSheetPresentationOrderUnknown;
+  };
+  XCTAssertNotNil(presentation);
+  [adapter reconcilePortalPresentations:@[presentation] orderProvider:order ifCurrent:nil];
+  XCTAssertTrue(oldBackground.accessibilityElementsHidden);
+
+  auto nextArea = area->clone({.children = std::make_shared<const Children>(
+      Children{background, fixture.node(16), host})});
+  auto nextRoot = firstRoot->ShadowNode::clone({.children =
+      std::make_shared<const Children>(Children{outside, nextArea})});
+  auto mutations = calculateShadowViewMutations(*firstRoot, *nextRoot);
+  MountingTransaction next(1, 2, std::move(mutations), {});
+  [observer willMount:next];
+  XCTAssertFalse([adapter reconcilePortalPresentations:@[presentation]
+      orderProvider:order ifCurrent:nil]);
+  XCTAssertTrue(oldBackground.accessibilityElementsHidden);
+
+  fixture.mount({outside, nextArea});
+  [observer didMount:next owner:owner];
+  XCTAssertTrue([adapter reconcilePortalPresentations:@[presentation]
+      orderProvider:order ifCurrent:nil]);
+
+  XCTAssertEqual(fixture.view(14), owner);
+  XCTAssertEqual(presentation.identity, identity);
+  XCTAssertTrue(fixture.view(16).accessibilityElementsHidden);
+  XCTAssertTrue(oldBackground.accessibilityElementsHidden);
+  XCTAssertFalse(fixture.view(2).accessibilityElementsHidden);
+  XCTAssertFalse(owner.accessibilityElementsHidden);
+  [adapter invalidate];
+  XCTAssertFalse(oldBackground.accessibilityElementsHidden);
+  XCTAssertFalse(fixture.view(16).accessibilityElementsHidden);
+}
+
+- (void)testReleasedBoundaryClearsItsFlagWithoutRestoringMasksWhenPublicationIsRejected
+{
+  RuntimeFixture fixture;
+  fixture.mount({fixture.node(11, {fixture.node(12),
+      fixture.node(13, {fixture.node(14)}, true)})});
+  auto observer = fixture.observer();
+  MountingTransaction first(1, 1, {}, {});
+  [observer didMount:first owner:fixture.view(14)];
+  auto presentation = [[BottomSheetPortalPresentation alloc]
+      initWithIdentity:[BottomSheetPresentationIdentity new] owner:fixture.view(14)
+      observer:observer active:YES eligible:YES];
+  auto adapter = [BottomSheetPresentationModalIsolationAdapter new];
+  UIView *boundary = [UIView new];
+  [adapter registerBoundary:boundary];
+  BottomSheetPresentationOrderProvider order = ^BottomSheetPresentationOrder(
+      BottomSheetPresentationIdentity *a, BottomSheetPresentationIdentity *b) {
+    return BottomSheetPresentationOrderUnknown;
+  };
+  [adapter reconcilePortalPresentations:@[presentation] orderProvider:order ifCurrent:nil];
+  boundary.accessibilityViewIsModal = YES;
+  [adapter unregisterBoundary:boundary];
+  MountingTransaction inFlight(1, 2, {}, {});
+  [observer willMount:inFlight];
+
+  [adapter reconcilePortalPresentations:@[presentation] orderProvider:order ifCurrent:nil];
+
+  XCTAssertFalse(boundary.accessibilityViewIsModal);
+  XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
+  [adapter invalidate];
+  XCTAssertFalse(fixture.view(12).accessibilityElementsHidden);
+}
+
+- (void)testIsolationWriterRetainsUnknownActivePathsAndPreservesLeasesForRejectedSources
+{
+  RuntimeFixture fixture;
+  fixture.mount({fixture.node(11, {fixture.node(12),
+      fixture.node(13, {fixture.node(14), fixture.node(15)}, true)})});
+  auto observer = fixture.observer();
+  MountingTransaction first(1, 1, {}, {});
+  [observer didMount:first owner:fixture.view(14)];
+  [observer didMount:first owner:fixture.view(15)];
+  auto identityA = [BottomSheetPresentationIdentity new];
+  auto identityB = [BottomSheetPresentationIdentity new];
+  NSArray *presentations = @[
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:identityA owner:fixture.view(14)
+        observer:observer active:YES eligible:YES],
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:identityB owner:fixture.view(15)
+        observer:observer active:YES eligible:YES]];
+  auto adapter = [BottomSheetPresentationModalIsolationAdapter new];
+  BottomSheetPresentationOrderProvider known = ^BottomSheetPresentationOrder(
+      BottomSheetPresentationIdentity *a, BottomSheetPresentationIdentity *b) {
+    return a == identityB ? BottomSheetPresentationOrderAbove : BottomSheetPresentationOrderBelow;
+  };
+  BottomSheetPresentationOrderProvider unknown = ^BottomSheetPresentationOrder(
+      BottomSheetPresentationIdentity *a, BottomSheetPresentationIdentity *b) {
+    return BottomSheetPresentationOrderUnknown;
+  };
+  [adapter reconcilePortalPresentations:presentations orderProvider:known ifCurrent:nil];
+  XCTAssertTrue(fixture.view(14).accessibilityElementsHidden);
+  XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
+
+  [adapter reconcilePortalPresentations:presentations orderProvider:unknown
+      ifCurrent:^BOOL { return NO; }];
+  XCTAssertTrue(fixture.view(14).accessibilityElementsHidden);
+  XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
+
+  [adapter reconcilePortalPresentations:presentations orderProvider:unknown ifCurrent:nil];
+  XCTAssertFalse(fixture.view(14).accessibilityElementsHidden);
+  XCTAssertFalse(fixture.view(15).accessibilityElementsHidden);
+  XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
+
+  MountingTransaction inFlight(1, 2, {}, {});
+  [observer willMount:inFlight];
+  XCTAssertFalse([adapter reconcilePortalPresentations:presentations
+      orderProvider:known ifCurrent:nil]);
+  XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
+  XCTAssertFalse(fixture.view(14).accessibilityElementsHidden);
+  [adapter invalidate];
+  XCTAssertFalse(fixture.view(12).accessibilityElementsHidden);
+}
+
+- (void)testAuthorityAnchorUsesItsCurrentRegisteredOwnerAndObserverWithoutAnotherRegistration
+{
+  RuntimeFixture fixture;
+  fixture.mount({fixture.node(11, {fixture.node(12),
+      fixture.node(13, {fixture.node(14)}, true)})});
+  auto observer = fixture.observer();
+  MountingTransaction first(1, 1, {}, {});
+  [observer didMount:first owner:fixture.view(14)];
+  PortalOwnedContentAnchor *anchor = [PortalOwnedContentAnchor new];
+  anchor.portalNativeOwner = fixture.view(14);
+  [fixture.view(14) addSubview:anchor];
+  anchor.accessibilityViewIsModal = YES;
+  auto identity = [BottomSheetPresentationIdentity new];
+  auto presentation = [BottomSheetPortalPresentation presentationForIdentity:identity
+      anchor:anchor active:YES eligible:YES];
+  auto adapter = [BottomSheetPresentationModalIsolationAdapter new];
+  [adapter registerBoundary:anchor];
+  if (presentation) {
+    [adapter reconcilePortalPresentations:@[presentation]
+        orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
+                                                    BottomSheetPresentationIdentity *b) {
+          return BottomSheetPresentationOrderUnknown;
+        } ifCurrent:nil];
+  }
+
+  XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
+  XCTAssertFalse(anchor.accessibilityViewIsModal);
+
+  [observer invalidate];
+  XCTAssertNil([BottomSheetPortalPresentation presentationForIdentity:identity
+      anchor:anchor active:YES eligible:YES]);
+  [adapter invalidate];
+}
+
+- (void)testExistingIsolationWriterAppliesIndependentPortalCutsWithoutHidingOutsideControls
+{
+  RuntimeFixture fixture;
+  fixture.mount({fixture.node(2),
+      fixture.node(11, {fixture.node(12), fixture.node(13, {fixture.node(14)}, true)}),
+      fixture.node(21, {fixture.node(22), fixture.node(23, {fixture.node(24)}, true)})});
+  auto observer = fixture.observer();
+  MountingTransaction first(1, 1, {}, {});
+  [observer didMount:first owner:fixture.view(14)];
+  [observer didMount:first owner:fixture.view(24)];
+  UIView *nativeToolbar = [UIView new];
+  [fixture.viewport addSubview:nativeToolbar];
+  auto adapter = [BottomSheetPresentationModalIsolationAdapter new];
+  [adapter registerBoundary:fixture.view(14)];
+  [adapter registerBoundary:fixture.view(24)];
+  NSArray *presentations = @[
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:[BottomSheetPresentationIdentity new]
+        owner:fixture.view(14) observer:observer active:YES eligible:YES],
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:[BottomSheetPresentationIdentity new]
+        owner:fixture.view(24) observer:observer active:YES eligible:YES]];
+
+  [adapter reconcilePortalPresentations:presentations
+      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
+                                                  BottomSheetPresentationIdentity *b) {
+        return BottomSheetPresentationOrderUnknown;
+      } ifCurrent:nil];
+
+  XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
+  XCTAssertTrue(fixture.view(22).accessibilityElementsHidden);
+  XCTAssertFalse(fixture.view(11).accessibilityElementsHidden);
+  XCTAssertFalse(fixture.view(21).accessibilityElementsHidden);
+  XCTAssertFalse(fixture.view(2).accessibilityElementsHidden);
+  XCTAssertFalse(nativeToolbar.accessibilityElementsHidden);
+  XCTAssertFalse(fixture.view(14).accessibilityViewIsModal);
+  XCTAssertFalse(fixture.view(24).accessibilityViewIsModal);
+
+  [adapter invalidate];
+  XCTAssertFalse(fixture.view(12).accessibilityElementsHidden);
+  XCTAssertFalse(fixture.view(22).accessibilityElementsHidden);
+}
 
 - (void)testFirstOwnCompletedMountBootstrapsTheCurrentAppliedRoot
 {

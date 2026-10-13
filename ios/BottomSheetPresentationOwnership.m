@@ -1,6 +1,7 @@
 #import "BottomSheetPresentationOwnership.h"
 
 #import "BottomSheetAccessibilityMaskLedger.h"
+#import "BottomSheetPresentationModalIsolationAdapter.h"
 
 #import <math.h>
 #import <objc/runtime.h>
@@ -120,15 +121,11 @@ static void BottomSheetAssertMainThread(void)
 @implementation BottomSheetPresentationCandidateRecord
 @end
 
-@interface BottomSheetPresentationModalIsolationAdapter : NSObject
+@interface BottomSheetPresentationModalIsolationAdapter ()
 @property (nonatomic, strong) NSHashTable<UIView *> *boundaries;
 @property (nonatomic, strong) NSHashTable<UIView *> *pendingReleasedBoundaries;
 @property (nonatomic, strong) BottomSheetAccessibilityMaskLedger *maskLedger;
 
-- (void)registerBoundary:(UIView *)boundary;
-- (void)unregisterBoundary:(UIView *)boundary;
-- (void)reconcileTopBoundary:(nullable UIView *)topBoundary;
-- (void)invalidate;
 @end
 
 @implementation BottomSheetPresentationModalIsolationAdapter
@@ -157,10 +154,6 @@ static void BottomSheetAssertMainThread(void)
 
 - (void)reconcileTopBoundary:(nullable UIView *)topBoundary
 {
-  if (topBoundary != nil && !topBoundary.accessibilityViewIsModal) {
-    topBoundary.accessibilityViewIsModal = YES;
-  }
-
   NSMutableSet<UIView *> *hiddenBranches = [NSMutableSet new];
   UIWindow *window = topBoundary.window;
   NSArray<UIView *> *topPath = window == nil
@@ -176,6 +169,16 @@ static void BottomSheetAssertMainThread(void)
     }
   }
 
+  [self reconcileHiddenBranches:hiddenBranches modalBoundary:topBoundary];
+}
+
+- (void)reconcileHiddenBranches:(NSSet<UIView *> *)hiddenBranches
+                modalBoundary:(nullable UIView *)topBoundary
+{
+  if (topBoundary != nil && !topBoundary.accessibilityViewIsModal) {
+    topBoundary.accessibilityViewIsModal = YES;
+  }
+
   // Establish the complete new isolation path before releasing either the old
   // modal boundary or any branch hidden for the previous Top. This mirrors the
   // boundary transfer order and prevents a synchronous Top swap from exposing
@@ -189,17 +192,17 @@ static void BottomSheetAssertMainThread(void)
       }
     }
 
-    NSArray<UIView *> *releasedBoundaries = self.pendingReleasedBoundaries.allObjects;
-    for (UIView *boundary in releasedBoundaries) {
-      if (boundary == topBoundary) {
-        continue;
-      }
-      if (boundary.accessibilityViewIsModal) {
-        boundary.accessibilityViewIsModal = NO;
-      }
-      [self.pendingReleasedBoundaries removeObject:boundary];
-    }
+    [self clearReleasedBoundariesKeeping:topBoundary];
   }];
+}
+
+- (void)clearReleasedBoundariesKeeping:(nullable UIView *)topBoundary
+{
+  for (UIView *boundary in self.pendingReleasedBoundaries.allObjects) {
+    if (boundary == topBoundary) continue;
+    if (boundary.accessibilityViewIsModal) boundary.accessibilityViewIsModal = NO;
+    [self.pendingReleasedBoundaries removeObject:boundary];
+  }
 }
 
 - (void)invalidate
@@ -207,6 +210,22 @@ static void BottomSheetAssertMainThread(void)
   [self reconcileTopBoundary:nil];
   [self.boundaries removeAllObjects];
   [self.pendingReleasedBoundaries removeAllObjects];
+}
+
+- (BOOL)reconcilePortalPresentations:(NSArray<BottomSheetPortalPresentation *> *)presentations
+                      orderProvider:(BottomSheetPresentationOrderProvider)orderProvider
+                          ifCurrent:(BOOL (NS_NOESCAPE ^)(void))isCurrent
+{
+  BottomSheetPortalIsolation *isolation = [BottomSheetPortalIsolation
+      projectionFromPresentations:presentations ?: @[] orderProvider:orderProvider];
+  if (presentations == nil || isolation == nil || (isCurrent != nil && !isCurrent())) {
+    // Unregistered anchors cannot remain modal in their next attachment. This
+    // retires their private flag without restoring any held background lease.
+    [self clearReleasedBoundariesKeeping:nil];
+    return NO;
+  }
+  [self reconcileHiddenBranches:isolation.hiddenBranches modalBoundary:nil];
+  return YES;
 }
 
 @end
@@ -345,6 +364,9 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
 
 - (void)recomputeTopPresentation
 {
+  // Completed Fabric mounts and owned presentation lifecycle changes feed this
+  // receiver. The existing hierarchy batch also groups isolation updates when
+  // Top is unchanged; native writes bypassing those events are not observed.
   BottomSheetAssertMainThread();
   if (self.hierarchyMutationDepth > 0) {
     self.hierarchyMutationDirty = YES;
@@ -414,9 +436,7 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
     }
   }
 
-  BottomSheetPresentationIdentity *nextTopIdentity =
-      [BottomSheetPresentationResolver topPresentationIdentityFromCandidates:candidates
-                                                               orderProvider:^BottomSheetPresentationOrder(
+  BottomSheetPresentationOrderProvider orderProvider = ^BottomSheetPresentationOrder(
                                                                    BottomSheetPresentationIdentity *first,
                                                                    BottomSheetPresentationIdentity *second) {
     UIView *firstAnchor = anchors[first];
@@ -427,13 +447,42 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
     return [BottomSheetPresentationUIKitOrderResolver orderOfAnchor:firstAnchor
                                                           relativeTo:secondAnchor
                                                             inWindow:window];
-  }];
+  };
+  BottomSheetPresentationIdentity *nextTopIdentity =
+      [BottomSheetPresentationResolver topPresentationIdentityFromCandidates:candidates
+                                                               orderProvider:orderProvider];
 
   if (self.escapeOwnerIdentity != nextTopIdentity) {
     self.escapeOwnerIdentity = nil;
   }
   UIView *nextTopBoundary = nextTopIdentity == nil ? nil : anchors[nextTopIdentity];
-  [self.modalIsolationAdapter reconcileTopBoundary:nextTopBoundary];
+  BOOL hasWindowModalPresentation = NO;
+  BOOL portalSourcesAreAvailable = YES;
+  NSMutableArray<BottomSheetPortalPresentation *> *portalPresentations = [NSMutableArray new];
+  for (BottomSheetPresentationCandidate *candidate in candidates) {
+    if (!candidate.isActive || !candidate.isEligible) continue;
+    BottomSheetPresentationCandidateRecord *record = self.records[candidate.identity];
+    if (record.controller.mode == BottomSheetPresentationModeNativeOverlay) {
+      hasWindowModalPresentation = YES;
+      continue;
+    }
+    BottomSheetPortalPresentation *presentation = [BottomSheetPortalPresentation
+        presentationForIdentity:candidate.identity anchor:anchors[candidate.identity]
+        active:candidate.isActive eligible:candidate.isEligible];
+    if (presentation == nil) portalSourcesAreAvailable = NO;
+    else [portalPresentations addObject:presentation];
+  }
+  if (hasWindowModalPresentation) {
+    // Preserve the existing window-modal path until its composed portal join is
+    // validated. Every transfer still uses this authority's one mask ledger.
+    [self.modalIsolationAdapter reconcileTopBoundary:nextTopBoundary];
+  } else {
+    [self.modalIsolationAdapter reconcilePortalPresentations:
+        portalSourcesAreAvailable ? portalPresentations : nil
+        orderProvider:orderProvider ifCurrent:^BOOL {
+          return !self.reconciliationDirty && self.hierarchyMutationDepth == 0;
+        }];
+  }
 
   NSArray<BottomSheetPresentationCandidateRecord *> *records = self.records.allValues;
   for (BottomSheetPresentationCandidateRecord *record in records) {

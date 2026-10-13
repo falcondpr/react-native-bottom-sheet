@@ -8,6 +8,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 // Ephemeral native-authority facts. No state is registered with this value.
 @interface BottomSheetPortalPresentation : NSObject
++ (nullable instancetype)presentationForIdentity:(BottomSheetPresentationIdentity *)identity
+                                         anchor:(UIView *)anchor
+                                         active:(BOOL)active
+                                       eligible:(BOOL)eligible;
 - (instancetype)initWithIdentity:(BottomSheetPresentationIdentity *)identity
                            owner:(UIView *)owner
                         observer:(BottomSheetPortalMountingObserver *)observer

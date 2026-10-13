@@ -6,6 +6,26 @@
 using namespace facebook::react;
 using namespace facebook::react::bottomsheet;
 
+static NSHashTable<BottomSheetPortalMountingObserver *> *BottomSheetPortalObservers(void)
+{
+  NSCAssert(NSThread.isMainThread, @"Portal runtime installation must run on main");
+  static NSHashTable<BottomSheetPortalMountingObserver *> *observers;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{ observers = [NSHashTable weakObjectsHashTable]; });
+  return observers;
+}
+
+BottomSheetPortalMountingObserver *BottomSheetPortalObserverForView(UIView *view)
+{
+  BottomSheetPortalMountingObserver *selected = nil;
+  for (BottomSheetPortalMountingObserver *observer in BottomSheetPortalObservers()) {
+    if (![observer ownsNativeView:view]) continue;
+    if (selected != nil) return nil;
+    selected = observer;
+  }
+  return selected;
+}
+
 namespace {
 struct SurfacePublication {
   RootShadowNode::Shared root;
@@ -45,6 +65,7 @@ AppliedRoot appliedRoot(const UIManager& manager, SurfaceId surface) {
     _mountingManager = mountingManager;
     _uiManagerProvider = [uiManagerProvider copy];
     _retirementHandler = [retirementHandler copy];
+    [BottomSheetPortalObservers() addObject:self];
   }
   return self;
 }
@@ -189,6 +210,7 @@ AppliedRoot appliedRoot(const UIManager& manager, SurfaceId surface) {
 - (void)invalidate
 {
   NSCAssert(NSThread.isMainThread, @"Portal publication must run on main");
+  [BottomSheetPortalObservers() removeObject:self];
   _uiManagerProvider = nil;
   _retirementHandler = nil;
   _epochManager.reset();

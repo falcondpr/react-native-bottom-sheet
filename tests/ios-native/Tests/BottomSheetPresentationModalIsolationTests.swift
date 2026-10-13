@@ -4,18 +4,20 @@ import XCTest
 
 @MainActor
 final class BottomSheetPresentationModalIsolationTests: XCTestCase {
-  func testSinglePortalOwnsModalBoundaryWhileActive() throws {
+  // These manually created components have no completed Fabric source. A
+  // portal must not turn that missing local boundary into window modality.
+  func testUnmappedPortalDoesNotCreateWindowModalBoundary() throws {
     let fixture = BottomSheetHostFixture(presentations: [.portal])
     defer { fixture.tearDown() }
 
     let boundary = try XCTUnwrap(fixture.host.superview)
 
-    XCTAssertTrue(boundary.accessibilityViewIsModal)
+    XCTAssertFalse(boundary.accessibilityViewIsModal)
     XCTAssertFalse(boundary.accessibilityElementsHidden)
     XCTAssertTrue(fixture.host.isDescendant(of: boundary))
   }
 
-  func testLowerPortalIsOutsideTopPortalModalBoundary() throws {
+  func testUnmappedPortalStackDoesNotCreateWindowModalBoundaries() throws {
     let fixture = BottomSheetHostFixture(presentations: [.portal, .portal])
     defer { fixture.tearDown() }
 
@@ -23,7 +25,7 @@ final class BottomSheetPresentationModalIsolationTests: XCTestCase {
     let topBoundary = try XCTUnwrap(fixture.hosts[1].superview)
 
     XCTAssertFalse(lowerBoundary.accessibilityViewIsModal)
-    XCTAssertTrue(topBoundary.accessibilityViewIsModal)
+    XCTAssertFalse(topBoundary.accessibilityViewIsModal)
     XCTAssertTrue(fixture.hosts[1].isDescendant(of: topBoundary))
   }
 
@@ -41,7 +43,7 @@ final class BottomSheetPresentationModalIsolationTests: XCTestCase {
     XCTAssertTrue(fixture.hosts[1].isDescendant(of: overlayBoundary))
   }
 
-  func testSeparateNativeRootBranchesShareOneWindowBoundary() throws {
+  func testUnmappedSeparateNativeRootBranchesDoNotExpandPortalBoundaries() throws {
     let fixture = BottomSheetHostFixture(
       presentations: [.portal, .portal],
       separateNativeRootBranches: true
@@ -50,9 +52,11 @@ final class BottomSheetPresentationModalIsolationTests: XCTestCase {
 
     let lowerBoundary = try XCTUnwrap(fixture.hosts[0].superview)
     let topBoundary = try XCTUnwrap(fixture.hosts[1].superview)
+    let lowerBranch = try XCTUnwrap(lowerBoundary.superview)
 
     XCTAssertFalse(lowerBoundary.accessibilityViewIsModal)
-    XCTAssertTrue(topBoundary.accessibilityViewIsModal)
+    XCTAssertFalse(topBoundary.accessibilityViewIsModal)
+    XCTAssertFalse(lowerBranch.accessibilityElementsHidden)
   }
 
   func testMultipleAttachedNativeOverlaysKeepOnlyNativeTopSheetBoundaryModal() throws {
@@ -70,7 +74,7 @@ final class BottomSheetPresentationModalIsolationTests: XCTestCase {
     XCTAssertFalse(topContainer.accessibilityViewIsModal)
   }
 
-  func testDifferentWindowsKeepIndependentModalBoundaries() throws {
+  func testUnmappedPortalDoesNotBorrowModalityFromAnotherWindowOverlay() throws {
     let firstFixture = BottomSheetHostFixture(presentations: [.portal])
     let secondFixture = BottomSheetHostFixture(presentations: [.nativeOverlay])
     defer {
@@ -81,11 +85,11 @@ final class BottomSheetPresentationModalIsolationTests: XCTestCase {
     let firstBoundary = try XCTUnwrap(firstFixture.host.superview)
     let secondBoundary = try XCTUnwrap(secondFixture.host.superview)
 
-    XCTAssertTrue(firstBoundary.accessibilityViewIsModal)
+    XCTAssertFalse(firstBoundary.accessibilityViewIsModal)
     XCTAssertTrue(secondBoundary.accessibilityViewIsModal)
   }
 
-  func testTopChangeTransfersModalBoundaryAtMountCompletion() throws {
+  func testOrderChangeDoesNotCreateBoundaryWithoutCurrentPortalSource() throws {
     let fixture = BottomSheetHostFixture(presentations: [.portal, .portal])
     defer { fixture.tearDown() }
     let firstBoundary = try XCTUnwrap(fixture.hosts[0].superview)
@@ -95,16 +99,16 @@ final class BottomSheetPresentationModalIsolationTests: XCTestCase {
 
     fixture.bringComponentToFrontDuringMount(at: 0)
 
-    XCTAssertTrue(firstBoundary.accessibilityViewIsModal)
+    XCTAssertFalse(firstBoundary.accessibilityViewIsModal)
     XCTAssertFalse(secondBoundary.accessibilityViewIsModal)
     XCTAssertFalse(firstBranch.accessibilityElementsHidden)
-    XCTAssertTrue(secondBranch.accessibilityElementsHidden)
+    XCTAssertFalse(secondBranch.accessibilityElementsHidden)
     XCTAssertNotNil(
       BottomSheetPresentationCoordinator.topPresentationIdentity(in: fixture.window)
     )
   }
 
-  func testRemovingLowerPresentationKeepsUpperBoundaryModal() throws {
+  func testRemovingUnmappedLowerPortalDoesNotCreateWindowBoundary() throws {
     let fixture = BottomSheetHostFixture(presentations: [.portal, .portal])
     defer { fixture.tearDown() }
     let lowerBoundary = try XCTUnwrap(fixture.hosts[0].superview)
@@ -113,7 +117,7 @@ final class BottomSheetPresentationModalIsolationTests: XCTestCase {
     fixture.recycleComponent(at: 0)
 
     XCTAssertFalse(lowerBoundary.accessibilityViewIsModal)
-    XCTAssertTrue(topBoundary.accessibilityViewIsModal)
+    XCTAssertFalse(topBoundary.accessibilityViewIsModal)
   }
 
   func testNoTopRestoresLibraryBoundaryToBaselineFalse() throws {
@@ -148,16 +152,16 @@ final class BottomSheetPresentationModalIsolationTests: XCTestCase {
     XCTAssertFalse(dynamicTopContent.accessibilityElementsHidden)
     XCTAssertTrue(dynamicTopContent.isDescendant(of: topBoundary))
     XCTAssertFalse(lowerBoundary.accessibilityViewIsModal)
-    XCTAssertTrue(topBoundary.accessibilityViewIsModal)
+    XCTAssertFalse(topBoundary.accessibilityViewIsModal)
     XCTAssertNotNil(
       BottomSheetPresentationCoordinator.topPresentationIdentity(in: fixture.window)
     )
 
     dynamicTopContent.removeFromSuperview()
-    XCTAssertTrue(topBoundary.accessibilityViewIsModal)
+    XCTAssertFalse(topBoundary.accessibilityViewIsModal)
   }
 
-  func testTransparentScrimDoesNotReleaseActiveModalBoundary() throws {
+  func testTransparentScrimDoesNotExpandUnmappedPortalBoundary() throws {
     let fixture = BottomSheetHostFixture(presentations: [.portal])
     defer { fixture.tearDown() }
     let boundary = try XCTUnwrap(fixture.host.superview)
@@ -166,6 +170,6 @@ final class BottomSheetPresentationModalIsolationTests: XCTestCase {
     fixture.host.layoutIfNeeded()
 
     XCTAssertFalse(fixture.host.isModalAccessibilityActive)
-    XCTAssertTrue(boundary.accessibilityViewIsModal)
+    XCTAssertFalse(boundary.accessibilityViewIsModal)
   }
 }

@@ -8,26 +8,6 @@
 
 using namespace facebook::react;
 
-static NSHashTable<BottomSheetPortalMountingObserver *> *BottomSheetPortalObservers(void)
-{
-  NSCAssert(NSThread.isMainThread, @"Portal runtime installation must run on main");
-  static NSHashTable<BottomSheetPortalMountingObserver *> *observers;
-  static dispatch_once_t once;
-  dispatch_once(&once, ^{ observers = [NSHashTable weakObjectsHashTable]; });
-  return observers;
-}
-
-BottomSheetPortalMountingObserver *BottomSheetPortalObserverForView(UIView *view)
-{
-  BottomSheetPortalMountingObserver *selected = nil;
-  for (BottomSheetPortalMountingObserver *observer in BottomSheetPortalObservers()) {
-    if (![observer ownsNativeView:view]) continue;
-    if (selected != nil) return nil;
-    selected = observer;
-  }
-  return selected;
-}
-
 // Module construction asks RCTInstance for its normal presenter injection. It
 // exposes no JS methods and does not replace scheduler/mounting delegates.
 @interface BottomSheetPresentationModule : NSObject <RCTBridgeModule, RCTTurboModule> {
@@ -57,7 +37,6 @@ RCT_EXPORT_MODULE(BottomSheetPresentation)
   dispatch_async(dispatch_get_main_queue(), ^{
     BottomSheetPresentationModule *module = weakSelf;
     if (!module || !module->_valid.load()) return;
-    [BottomSheetPortalObservers() removeObject:module.observer];
     [module.observer invalidate];
     __weak RCTSurfacePresenter *surfacePresenter = (RCTSurfacePresenter *)presenter;
     module.observer = [[BottomSheetPortalMountingObserver alloc]
@@ -68,7 +47,6 @@ RCT_EXPORT_MODULE(BottomSheetPresentation)
         } beforeDeletingNativeSubtrees:^(BottomSheetNativeViewDeletion *deletion) {
           [BottomSheetPresentationCoordinator retireNativeViewDeletion:deletion];
         }];
-    [BottomSheetPortalObservers() addObject:module.observer];
   });
 }
 
@@ -76,7 +54,6 @@ RCT_EXPORT_MODULE(BottomSheetPresentation)
 {
   _valid = false;
   dispatch_async(dispatch_get_main_queue(), ^{
-    [BottomSheetPortalObservers() removeObject:self.observer];
     [self.observer invalidate];
     self.observer = nil;
   });

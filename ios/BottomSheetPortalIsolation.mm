@@ -1,5 +1,6 @@
 #import "BottomSheetPortalIsolation.h"
 #import "BottomSheetPortalMountingObserver.h"
+#import "BottomSheetPortalNativeContainer.h"
 
 using namespace facebook::react;
 using namespace facebook::react::bottomsheet;
@@ -59,6 +60,21 @@ NSSet<UIView *> *composeNativeCuts(NSSet<UIView *> *branches, NSSet<UIView *> *r
 } // namespace
 
 @implementation BottomSheetPortalPresentation
++ (instancetype)presentationForIdentity:(BottomSheetPresentationIdentity *)identity
+                                anchor:(UIView *)anchor active:(BOOL)active eligible:(BOOL)eligible
+{
+  UIView *owner = [anchor conformsToProtocol:@protocol(BottomSheetPortalNativeContainer)]
+      ? ((UIView<BottomSheetPortalNativeContainer> *)anchor).portalNativeOwner : anchor;
+  if (!owner || owner.window != anchor.window) return nil;
+  auto hierarchy = [BottomSheetNativeHierarchySnapshot new];
+  [hierarchy tagOfView:owner];
+  if (!hierarchy.isValid) return nil;
+  auto observer = BottomSheetPortalObserverForView(owner);
+  if (!observer || ![hierarchy validate]) return nil;
+  return [[self alloc] initWithIdentity:identity owner:owner observer:observer
+                               active:active eligible:eligible];
+}
+
 - (instancetype)initWithIdentity:(BottomSheetPresentationIdentity *)identity
                            owner:(UIView *)owner
                         observer:(BottomSheetPortalMountingObserver *)observer

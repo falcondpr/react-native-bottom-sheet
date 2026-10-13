@@ -113,7 +113,7 @@ final class BottomSheetAccessibleDismissalTests: XCTestCase {
 
   func testDuplicateZeroTargetRejectsDismissalAndRetainsOwnershipUntilSettle() async throws {
     let fixture = BottomSheetHostFixture(
-      presentations: [.portal],
+      presentations: [.nativeOverlay],
       initialIndices: [2],
       detents: [
         ["value": 0.0, "kind": "points", "programmatic": false],

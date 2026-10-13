@@ -130,9 +130,9 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   [lowerPortalBranch addSubview:lower];
   [upperPortalBranch addSubview:upper];
   BottomSheetPresentationController *lowerController =
-      BottomSheetActivateModalBoundary(lower, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(lower, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationController *upperController =
-      BottomSheetActivateModalBoundary(upper, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(upper, BottomSheetPresentationModeNativeOverlay);
 
   XCTAssertTrue(applicationBranch.accessibilityElementsHidden);
   XCTAssertTrue(lowerPortalBranch.accessibilityElementsHidden);
@@ -155,7 +155,7 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   BottomSheetTearDownModalIsolationTestWindow(window);
 }
 
-- (void)testSameWindowReparentTransfersSideBranchIsolationAcrossModes
+- (void)testSameWindowReparentTransfersWindowModalSideBranchIsolation
 {
   NSMutableArray<NSString *> *writeLog = [NSMutableArray new];
   UIWindow *window = BottomSheetMakeModalIsolationTestWindow();
@@ -172,7 +172,7 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   [window.rootViewController.view addSubview:overlayBranch];
   [portalBranch addSubview:boundary];
   BottomSheetPresentationController *controller =
-      BottomSheetActivateModalBoundary(boundary, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(boundary, BottomSheetPresentationModeNativeOverlay);
 
   XCTAssertTrue(applicationBranch.accessibilityElementsHidden);
   XCTAssertFalse(portalBranch.accessibilityElementsHidden);
@@ -192,7 +192,7 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
 
   [controller beginHierarchyMutation];
   [portalBranch addSubview:boundary];
-  [controller updateModal:YES active:YES mode:BottomSheetPresentationModePortal];
+  [controller updateModal:YES active:YES mode:BottomSheetPresentationModeNativeOverlay];
   [controller endHierarchyMutation];
 
   XCTAssertEqualObjects(writeLog, (@[ @"overlay:true", @"portal:false" ]));
@@ -228,7 +228,7 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   [secondWindow.rootViewController.view addSubview:secondPresentationBranch];
   [firstPresentationBranch addSubview:boundary];
   BottomSheetPresentationController *controller =
-      BottomSheetActivateModalBoundary(boundary, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(boundary, BottomSheetPresentationModeNativeOverlay);
 
   XCTAssertTrue(firstApplicationBranch.accessibilityElementsHidden);
   XCTAssertFalse(secondApplicationBranch.accessibilityElementsHidden);
@@ -278,7 +278,7 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   [lowerBranch addSubview:lower];
   [upperBranch addSubview:upper];
   BottomSheetPresentationController *lowerController =
-      BottomSheetActivateModalBoundary(lower, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(lower, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationController *upperController =
       [[BottomSheetPresentationController alloc] initWithAnchor:upper];
   __block BOOL didRemoveNewTop = NO;
@@ -289,7 +289,7 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
     }
   };
 
-  [upperController updateModal:YES active:YES mode:BottomSheetPresentationModePortal];
+  [upperController updateModal:YES active:YES mode:BottomSheetPresentationModeNativeOverlay];
 
   XCTAssertTrue(didRemoveNewTop);
   XCTAssertTrue(lowerController.isTopPresentation);
@@ -316,11 +316,11 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   [window.rootViewController.view addSubview:lower];
   [window.rootViewController.view addSubview:upper];
   BottomSheetPresentationController *lowerController =
-      BottomSheetActivateModalBoundary(lower, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(lower, BottomSheetPresentationModeNativeOverlay);
   [writeLog removeAllObjects];
 
   BottomSheetPresentationController *upperController =
-      BottomSheetActivateModalBoundary(upper, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(upper, BottomSheetPresentationModeNativeOverlay);
 
   XCTAssertEqualObjects(writeLog, (@[ @"upper:true", @"lower:false" ]));
   XCTAssertFalse(lower.accessibilityViewIsModal);
@@ -342,9 +342,9 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   [window.rootViewController.view addSubview:ancestor];
   [ancestor addSubview:descendant];
   BottomSheetPresentationController *ancestorController =
-      BottomSheetActivateModalBoundary(ancestor, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(ancestor, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationController *descendantController =
-      BottomSheetActivateModalBoundary(descendant, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(descendant, BottomSheetPresentationModeNativeOverlay);
 
   XCTAssertFalse(ancestor.accessibilityViewIsModal);
   XCTAssertTrue(descendant.accessibilityViewIsModal);
@@ -362,9 +362,9 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
       [[BottomSheetModalBoundaryRecordingView alloc] initWithName:@"boundary" writeLog:writeLog];
   [window.rootViewController.view addSubview:boundary];
   BottomSheetPresentationController *controller =
-      BottomSheetActivateModalBoundary(boundary, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(boundary, BottomSheetPresentationModeNativeOverlay);
 
-  [controller updateModal:YES active:NO mode:BottomSheetPresentationModePortal];
+  [controller updateModal:YES active:NO mode:BottomSheetPresentationModeNativeOverlay];
 
   XCTAssertFalse(boundary.accessibilityViewIsModal);
 
@@ -392,14 +392,14 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   [firstPresentationBranch addSubview:firstBoundary];
   [secondPresentationBranch addSubview:secondBoundary];
   BottomSheetPresentationController *firstController =
-      BottomSheetActivateModalBoundary(firstBoundary, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(firstBoundary, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationController *secondController =
       BottomSheetActivateModalBoundary(secondBoundary, BottomSheetPresentationModeNativeOverlay);
 
   XCTAssertTrue(firstApplicationBranch.accessibilityElementsHidden);
   XCTAssertTrue(secondApplicationBranch.accessibilityElementsHidden);
 
-  [firstController updateModal:YES active:NO mode:BottomSheetPresentationModePortal];
+  [firstController updateModal:YES active:NO mode:BottomSheetPresentationModeNativeOverlay];
 
   XCTAssertFalse(firstBoundary.accessibilityViewIsModal);
   XCTAssertTrue(secondBoundary.accessibilityViewIsModal);
@@ -427,9 +427,9 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   [window.rootViewController.view addSubview:lower];
   [window.rootViewController.view addSubview:upper];
   BottomSheetPresentationController *lowerController =
-      BottomSheetActivateModalBoundary(lower, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(lower, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationController *upperController =
-      BottomSheetActivateModalBoundary(upper, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(upper, BottomSheetPresentationModeNativeOverlay);
   [writeLog removeAllObjects];
 
   [lowerController invalidate];
@@ -453,7 +453,7 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   [window.rootViewController.view addSubview:lower];
   [window.rootViewController.view addSubview:upper];
   BottomSheetPresentationController *lowerController =
-      BottomSheetActivateModalBoundary(lower, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(lower, BottomSheetPresentationModeNativeOverlay);
   [writeLog removeAllObjects];
   __block BOOL didReenter = NO;
   upper.afterWrite = ^(BOOL modal) {
@@ -464,7 +464,7 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   };
 
   BottomSheetPresentationController *upperController =
-      BottomSheetActivateModalBoundary(upper, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(upper, BottomSheetPresentationModeNativeOverlay);
 
   XCTAssertTrue(didReenter);
   XCTAssertEqualObjects(writeLog, (@[ @"upper:true", @"lower:false" ]));
@@ -488,7 +488,7 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   [window.rootViewController.view addSubview:lower];
   [window.rootViewController.view addSubview:upper];
   BottomSheetPresentationController *lowerController =
-      BottomSheetActivateModalBoundary(lower, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(lower, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationController *upperController =
       [[BottomSheetPresentationController alloc] initWithAnchor:upper];
   __block BOOL didRemoveNewTop = NO;
@@ -500,7 +500,7 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   };
   [writeLog removeAllObjects];
 
-  [upperController updateModal:YES active:YES mode:BottomSheetPresentationModePortal];
+  [upperController updateModal:YES active:YES mode:BottomSheetPresentationModeNativeOverlay];
 
   XCTAssertTrue(didRemoveNewTop);
   XCTAssertEqualObjects(
@@ -525,7 +525,7 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   [window.rootViewController.view addSubview:lower];
   [window.rootViewController.view addSubview:upper];
   BottomSheetPresentationController *lowerController =
-      BottomSheetActivateModalBoundary(lower, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(lower, BottomSheetPresentationModeNativeOverlay);
   __block BOOL didCleanCurrentTop = NO;
   lower.afterWrite = ^(BOOL modal) {
     if (!modal && !didCleanCurrentTop) {
@@ -537,7 +537,7 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   [writeLog removeAllObjects];
 
   BottomSheetPresentationController *upperController =
-      BottomSheetActivateModalBoundary(upper, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(upper, BottomSheetPresentationModeNativeOverlay);
 
   XCTAssertTrue(didCleanCurrentTop);
   XCTAssertEqualObjects(writeLog, (@[ @"upper:true", @"lower:false" ]));
@@ -563,9 +563,9 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   [window.rootViewController.view addSubview:lower];
   [window.rootViewController.view addSubview:upper];
   BottomSheetPresentationController *lowerController =
-      BottomSheetActivateModalBoundary(lower, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(lower, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationController *upperController =
-      BottomSheetActivateModalBoundary(upper, BottomSheetPresentationModePortal);
+      BottomSheetActivateModalBoundary(upper, BottomSheetPresentationModeNativeOverlay);
   lower.accessibilityViewIsModal = YES;
   [writeLog removeAllObjects];
 

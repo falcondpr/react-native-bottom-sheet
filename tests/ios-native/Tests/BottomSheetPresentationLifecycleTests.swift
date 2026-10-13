@@ -4,8 +4,10 @@ import XCTest
 
 @MainActor
 final class BottomSheetPresentationLifecycleTests: XCTestCase {
+  // Window-modal lifecycle uses nativeOverlay. Local portal leases require a
+  // completed Fabric source and are covered at the observer/isolation seam.
   func testOpeningClaimsOwnershipBeforeContentBecomesReachable() async throws {
-    let fixture = BottomSheetHostFixture(presentations: [.portal], initialIndices: [0])
+    let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay], initialIndices: [0])
     defer { fixture.tearDown() }
     let boundary = try XCTUnwrap(fixture.host.superview)
     let settle = expectation(description: "opening settles through the real spring")
@@ -29,7 +31,7 @@ final class BottomSheetPresentationLifecycleTests: XCTestCase {
   }
 
   func testClosingUpperRetainsCombinedOwnershipUntilSettle() async throws {
-    let fixture = BottomSheetHostFixture(presentations: [.portal, .portal])
+    let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay, .nativeOverlay])
     defer { fixture.tearDown() }
     let lowerHost = fixture.hosts[0]
     let upperHost = fixture.hosts[1]
@@ -85,7 +87,7 @@ final class BottomSheetPresentationLifecycleTests: XCTestCase {
   }
 
   func testClosingRetargetedOpenNeverReleasesOwnership() async throws {
-    let fixture = BottomSheetHostFixture(presentations: [.portal])
+    let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay])
     defer { fixture.tearDown() }
     let boundary = try XCTUnwrap(fixture.host.superview)
     let settle = expectation(description: "retargeted opening settles through the real spring")
@@ -109,7 +111,7 @@ final class BottomSheetPresentationLifecycleTests: XCTestCase {
   }
 
   func testActiveDetachTransfersOwnershipSynchronously() throws {
-    let fixture = BottomSheetHostFixture(presentations: [.portal, .portal])
+    let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay, .nativeOverlay])
     defer { fixture.tearDown() }
     let lowerBoundary = try XCTUnwrap(fixture.hosts[0].superview)
     let upperBoundary = try XCTUnwrap(fixture.hosts[1].superview)
@@ -122,7 +124,7 @@ final class BottomSheetPresentationLifecycleTests: XCTestCase {
   }
 
   func testClosingDetachTransfersOwnershipBeforeSettle() throws {
-    let fixture = BottomSheetHostFixture(presentations: [.portal, .portal])
+    let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay, .nativeOverlay])
     defer { fixture.tearDown() }
     let lowerBoundary = try XCTUnwrap(fixture.hosts[0].superview)
     let upperBoundary = try XCTUnwrap(fixture.hosts[1].superview)
@@ -139,7 +141,7 @@ final class BottomSheetPresentationLifecycleTests: XCTestCase {
   }
 
   func testRecyclingCurrentTopDestroysItsIdentityAndPromotesLower() throws {
-    let fixture = BottomSheetHostFixture(presentations: [.portal, .portal])
+    let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay, .nativeOverlay])
     defer { fixture.tearDown() }
     let lowerBoundary = try XCTUnwrap(fixture.hosts[0].superview)
     let upperBoundary = try XCTUnwrap(fixture.hosts[1].superview)
