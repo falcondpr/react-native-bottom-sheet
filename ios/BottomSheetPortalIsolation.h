@@ -35,6 +35,16 @@ NS_ASSUME_NONNULL_BEGIN
     (NSArray<BottomSheetPortalPresentation *> *)presentations
                                       orderProvider:
     (BottomSheetPresentationOrderProvider)orderProvider;
+
+// Read-only action-time selection. The caller supplies current origin facts;
+// unavailable sources/origins pass through without expanding to another scope.
++ (BottomSheetPresentationEscapeRoute)escapeRouteForCallerIdentity:
+    (BottomSheetPresentationIdentity *)callerIdentity
+                                                    actionOrigin:(nullable id)origin
+                                                   presentations:
+    (NSArray<BottomSheetPortalPresentation *> *)presentations
+                                                   orderProvider:
+    (BottomSheetPresentationOrderProvider)orderProvider;
 @end
 
 NS_ASSUME_NONNULL_END

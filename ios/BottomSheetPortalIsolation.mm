@@ -1,6 +1,7 @@
 #import "BottomSheetPortalIsolation.h"
 #import "BottomSheetPortalMountingObserver.h"
 #import "BottomSheetPortalNativeContainer.h"
+#import <objc/runtime.h>
 
 using namespace facebook::react;
 using namespace facebook::react::bottomsheet;
@@ -18,6 +19,63 @@ struct ContextPresentation {
   Tag host;
 };
 using ContextKey = std::pair<const RootShadowNode *, Tag>;
+
+struct PortalQuery {
+  std::map<const RootShadowNode *, AppliedPortalRoot> roots;
+  std::map<ContextKey, std::vector<ContextPresentation>> groups;
+};
+
+std::optional<PortalQuery> collectPortalPresentations(
+    NSArray<BottomSheetPortalPresentation *> *presentations,
+    BottomSheetNativeHierarchySnapshot *hierarchy) {
+  PortalQuery query;
+  NSMutableSet<BottomSheetPresentationIdentity *> *identities = [NSMutableSet new];
+  NSMutableSet<UIView *> *owners = [NSMutableSet new];
+  for (BottomSheetPortalPresentation *presentation in presentations) {
+    if (!presentation.isActive || !presentation.isEligible) continue;
+    if ([identities containsObject:presentation.identity] ||
+        [owners containsObject:presentation.owner]) return std::nullopt;
+    [identities addObject:presentation.identity];
+    [owners addObject:presentation.owner];
+    Tag ownerTag = static_cast<Tag>([hierarchy tagOfView:presentation.owner]);
+    if (!hierarchy.isValid) return std::nullopt;
+    auto root = [presentation.observer currentRootForOwner:presentation.owner];
+    if (!root) return std::nullopt;
+    auto found = query.roots.find(root.get());
+    if (found == query.roots.end()) {
+      auto graph = discoverPortalContexts(*root);
+      if (!graph) return std::nullopt;
+      found = query.roots.emplace(root.get(), AppliedPortalRoot{
+          root, std::move(*graph), presentation.observer, {}}).first;
+    } else if (found->second.observer != presentation.observer) {
+      return std::nullopt;
+    }
+    auto& graph = found->second.graph;
+    auto node = graph.nodes.find(ownerTag);
+    if (node == graph.nodes.end()) return std::nullopt;
+    auto host = graph.hostForPresentation(node->second->getFamily(), *root);
+    if (!host) return std::nullopt;
+    query.groups[{root.get(), graph.hostContexts.at(*host)}].push_back(
+        {presentation, node->second, *host});
+  }
+  return query;
+}
+
+UIView *nativeActionView(id origin) {
+  NSHashTable *seen = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+  while (origin) {
+    if ([seen containsObject:origin]) return nil;
+    [seen addObject:origin];
+    if ([origin isKindOfClass:UIView.class]) return origin;
+    if (![origin isKindOfClass:UIAccessibilityElement.class]) return nil;
+    SEL container = @selector(accessibilityContainer);
+    Method actual = class_getInstanceMethod(object_getClass(origin), container);
+    Method standard = class_getInstanceMethod(UIAccessibilityElement.class, container);
+    if (!actual || method_getImplementation(actual) != method_getImplementation(standard)) return nil;
+    origin = ((UIAccessibilityElement *)origin).accessibilityContainer;
+  }
+  return nil;
+}
 
 NSSet<UIView *> *nativeCut(const AppliedPortalRoot& publication, BottomSheetNativeHierarchySnapshot *hierarchy) {
   std::vector<PortalRetainedPaths> requests;
@@ -95,9 +153,97 @@ NSSet<UIView *> *composeNativeCuts(NSSet<UIView *> *branches, NSSet<UIView *> *r
 @interface BottomSheetPortalIsolation ()
 - (instancetype)initWithHiddenBranches:(NSSet<UIView *> *)hiddenBranches
                                    tops:(NSSet<BottomSheetPresentationIdentity *> *)tops;
++ (instancetype)projectionFromQuery:(PortalQuery &)query
+                           hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy
+                       orderProvider:(BottomSheetPresentationOrderProvider)orderProvider;
 @end
 
 @implementation BottomSheetPortalIsolation
++ (BottomSheetPresentationEscapeRoute)escapeRouteForCallerIdentity:
+    (BottomSheetPresentationIdentity *)callerIdentity
+                                                    actionOrigin:(id)origin
+                                                   presentations:
+    (NSArray<BottomSheetPortalPresentation *> *)presentations
+                                                   orderProvider:
+    (BottomSheetPresentationOrderProvider)orderProvider
+{
+  NSCAssert(NSThread.isMainThread, @"Portal input selection must run on main");
+  presentations = [presentations copy];
+  BottomSheetPortalPresentation *caller = nil;
+  for (BottomSheetPortalPresentation *presentation in presentations) {
+    if (presentation.identity == callerIdentity) caller = presentation;
+  }
+  if (!caller.isEligible) {
+    return BottomSheetPresentationEscapeRoutePassThrough;
+  }
+  UIWindow *expectedWindow = caller.owner.window;
+  auto callerRoot = [caller.observer currentRootForOwner:caller.owner];
+  if (!callerRoot) return BottomSheetPresentationEscapeRoutePassThrough;
+  auto hierarchy = [BottomSheetNativeHierarchySnapshot new];
+  auto query = collectPortalPresentations(presentations, hierarchy);
+  if (!query) return BottomSheetPresentationEscapeRoutePassThrough;
+  auto& roots = query->roots;
+  auto& groups = query->groups;
+  std::optional<ContextKey> selected;
+  for (const auto& [context, members] : groups) {
+    for (const auto& member : members) {
+      if (member.presentation.owner.window != expectedWindow) {
+        return BottomSheetPresentationEscapeRoutePassThrough;
+      }
+    }
+  }
+  auto isolation = [self projectionFromQuery:*query hierarchy:hierarchy orderProvider:orderProvider];
+  if (!isolation) return BottomSheetPresentationEscapeRoutePassThrough;
+  UIView *originView = nativeActionView(origin);
+  if (!originView || (originView != expectedWindow && originView.window != expectedWindow)) {
+    return BottomSheetPresentationEscapeRoutePassThrough;
+  }
+  std::optional<std::pair<size_t, size_t>> best;
+  bool ambiguous = false;
+  for (const auto& [key, publication] : roots) {
+    auto path = [publication.observer contextPathForView:originView
+        root:publication.root hierarchy:hierarchy];
+    if (!path) return BottomSheetPresentationEscapeRoutePassThrough;
+    for (size_t index = 0; index < path->contexts.size(); index++) {
+      ContextKey context{key, path->contexts[index]};
+      if (!groups.contains(context)) continue;
+      std::pair<size_t, size_t> rank{path->nativeDepth, index};
+      if (!best || rank < *best) {
+        best = rank;
+        selected = context;
+        ambiguous = false;
+      } else if (rank == *best && context != *selected) {
+        ambiguous = true;
+      }
+    }
+  }
+  if (!selected || ambiguous || caller.owner.window != expectedWindow ||
+      [caller.observer currentRootForOwner:caller.owner] != callerRoot) {
+    return BottomSheetPresentationEscapeRoutePassThrough;
+  }
+  for (const auto& [context, members] : groups) {
+    for (const auto& member : members) {
+      if ([member.presentation.observer currentRootForOwner:member.presentation.owner] !=
+          roots.at(context.first).root) {
+        return BottomSheetPresentationEscapeRoutePassThrough;
+      }
+      if (member.presentation.owner.window != expectedWindow) {
+        return BottomSheetPresentationEscapeRoutePassThrough;
+      }
+    }
+  }
+  if (nativeActionView(origin) != originView || ![hierarchy validate]) {
+    return BottomSheetPresentationEscapeRoutePassThrough;
+  }
+  for (const auto& member : groups.at(*selected)) {
+    if ([isolation.topPresentationIdentities containsObject:member.presentation.identity]) {
+      return [BottomSheetPresentationEscapeResolver routeForCallerIdentity:callerIdentity
+          topPresentationIdentity:member.presentation.identity];
+    }
+  }
+  return BottomSheetPresentationEscapeRoutePassThrough;
+}
+
 - (instancetype)initWithHiddenBranches:(NSSet<UIView *> *)hiddenBranches
                                    tops:(NSSet<BottomSheetPresentationIdentity *> *)tops
 {
@@ -114,37 +260,16 @@ NSSet<UIView *> *composeNativeCuts(NSSet<UIView *> *branches, NSSet<UIView *> *r
   NSCAssert(NSThread.isMainThread, @"Portal isolation must run on main");
   auto hierarchy = [BottomSheetNativeHierarchySnapshot new];
   if (!hierarchy.isValid) return nil;
-  std::map<const RootShadowNode *, AppliedPortalRoot> roots;
-  std::map<ContextKey, std::vector<ContextPresentation>> groups;
-  NSMutableSet<BottomSheetPresentationIdentity *> *identities = [NSMutableSet new];
-  NSMutableSet<UIView *> *owners = [NSMutableSet new];
-  for (BottomSheetPortalPresentation *presentation in presentations) {
-    if (!presentation.isActive || !presentation.isEligible) continue;
-    if ([identities containsObject:presentation.identity] ||
-        [owners containsObject:presentation.owner]) return nil;
-    [identities addObject:presentation.identity];
-    [owners addObject:presentation.owner];
-    Tag ownerTag = static_cast<Tag>([hierarchy tagOfView:presentation.owner]);
-    if (!hierarchy.isValid) return nil;
-    auto root = [presentation.observer currentRootForOwner:presentation.owner];
-    if (!root) return nil;
-    auto found = roots.find(root.get());
-    if (found == roots.end()) {
-      auto graph = discoverPortalContexts(*root);
-      if (!graph) return nil;
-      found = roots.emplace(root.get(), AppliedPortalRoot{
-          root, std::move(*graph), presentation.observer, {}}).first;
-    } else if (found->second.observer != presentation.observer) {
-      return nil;
-    }
-    auto& graph = found->second.graph;
-    auto node = graph.nodes.find(ownerTag);
-    if (node == graph.nodes.end()) return nil;
-    auto host = graph.hostForPresentation(node->second->getFamily(), *root);
-    if (!host) return nil;
-    groups[{root.get(), graph.hostContexts.at(*host)}].push_back(
-        {presentation, node->second, *host});
-  }
+  auto query = collectPortalPresentations(presentations, hierarchy);
+  return query ? [self projectionFromQuery:*query hierarchy:hierarchy orderProvider:orderProvider] : nil;
+}
+
++ (instancetype)projectionFromQuery:(PortalQuery &)query
+                           hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy
+                       orderProvider:(BottomSheetPresentationOrderProvider)orderProvider
+{
+  auto& roots = query.roots;
+  auto& groups = query.groups;
 
   NSMutableSet<BottomSheetPresentationIdentity *> *tops = [NSMutableSet new];
   NSMutableSet<UIView *> *retainedOwners = [NSMutableSet new];

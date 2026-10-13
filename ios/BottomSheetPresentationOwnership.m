@@ -250,6 +250,8 @@ static void BottomSheetAssertMainThread(void)
 - (void)endHierarchyMutation;
 - (void)recomputeTopPresentation;
 - (void)recomputeTopPresentationOnce;
+- (BottomSheetPresentationEscapeRoute)escapeRouteForController:
+    (BottomSheetPresentationController *)controller actionOrigin:(nullable id)origin;
 @end
 
 static const void *BottomSheetPresentationCoordinatorAssociationKey =
@@ -506,6 +508,61 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
   }
 }
 
+- (BottomSheetPresentationEscapeRoute)escapeRouteForController:
+    (BottomSheetPresentationController *)controller actionOrigin:(id)origin
+{
+  BottomSheetAssertMainThread();
+  if (self.hierarchyMutationDepth || self.isReconciliationInProgress) {
+    return BottomSheetPresentationEscapeRoutePassThrough;
+  }
+  self.reconciliationInProgress = YES;
+  self.reconciliationDirty = NO;
+  BottomSheetPresentationEscapeRoute route = BottomSheetPresentationEscapeRoutePassThrough;
+  @try {
+    BOOL hasWindowModalPresentation = NO;
+    BOOL sourcesAreAvailable = YES;
+    NSMutableArray<BottomSheetPortalPresentation *> *presentations = [NSMutableArray new];
+    NSMutableDictionary<BottomSheetPresentationIdentity *, UIView *> *anchors = [NSMutableDictionary new];
+    UIWindow *window = self.window;
+    for (BottomSheetPresentationCandidateRecord *record in self.records.allValues) {
+      UIView *anchor = record.anchor;
+      if (record.controller == nil || anchor == nil ||
+          (!record.isActive && record.identity != controller.identity)) continue;
+      BOOL eligible = [BottomSheetPresentationUIKitOrderResolver isAnchor:anchor attachedToWindow:window];
+      if (!eligible) continue;
+      anchors[record.identity] = anchor;
+      if (record.controller.mode == BottomSheetPresentationModeNativeOverlay) {
+        if (record.isActive) hasWindowModalPresentation = YES;
+        continue;
+      }
+      BottomSheetPortalPresentation *presentation = [BottomSheetPortalPresentation
+          presentationForIdentity:record.identity anchor:anchor active:record.isActive eligible:eligible];
+      if (presentation) [presentations addObject:presentation];
+      else sourcesAreAvailable = NO;
+    }
+    if (hasWindowModalPresentation) {
+      route = [BottomSheetPresentationEscapeResolver routeForCallerIdentity:controller.identity
+          topPresentationIdentity:self.escapeOwnerIdentity];
+    } else if (sourcesAreAvailable) {
+      route = [BottomSheetPortalIsolation escapeRouteForCallerIdentity:controller.identity
+          actionOrigin:origin presentations:presentations
+          orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
+                                                      BottomSheetPresentationIdentity *b) {
+            return [BottomSheetPresentationUIKitOrderResolver orderOfAnchor:anchors[a]
+                relativeTo:anchors[b] inWindow:window];
+          }];
+    }
+    if (self.reconciliationDirty || self.hierarchyMutationDepth || controller.isInvalidated ||
+        controller.coordinator != self || self.window != window) {
+      route = BottomSheetPresentationEscapeRoutePassThrough;
+    }
+  } @finally {
+    self.reconciliationInProgress = NO;
+    if (self.reconciliationDirty) [self recomputeTopPresentation];
+  }
+  return route;
+}
+
 @end
 
 @implementation BottomSheetPresentationController
@@ -621,6 +678,7 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
     return BottomSheetPresentationEscapeRoutePassThrough;
   }
 
+  id origin = UIAccessibilityFocusedElement(UIAccessibilityNotificationVoiceOverIdentifier);
   [self reconcileRegistration];
   BottomSheetPresentationCoordinator *coordinator = self.coordinator;
   UIView *anchor = self.anchor;
@@ -630,8 +688,7 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
   }
 
   [coordinator recomputeTopPresentation];
-  return [BottomSheetPresentationEscapeResolver routeForCallerIdentity:self.identity
-                                               topPresentationIdentity:coordinator.escapeOwnerIdentity];
+  return [coordinator escapeRouteForController:self actionOrigin:origin];
 }
 
 - (void)invalidate

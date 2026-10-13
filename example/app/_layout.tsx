@@ -18,6 +18,10 @@ export default function RootLayout() {
           >
             <Stack.Screen name="index" options={{ headerShown: false }} />
             <Stack.Screen
+              name="portal-local-contexts"
+              options={{ title: 'Local portal contexts', headerShown: true }}
+            />
+            <Stack.Screen
               name="basic-modal"
               options={{ title: 'Basic modal', headerShown: false }}
             />

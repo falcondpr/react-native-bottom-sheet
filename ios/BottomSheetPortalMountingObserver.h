@@ -28,6 +28,10 @@ typedef void (^BottomSheetNativeSubtreeRetirement)(BottomSheetNativeViewDeletion
 // window. No root is returned during mount or after a runtime/coordinator change.
 - (facebook::react::RootShadowNode::Shared)currentRootForSurface:(facebook::react::SurfaceId)surface;
 - (facebook::react::RootShadowNode::Shared)currentRootForOwner:(UIView *)owner;
+- (std::optional<facebook::react::bottomsheet::PortalNativeContextPath>)contextPathForView:
+    (UIView *)view
+        root:(const facebook::react::RootShadowNode::Shared &)root
+   hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy;
 - (nullable NSSet<UIView *> *)hiddenBranchesForSurface:(facebook::react::SurfaceId)surface
                                       retainedPaths:
     (const std::vector<facebook::react::bottomsheet::PortalRetainedPaths> &)requests;

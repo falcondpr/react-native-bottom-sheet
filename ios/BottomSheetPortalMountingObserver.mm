@@ -180,6 +180,15 @@ AppliedRoot appliedRoot(const UIManager& manager, SurfaceId surface) {
   return [_surfaces.at(surface).graph hiddenBranchesForRoot:root retainedPaths:requests];
 }
 
+- (std::optional<PortalNativeContextPath>)contextPathForView:(UIView *)view
+        root:(const RootShadowNode::Shared &)root
+   hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy
+{
+  if (!root || [self currentRootForSurface:root->getSurfaceId()] != root) return std::nullopt;
+  return [_surfaces.at(root->getSurfaceId()).graph contextPathForView:view
+      root:root hierarchy:hierarchy];
+}
+
 - (NSSet<UIView *> *)hiddenBranchesForRoot:(const RootShadowNode::Shared &)root
                            retainedPaths:(const std::vector<PortalRetainedPaths> &)requests
 {

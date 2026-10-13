@@ -273,6 +273,47 @@ Tag parentTag(const Mutation& mutation) {
   _identities.clear();
 }
 
+- (std::optional<PortalNativeContextPath>)contextPathForView:(UIView *)view
+        root:(const RootShadowNode::Shared &)root
+   hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy
+{
+  NSCAssert(NSThread.isMainThread, @"Native input ancestry is main-thread only");
+  if (!root || root != _root || !_manager) return std::nullopt;
+  auto graph = discoverPortalContexts(*root);
+  if (!graph) return std::nullopt;
+  size_t depth = 0;
+  for (UIView *current = view; current;
+       current = [hierarchy parentOfView:current], depth++) {
+    Tag tag = static_cast<Tag>([hierarchy tagOfView:current]);
+    if (!hierarchy.isValid) return std::nullopt;
+    auto node = graph->nodes.find(tag);
+    if (node == graph->nodes.end() || [self mounted:tag] != current) continue;
+    if (node->second == root.get()) {
+      if (_rootIdentity.view != current ||
+          _rootIdentity.family.lock() != node->second->getFamilyShared()) return std::nullopt;
+    } else {
+      auto identity = _identities.find(tag);
+      auto parent = _members.parents.find(tag);
+      if (!_members.alive.contains(tag) || identity == _identities.end() ||
+          identity->second.view != current ||
+          identity->second.family.lock() != node->second->getFamilyShared() ||
+          parent == _members.parents.end() ||
+          parent->second != [self registeredParentOf:current hierarchy:hierarchy]) return std::nullopt;
+    }
+    std::vector<Tag> contexts;
+    if (graph->contexts.contains(tag)) contexts.push_back(tag);
+    auto ancestors = node->second->getFamily().getAncestors(*root);
+    for (auto ancestor = ancestors.rbegin(); ancestor != ancestors.rend(); ++ancestor) {
+      Tag parentTag = ancestor->first.get().getTag();
+      if (graph->contexts.contains(parentTag)) contexts.push_back(parentTag);
+    }
+    return hierarchy.isValid ? std::optional<PortalNativeContextPath>{{contexts, depth}}
+                             : std::nullopt;
+  }
+  return hierarchy.isValid ? std::optional<PortalNativeContextPath>{{{}, depth}}
+                           : std::nullopt;
+}
+
 - (BottomSheetNativeViewDeletion *)nativeDeletionForMutations:(const ShadowViewMutation::List &)mutations
 {
   NSCAssert(NSThread.isMainThread, @"Native portal retirement is main-thread only");

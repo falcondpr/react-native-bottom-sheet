@@ -205,6 +205,9 @@ struct RuntimeFixture {
   [adapter reconcilePortalPresentations:presentations orderProvider:known ifCurrent:nil];
   XCTAssertTrue(fixture.view(14).accessibilityElementsHidden);
   XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
+      actionOrigin:fixture.view(14) presentations:presentations orderProvider:known],
+      BottomSheetPresentationEscapeRouteConsume);
 
   [adapter reconcilePortalPresentations:presentations orderProvider:unknown
       ifCurrent:^BOOL { return NO; }];
@@ -215,6 +218,9 @@ struct RuntimeFixture {
   XCTAssertFalse(fixture.view(14).accessibilityElementsHidden);
   XCTAssertFalse(fixture.view(15).accessibilityElementsHidden);
   XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityB
+      actionOrigin:fixture.view(15) presentations:presentations orderProvider:unknown],
+      BottomSheetPresentationEscapeRoutePassThrough);
 
   MountingTransaction inFlight(1, 2, {}, {});
   [observer willMount:inFlight];
@@ -378,7 +384,16 @@ struct RuntimeFixture {
   fixture.mount({fixture.node(2),
       fixture.node(11, {fixture.node(12), fixture.node(13, {sheetA}, true)}),
       fixture.node(21, {fixture.node(22), fixture.node(23, {sheetB}, true)})});
-  auto observer = fixture.observer();
+  std::weak_ptr<UIManager> current = fixture.uiManager;
+  __block NSUInteger reads = 0;
+  __block NSUInteger moveOnRead = 0;
+  __block UIView *originToMove = nil;
+  UIView *targetOwner = fixture.view(24);
+  auto observer = [[BottomSheetPortalMountingObserver alloc]
+      initWithMountingManager:fixture.mountingManager uiManagerProvider:^{
+        if (++reads == moveOnRead) [targetOwner addSubview:originToMove];
+        return current.lock();
+      } beforeDeletingNativeSubtrees:nil];
   MountingTransaction first(1, 1, {}, {});
   [observer didMount:first owner:fixture.view(14)];
   [observer didMount:first owner:fixture.view(24)];
@@ -402,6 +417,65 @@ struct RuntimeFixture {
   XCTAssertEqualObjects(isolation.topPresentationIdentities,
       ([NSSet setWithObjects:identityA, identityB, nil]));
   XCTAssertFalse(fixture.view(12).accessibilityElementsHidden);
+  BottomSheetPresentationOrderProvider globalOrder = ^BottomSheetPresentationOrder(
+      BottomSheetPresentationIdentity *a, BottomSheetPresentationIdentity *b) {
+    return a == identityB ? BottomSheetPresentationOrderAbove : BottomSheetPresentationOrderBelow;
+  };
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
+      actionOrigin:fixture.view(14) presentations:presentations orderProvider:globalOrder],
+      BottomSheetPresentationEscapeRouteAttemptLocal);
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityB
+      actionOrigin:fixture.view(24) presentations:presentations orderProvider:globalOrder],
+      BottomSheetPresentationEscapeRouteAttemptLocal);
+  UIView *nativeChild = [UIView new];
+  [fixture.view(14) addSubview:nativeChild];
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
+      actionOrigin:nativeChild presentations:presentations orderProvider:globalOrder],
+      BottomSheetPresentationEscapeRouteAttemptLocal);
+  UIAccessibilityElement *outer = [[UIAccessibilityElement alloc] initWithAccessibilityContainer:nativeChild];
+  UIAccessibilityElement *inner = [[UIAccessibilityElement alloc] initWithAccessibilityContainer:outer];
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
+      actionOrigin:inner presentations:presentations orderProvider:globalOrder],
+      BottomSheetPresentationEscapeRouteAttemptLocal);
+  [fixture.view(24) addSubview:nativeChild];
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityB
+      actionOrigin:inner presentations:presentations orderProvider:globalOrder],
+      BottomSheetPresentationEscapeRouteAttemptLocal);
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
+      actionOrigin:inner presentations:presentations orderProvider:globalOrder],
+      BottomSheetPresentationEscapeRouteConsume);
+  [nativeChild removeFromSuperview];
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityB
+      actionOrigin:inner presentations:presentations orderProvider:globalOrder],
+      BottomSheetPresentationEscapeRoutePassThrough);
+  outer.accessibilityContainer = inner;
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
+      actionOrigin:inner presentations:presentations orderProvider:globalOrder],
+      BottomSheetPresentationEscapeRoutePassThrough);
+  outer.accessibilityContainer = nil;
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
+      actionOrigin:fixture.view(2) presentations:presentations orderProvider:globalOrder],
+      BottomSheetPresentationEscapeRoutePassThrough);
+
+  [fixture.view(14) addSubview:nativeChild];
+  reads = 0;
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
+      actionOrigin:nativeChild presentations:presentations orderProvider:globalOrder],
+      BottomSheetPresentationEscapeRouteAttemptLocal);
+  NSUInteger queryReads = reads;
+  // Reenter at every provider checkpoint. Once the origin moves into B, A
+  // must not close using an earlier mapping; reject it or route to B.
+  originToMove = nativeChild;
+  for (NSUInteger checkpoint = 1; checkpoint <= queryReads; checkpoint++) {
+    [fixture.view(14) addSubview:nativeChild];
+    reads = 0;
+    moveOnRead = checkpoint;
+    auto route = [BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
+        actionOrigin:nativeChild presentations:presentations orderProvider:globalOrder];
+    XCTAssertEqual(nativeChild.superview, targetOwner);
+    XCTAssertNotEqual(route, BottomSheetPresentationEscapeRouteAttemptLocal);
+  }
+  moveOnRead = 0;
 }
 
 - (void)testPortalProjectionRejectsACompletedRootChangedDuringNativeOrderResolution
@@ -597,6 +671,22 @@ struct RuntimeFixture {
       ([NSSet setWithObjects:outer.view(12), outer.view(18), inner.view(22), nil]));
   XCTAssertEqualObjects(whole.topPresentationIdentities,
       ([NSSet setWithObjects:outerA, innerTop, nil]));
+  BottomSheetPresentationOrderProvider order = ^BottomSheetPresentationOrder(
+      BottomSheetPresentationIdentity *a, BottomSheetPresentationIdentity *b) {
+    return BottomSheetPresentationOrderUnknown;
+  };
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:innerTop
+      actionOrigin:inner.view(24) presentations:wholeOuter orderProvider:order],
+      BottomSheetPresentationEscapeRouteAttemptLocal);
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:outerA
+      actionOrigin:inner.view(24) presentations:wholeOuter orderProvider:order],
+      BottomSheetPresentationEscapeRouteConsume);
+  NSArray *inactiveInner = @[wholeOuter[0], wholeOuter[1],
+      [[BottomSheetPortalPresentation alloc] initWithIdentity:innerTop owner:inner.view(24)
+          observer:innerObserver active:NO eligible:YES]];
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:outerA
+      actionOrigin:inner.view(22) presentations:inactiveInner orderProvider:order],
+      BottomSheetPresentationEscapeRouteAttemptLocal);
 
   UIView *innerOwner = inner.view(24);
   UIView *lateBackground = [UIView new];

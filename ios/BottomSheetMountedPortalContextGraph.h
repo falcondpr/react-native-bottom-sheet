@@ -9,6 +9,14 @@
 
 @class RCTMountingManager;
 
+namespace facebook::react::bottomsheet {
+// Query-scoped ancestry, innermost first. Depth orders paths across RN roots.
+struct PortalNativeContextPath {
+  std::vector<Tag> contexts;
+  size_t nativeDepth;
+};
+}
+
 NS_ASSUME_NONNULL_BEGIN
 
 /**
@@ -37,6 +45,11 @@ NS_ASSUME_NONNULL_BEGIN
                                         hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy;
 
 - (void)invalidate;
+
+- (std::optional<facebook::react::bottomsheet::PortalNativeContextPath>)contextPathForView:
+    (UIView *)view
+        root:(const std::shared_ptr<const facebook::react::RootShadowNode> &)root
+   hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy;
 
 // A current consecutive mounting transaction may retire these exact instances
 // before Delete. Any stale binding rejects the entire batch, without mutations.

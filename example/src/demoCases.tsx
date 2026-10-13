@@ -8,6 +8,7 @@ export type CaseKey =
   | 'native-overlay-keyboard-input'
   | 'close-request'
   | 'portal-accessibility-stack'
+  | 'portal-local-contexts'
   | 'modal-scroll-view'
   | 'modal-flat-list'
   | 'keyboard-content-detent'
@@ -37,6 +38,11 @@ export type DemoCase = {
 };
 
 export const DEMO_CASES: DemoCase[] = [
+  {
+    key: 'portal-local-contexts',
+    title: 'Local portal contexts (iOS)',
+    href: '/portal-local-contexts',
+  },
   {
     key: 'basic-modal',
     title: 'Basic modal',

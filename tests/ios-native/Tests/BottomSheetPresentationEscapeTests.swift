@@ -4,8 +4,10 @@ import XCTest
 
 @MainActor
 final class BottomSheetPresentationEscapeTests: XCTestCase {
+  // Direct method calls exercise window-modal execution. Local portal routing
+  // uses current action/source facts at the native graph/observer interface.
   func testLowerEscapeIsConsumedWithoutClosingWhileUpperIsTop() {
-    let fixture = BottomSheetHostFixture(presentations: [.portal, .portal])
+    let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay, .nativeOverlay])
     defer { fixture.tearDown() }
     let lowerHost = fixture.hosts[0]
     let upperHost = fixture.hosts[1]
@@ -26,7 +28,7 @@ final class BottomSheetPresentationEscapeTests: XCTestCase {
   }
 
   func testDismissibleTopEscapeStartsExactlyOneClose() {
-    let fixture = BottomSheetHostFixture(presentations: [.portal])
+    let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay])
     defer { fixture.tearDown() }
 
     XCTAssertTrue(fixture.host.accessibilityPerformEscape())
@@ -36,7 +38,7 @@ final class BottomSheetPresentationEscapeTests: XCTestCase {
   }
 
   func testClosingTopEscapeIsConsumedWithoutRestartingClose() throws {
-    let fixture = BottomSheetHostFixture(presentations: [.portal])
+    let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay])
     defer { fixture.tearDown() }
     let host = fixture.host
 
@@ -54,7 +56,7 @@ final class BottomSheetPresentationEscapeTests: XCTestCase {
   }
 
   func testNondismissibleTopConsumesEscapeWithoutClosing() {
-    let fixture = BottomSheetHostFixture(presentations: [.portal])
+    let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay])
     defer { fixture.tearDown() }
     fixture.host.setDetents([
       ["value": 320.0, "kind": "points", "programmatic": false]
@@ -68,7 +70,7 @@ final class BottomSheetPresentationEscapeTests: XCTestCase {
   }
 
   func testProgrammaticOnlyTopConsumesEscapeWithoutClosing() {
-    let fixture = BottomSheetHostFixture(presentations: [.portal])
+    let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay])
     defer { fixture.tearDown() }
     fixture.host.setDetents([
       ["value": 0.0, "kind": "points", "programmatic": true],
@@ -91,10 +93,11 @@ final class BottomSheetPresentationEscapeTests: XCTestCase {
     assertNoClose(fixture.host, events: fixture.events, offset: offset)
   }
 
-  func testStaleAttachedOwnerConsumesAfterNativeOrderChanges() {
-    let fixture = BottomSheetHostFixture(presentations: [.portal, .portal])
+  func testStaleAttachedWindowOwnerConsumesAfterNativeOrderChanges() throws {
+    let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay, .nativeOverlay])
     defer { fixture.tearDown() }
-    fixture.bringComponentToFront(at: 0)
+    let firstOverlay = try XCTUnwrap(fixture.hosts[0].superview?.superview)
+    fixture.window.bringSubviewToFront(firstOverlay)
     let formerTop = fixture.hosts[1]
     let formerTopOffset = formerTop.currentContentOffsetY
 
@@ -110,7 +113,7 @@ final class BottomSheetPresentationEscapeTests: XCTestCase {
   }
 
   func testDetachedCallerPassesThroughWithoutConsultingFormerWindow() {
-    let fixture = BottomSheetHostFixture(presentations: [.portal, .portal])
+    let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay, .nativeOverlay])
     defer { fixture.tearDown() }
     let detachedHost = fixture.hosts[1]
     fixture.detachComponent(at: 1)
@@ -128,8 +131,8 @@ final class BottomSheetPresentationEscapeTests: XCTestCase {
   }
 
   func testDifferentWindowsRouteEscapeToIndependentTops() {
-    let firstFixture = BottomSheetHostFixture(presentations: [.portal])
-    let secondFixture = BottomSheetHostFixture(presentations: [.portal])
+    let firstFixture = BottomSheetHostFixture(presentations: [.nativeOverlay])
+    let secondFixture = BottomSheetHostFixture(presentations: [.nativeOverlay])
     defer {
       secondFixture.tearDown()
       firstFixture.tearDown()
@@ -158,6 +161,15 @@ final class BottomSheetPresentationEscapeTests: XCTestCase {
     XCTAssertEqual(fixture.eventRecorders[1].changedIndices, [0])
     XCTAssertNotNil(overlayHost.sheetContainer.layer.animation(forKey: "bottomSheetSettle"))
     XCTAssertEqual(fixture.eventRecorders[0].changedIndices, [])
+  }
+
+  func testPortalWithoutCurrentNativeSourcePassesThrough() {
+    let fixture = BottomSheetHostFixture(presentations: [.portal])
+    defer { fixture.tearDown() }
+    let offset = fixture.host.currentContentOffsetY
+
+    XCTAssertFalse(fixture.host.accessibilityPerformEscape())
+    assertNoClose(fixture.host, events: fixture.events, offset: offset)
   }
 
   private func assertNoClose(

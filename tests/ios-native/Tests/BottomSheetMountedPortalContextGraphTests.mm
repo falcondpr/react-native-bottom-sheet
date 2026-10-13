@@ -146,6 +146,40 @@ struct MountedTree {
 
 @implementation BottomSheetMountedPortalContextGraphTests
 
+- (void)testNativeActionPathMapsPlainChildrenToTheirLogicalPortalContext
+{
+  MountedTree fixture;
+  auto root = fixture.mount({fixture.node(11, {
+      fixture.node(12), fixture.node(13, {fixture.node(14)}, true, true)}, false)});
+  auto graph = [[BottomSheetMountedPortalContextGraph alloc] initWithMountingManager:fixture.manager];
+  fixture.bootstrap(graph, root);
+  UIView *origin = [UIView new];
+  [fixture.view(14) addSubview:origin];
+  auto hierarchy = [BottomSheetNativeHierarchySnapshot new];
+
+  auto path = [graph contextPathForView:origin root:root hierarchy:hierarchy];
+
+  XCTAssertTrue(path.has_value());
+  if (path) {
+    XCTAssertTrue(path->contexts == (std::vector<Tag>{11}));
+    XCTAssertEqual(path->nativeDepth, 1u);
+  }
+  XCTAssertTrue([hierarchy validate]);
+}
+
+- (void)testNativeActionPathRejectsAnUnpublishedRegisteredReparent
+{
+  MountedTree fixture;
+  auto root = fixture.mount({fixture.node(11, {
+      fixture.node(12), fixture.node(13, {fixture.node(14)}, true, true)})});
+  auto graph = [[BottomSheetMountedPortalContextGraph alloc] initWithMountingManager:fixture.manager];
+  fixture.bootstrap(graph, root);
+  [fixture.view(12) addSubview:fixture.view(14)];
+  auto hierarchy = [BottomSheetNativeHierarchySnapshot new];
+
+  XCTAssertFalse([graph contextPathForView:fixture.view(14) root:root hierarchy:hierarchy].has_value());
+}
+
 - (void)testAppliedNativeMembershipProjectsTwoLocalBackgroundsWithoutTheToolbar
 {
   MountedTree fixture;
