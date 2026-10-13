@@ -4,6 +4,7 @@
 #import <React/RCTViewComponentView.h>
 #import "../../../ios/BottomSheetPortalMountingObserver.h"
 #import "../../../ios/BottomSheetAccessibilityMaskLedger.h"
+#import "../../../ios/BottomSheetPortalIsolation.h"
 #include <react/renderer/components/view/ViewComponentDescriptor.h>
 #include <react/renderer/mounting/Differentiator.h>
 
@@ -114,6 +115,199 @@ struct RuntimeFixture {
   XCTAssertTrue([observer currentRootForSurface:1] == nextRoot);
   XCTAssertEqualObjects([observer hiddenBranchesForSurface:1 retainedPaths:paths],
                        ([NSSet setWithObjects:fixture.view(12), fixture.view(16), nil]));
+}
+
+- (void)testCurrentSourceOwnerResolvesOnlyItsOwnCompletedPublication
+{
+  RuntimeFixture fixture;
+  auto root = fixture.mount({fixture.node(12), fixture.node(14)});
+  auto observer = fixture.observer();
+  UIView *owner = fixture.view(14);
+  MountingTransaction first(1, 1, {}, {});
+  [observer didMount:first owner:owner];
+  UIView *foreignInstance = [UIView new];
+  foreignInstance.tag = owner.tag;
+
+  XCTAssertTrue([observer currentRootForOwner:owner] == root);
+  XCTAssertFalse(bool([observer currentRootForOwner:fixture.view(12)]));
+  XCTAssertFalse(bool([observer currentRootForOwner:foreignInstance]));
+
+  MountingTransaction next(1, 2, {}, {});
+  [observer willMount:next];
+  XCTAssertFalse(bool([observer currentRootForOwner:owner]));
+  [observer withdrawOwner:owner];
+  XCTAssertFalse(bool([observer currentRootForOwner:owner]));
+}
+
+- (void)testIndependentPortalContextsRetainTheirOwnTopAndOnlyTheirLocalBackground
+{
+  RuntimeFixture fixture;
+  auto sheetA = fixture.node(14);
+  auto sheetB = fixture.node(24);
+  fixture.mount({fixture.node(2),
+      fixture.node(11, {fixture.node(12), fixture.node(13, {sheetA}, true)}),
+      fixture.node(21, {fixture.node(22), fixture.node(23, {sheetB}, true)})});
+  auto observer = fixture.observer();
+  MountingTransaction first(1, 1, {}, {});
+  [observer didMount:first owner:fixture.view(14)];
+  [observer didMount:first owner:fixture.view(24)];
+  auto identityA = [BottomSheetPresentationIdentity new];
+  auto identityB = [BottomSheetPresentationIdentity new];
+  NSArray *presentations = @[
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:identityA owner:fixture.view(14)
+        observer:observer active:YES eligible:YES],
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:identityB owner:fixture.view(24)
+        observer:observer active:YES eligible:YES]];
+
+  auto isolation = [BottomSheetPortalIsolation projectionFromPresentations:presentations
+      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
+                                                  BottomSheetPresentationIdentity *b) {
+        return a == identityB ? BottomSheetPresentationOrderAbove : BottomSheetPresentationOrderBelow;
+      }];
+
+  XCTAssertNotNil(isolation);
+  XCTAssertEqualObjects(isolation.hiddenBranches,
+      ([NSSet setWithObjects:fixture.view(12), fixture.view(22), nil]));
+  XCTAssertEqualObjects(isolation.topPresentationIdentities,
+      ([NSSet setWithObjects:identityA, identityB, nil]));
+  XCTAssertFalse(fixture.view(12).accessibilityElementsHidden);
+}
+
+- (void)testPortalProjectionRejectsACompletedRootChangedDuringNativeOrderResolution
+{
+  RuntimeFixture fixture;
+  auto sheetA = fixture.node(14);
+  auto sheetB = fixture.node(15);
+  auto host = fixture.node(13, {sheetA, sheetB}, true);
+  auto background = fixture.node(12);
+  auto area = fixture.node(11, {background, host});
+  auto root = fixture.mount({area});
+  auto observer = fixture.observer();
+  MountingTransaction first(1, 1, {}, {});
+  [observer didMount:first owner:fixture.view(14)];
+  [observer didMount:first owner:fixture.view(15)];
+  auto identityA = [BottomSheetPresentationIdentity new];
+  auto identityB = [BottomSheetPresentationIdentity new];
+  NSArray *presentations = @[
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:identityA owner:fixture.view(14)
+        observer:observer active:YES eligible:YES],
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:identityB owner:fixture.view(15)
+        observer:observer active:YES eligible:YES]];
+  RuntimeFixture *runtime = &fixture;
+  __block BOOL changed = NO;
+
+  auto isolation = [BottomSheetPortalIsolation projectionFromPresentations:presentations
+      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
+                                                  BottomSheetPresentationIdentity *b) {
+        if (!changed) {
+          changed = YES;
+          MountingTransaction begin(1, 2, {}, {});
+          [observer willMount:begin];
+          auto nextArea = area->clone({.children = std::make_shared<const Children>(
+              Children{background, host, runtime->node(16)})});
+          auto nextRoot = runtime->mount({nextArea});
+          auto mutations = calculateShadowViewMutations(*root, *nextRoot);
+          MountingTransaction next(1, 2, std::move(mutations), {});
+          [observer didMount:next owner:runtime->view(14)];
+          [observer didMount:next owner:runtime->view(15)];
+        }
+        return a == identityB ? BottomSheetPresentationOrderAbove : BottomSheetPresentationOrderBelow;
+      }];
+
+  XCTAssertTrue(changed);
+  XCTAssertNil(isolation);
+}
+
+- (void)testSharedContainingBlockMergesHostsAndUnknownTopRetainsBothNativePaths
+{
+  RuntimeFixture fixture;
+  fixture.mount({fixture.node(11, {fixture.node(12),
+      fixture.node(13, {fixture.node(14)}, true),
+      fixture.node(17, {fixture.node(18)}, true)})});
+  auto observer = fixture.observer();
+  MountingTransaction first(1, 1, {}, {});
+  [observer didMount:first owner:fixture.view(14)];
+  [observer didMount:first owner:fixture.view(18)];
+  auto identityA = [BottomSheetPresentationIdentity new];
+  auto identityB = [BottomSheetPresentationIdentity new];
+  NSArray *presentations = @[
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:identityA owner:fixture.view(14)
+        observer:observer active:YES eligible:YES],
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:identityB owner:fixture.view(18)
+        observer:observer active:YES eligible:YES]];
+
+  auto known = [BottomSheetPortalIsolation projectionFromPresentations:presentations
+      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
+                                                  BottomSheetPresentationIdentity *b) {
+        return a == identityB ? BottomSheetPresentationOrderAbove : BottomSheetPresentationOrderBelow;
+      }];
+  XCTAssertEqualObjects(known.hiddenBranches,
+      ([NSSet setWithObjects:fixture.view(12), fixture.view(13), nil]));
+  XCTAssertEqualObjects(known.topPresentationIdentities, [NSSet setWithObject:identityB]);
+
+  auto unknown = [BottomSheetPortalIsolation projectionFromPresentations:presentations
+      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
+                                                  BottomSheetPresentationIdentity *b) {
+        return BottomSheetPresentationOrderUnknown;
+      }];
+  XCTAssertEqualObjects(unknown.hiddenBranches, [NSSet setWithObject:fixture.view(12)]);
+  XCTAssertEqual(unknown.topPresentationIdentities.count, 0);
+}
+
+- (void)testInactiveSourcesReleaseTheCutAndWithdrawnActiveSourcesRejectIt
+{
+  RuntimeFixture fixture;
+  fixture.mount({fixture.node(11, {fixture.node(12),
+      fixture.node(13, {fixture.node(14)}, true)})});
+  auto observer = fixture.observer();
+  MountingTransaction first(1, 1, {}, {});
+  UIView *owner = fixture.view(14);
+  [observer didMount:first owner:owner];
+  [observer withdrawOwner:owner];
+  auto identity = [BottomSheetPresentationIdentity new];
+  BottomSheetPresentationOrderProvider order = ^BottomSheetPresentationOrder(
+      BottomSheetPresentationIdentity *a, BottomSheetPresentationIdentity *b) {
+    return BottomSheetPresentationOrderUnknown;
+  };
+  auto inactive = [[BottomSheetPortalPresentation alloc] initWithIdentity:identity owner:owner
+      observer:observer active:NO eligible:YES];
+  auto released = [BottomSheetPortalIsolation projectionFromPresentations:@[inactive] orderProvider:order];
+  XCTAssertNotNil(released);
+  XCTAssertEqual(released.hiddenBranches.count, 0);
+  XCTAssertEqual(released.topPresentationIdentities.count, 0);
+
+  auto active = [[BottomSheetPortalPresentation alloc] initWithIdentity:identity owner:owner
+      observer:observer active:YES eligible:YES];
+  XCTAssertNil([BottomSheetPortalIsolation projectionFromPresentations:@[active] orderProvider:order]);
+}
+
+- (void)testPortalProjectionRejectsASourceWithdrawnDuringNativeOrderResolution
+{
+  RuntimeFixture fixture;
+  fixture.mount({fixture.node(11, {fixture.node(12),
+      fixture.node(13, {fixture.node(14), fixture.node(15)}, true)})});
+  auto observer = fixture.observer();
+  MountingTransaction first(1, 1, {}, {});
+  UIView *ownerA = fixture.view(14);
+  UIView *ownerB = fixture.view(15);
+  [observer didMount:first owner:ownerA];
+  [observer didMount:first owner:ownerB];
+  auto identityA = [BottomSheetPresentationIdentity new];
+  auto identityB = [BottomSheetPresentationIdentity new];
+  NSArray *presentations = @[
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:identityA owner:ownerA
+        observer:observer active:YES eligible:YES],
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:identityB owner:ownerB
+        observer:observer active:YES eligible:YES]];
+
+  auto isolation = [BottomSheetPortalIsolation projectionFromPresentations:presentations
+      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
+                                                  BottomSheetPresentationIdentity *b) {
+        [observer withdrawOwner:ownerB];
+        return a == identityB ? BottomSheetPresentationOrderAbove : BottomSheetPresentationOrderBelow;
+      }];
+
+  XCTAssertNil(isolation);
 }
 
 - (void)testLastOwnObserverWithdrawalReleasesThePublicationAndCanBootstrapAgain

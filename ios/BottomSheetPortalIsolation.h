@@ -1,0 +1,36 @@
+#import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
+#import "BottomSheetPresentationPolicy.h"
+
+@class BottomSheetPortalMountingObserver;
+
+NS_ASSUME_NONNULL_BEGIN
+
+// Ephemeral native-authority facts. No state is registered with this value.
+@interface BottomSheetPortalPresentation : NSObject
+- (instancetype)initWithIdentity:(BottomSheetPresentationIdentity *)identity
+                           owner:(UIView *)owner
+                        observer:(BottomSheetPortalMountingObserver *)observer
+                          active:(BOOL)active
+                        eligible:(BOOL)eligible NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
+@property (nonatomic, strong, readonly) BottomSheetPresentationIdentity *identity;
+@property (nonatomic, strong, readonly) UIView *owner;
+@property (nonatomic, strong, readonly) BottomSheetPortalMountingObserver *observer;
+@property (nonatomic, readonly, getter=isActive) BOOL active;
+@property (nonatomic, readonly, getter=isEligible) BOOL eligible;
+@end
+
+@interface BottomSheetPortalIsolation : NSObject
+- (instancetype)init NS_UNAVAILABLE;
+@property (nonatomic, copy, readonly) NSSet<UIView *> *hiddenBranches;
+@property (nonatomic, copy, readonly) NSSet<BottomSheetPresentationIdentity *> *topPresentationIdentities;
+
+// Read-only; nil rejects a non-current source, never expands to root/window.
++ (nullable instancetype)projectionFromPresentations:
+    (NSArray<BottomSheetPortalPresentation *> *)presentations
+                                      orderProvider:
+    (BottomSheetPresentationOrderProvider)orderProvider;
+@end
+
+NS_ASSUME_NONNULL_END

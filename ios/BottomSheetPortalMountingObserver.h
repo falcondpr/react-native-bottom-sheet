@@ -27,8 +27,13 @@ typedef void (^BottomSheetNativeSubtreeRetirement)(BottomSheetNativeViewDeletion
 // The caller additionally verifies attachment to the target input/isolation
 // window. No root is returned during mount or after a runtime/coordinator change.
 - (facebook::react::RootShadowNode::Shared)currentRootForSurface:(facebook::react::SurfaceId)surface;
+- (facebook::react::RootShadowNode::Shared)currentRootForOwner:(UIView *)owner;
 - (nullable NSSet<UIView *> *)hiddenBranchesForSurface:(facebook::react::SurfaceId)surface
                                       retainedPaths:
+    (const std::vector<facebook::react::bottomsheet::PortalRetainedPaths> &)requests;
+- (nullable NSSet<UIView *> *)hiddenBranchesForRoot:
+    (const facebook::react::RootShadowNode::Shared &)root
+                                     retainedPaths:
     (const std::vector<facebook::react::bottomsheet::PortalRetainedPaths> &)requests;
 - (void)invalidate;
 

@@ -159,6 +159,24 @@ AppliedRoot appliedRoot(const UIManager& manager, SurfaceId surface) {
   return [_surfaces.at(surface).graph hiddenBranchesForRoot:root retainedPaths:requests];
 }
 
+- (NSSet<UIView *> *)hiddenBranchesForRoot:(const RootShadowNode::Shared &)root
+                           retainedPaths:(const std::vector<PortalRetainedPaths> &)requests
+{
+  if (!root || [self currentRootForSurface:root->getSurfaceId()] != root) return nil;
+  return [_surfaces.at(root->getSurfaceId()).graph hiddenBranchesForRoot:root retainedPaths:requests];
+}
+
+- (RootShadowNode::Shared)currentRootForOwner:(UIView *)owner
+{
+  if (![self ownsNativeView:owner]) return {};
+  std::vector<SurfaceId> surfaces;
+  for (const auto& [surface, data] : _surfaces) {
+    if ([data.owners containsObject:owner]) surfaces.push_back(surface);
+  }
+  if (surfaces.size() != 1) return {};
+  return [self currentRootForSurface:surfaces.front()];
+}
+
 - (void)invalidate
 {
   NSCAssert(NSThread.isMainThread, @"Portal publication must run on main");
