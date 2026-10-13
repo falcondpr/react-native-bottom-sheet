@@ -9,6 +9,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable UIView *)parentOfView:(nullable UIView *)view;
 - (NSInteger)tagOfView:(nullable UIView *)view;
 - (nullable NSArray<UIView *> *)childrenOfView:(UIView *)view;
+- (nullable UIView *)modalOwnerOfContainer:(UIView *)view;
 - (BOOL)validate;
 @end
 

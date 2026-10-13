@@ -2,10 +2,13 @@
 #import <React/RCTComponentViewRegistry.h>
 #import <React/RCTMountingManager.h>
 #import <React/RCTViewComponentView.h>
+#import <React/RCTModalHostViewComponentView.h>
+#import <React/RCTFabricModalHostViewController.h>
 
 #import "../../../ios/BottomSheetMountedPortalContextGraph.h"
 #import "../../../ios/BottomSheetPortalNativeContainer.h"
 #include <react/renderer/components/view/ViewComponentDescriptor.h>
+#include <react/renderer/components/modal/ModalHostViewComponentDescriptor.h>
 #include <react/renderer/mounting/Differentiator.h>
 #include <react/renderer/mounting/ShadowTree.h>
 
@@ -34,6 +37,9 @@ struct MountedTree {
   ViewComponentDescriptor descriptor{
       {.eventDispatcher = {}, .contextContainer = std::make_shared<ContextContainer>(),
        .flavor = nullptr}};
+  ModalHostViewComponentDescriptor modalDescriptor{
+      {.eventDispatcher = {}, .contextContainer = std::make_shared<ContextContainer>(),
+       .flavor = nullptr}};
   ShadowTree tree;
   RCTMountingManager *__strong manager;
   UIView *__strong viewport;
@@ -45,6 +51,8 @@ struct MountedTree {
     manager = mountingManager ?: [RCTMountingManager new];
     [manager.componentViewRegistry.componentViewFactory
         registerComponentViewClass:RCTViewComponentView.class];
+    [manager.componentViewRegistry.componentViewFactory
+        registerComponentViewClass:RCTModalHostViewComponentView.class];
     viewport = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 800, 600)];
     [manager attachSurfaceToView:viewport surfaceId:surface];
   }
@@ -72,6 +80,18 @@ struct MountedTree {
     }, {});
     [manager scheduleTransaction:tree.getMountingCoordinator()];
     return tree.getMountingCoordinator()->getBaseRevision().rootShadowNode;
+  }
+
+  std::shared_ptr<ModalHostViewShadowNode> modal(Tag tag, Children children) {
+    auto props = modalDescriptor.cloneProps(PropsParserContext(surface, context), nullptr,
+        RawProps(folly::dynamic::object("visible", false)));
+    auto family = modalDescriptor.createFamily(
+        {.tag = tag, .surfaceId = surface, .instanceHandle = nullptr});
+    auto state = std::make_shared<ModalHostViewShadowNode::ConcreteState>(
+        std::make_shared<const ModalHostViewState>(facebook::react::Size{800, 600}), family);
+    return std::static_pointer_cast<ModalHostViewShadowNode>(modalDescriptor.createShadowNode(
+        {.props = props, .children = std::make_shared<const Children>(std::move(children)),
+         .state = state}, family));
   }
 
   UIView<RCTComponentViewProtocol> *view(Tag tag) {
@@ -102,7 +122,68 @@ struct MountedTree {
 
 @interface BottomSheetNativeHierarchySnapshotTests : XCTestCase
 @end
+
+@interface CallbackModalOwner : RCTModalHostViewComponentView
+@property (nonatomic) NSUInteger typeReads;
+@end
+@implementation CallbackModalOwner
+- (BOOL)isKindOfClass:(Class)type
+{
+  self.typeReads++;
+  return [super isKindOfClass:type];
+}
+@end
+
 @implementation BottomSheetNativeHierarchySnapshotTests
+- (void)testNativeOwnerClassificationDoesNotDispatchApplicationCallbacks
+{
+  RCTModalHostViewComponentView *modal = [RCTModalHostViewComponentView new];
+  RCTViewComponentView *child = [RCTViewComponentView new];
+  [modal mountChildComponentView:child index:0];
+  UIView *container = child.superview;
+  RCTFabricModalHostViewController *controller = (RCTFabricModalHostViewController *)container.nextResponder;
+  CallbackModalOwner *owner = [CallbackModalOwner new];
+  controller.delegate = (id<RCTFabricModalHostViewControllerDelegate>)owner;
+  owner.typeReads = 0;
+  auto hierarchy = [BottomSheetNativeHierarchySnapshot new];
+
+  XCTAssertEqual([hierarchy modalOwnerOfContainer:container], owner);
+  XCTAssertTrue([hierarchy validate]);
+  XCTAssertEqual(owner.typeReads, 0);
+
+  [modal unmountChildComponentView:child index:0];
+}
+
+- (void)testStockModalContainerResolvesItsPublicNativeOwner
+{
+  RCTModalHostViewComponentView *modal = [RCTModalHostViewComponentView new];
+  RCTViewComponentView *child = [RCTViewComponentView new];
+  [modal mountChildComponentView:child index:0];
+  auto hierarchy = [BottomSheetNativeHierarchySnapshot new];
+
+  XCTAssertEqual([hierarchy modalOwnerOfContainer:child.superview], modal);
+  XCTAssertTrue([hierarchy validate]);
+
+  [modal unmountChildComponentView:child index:0];
+}
+
+- (void)testModalOwnerChangeInvalidatesCapturedNativeFacts
+{
+  RCTModalHostViewComponentView *modal = [RCTModalHostViewComponentView new];
+  RCTViewComponentView *child = [RCTViewComponentView new];
+  [modal mountChildComponentView:child index:0];
+  UIView *container = child.superview;
+  auto hierarchy = [BottomSheetNativeHierarchySnapshot new];
+  XCTAssertEqual([hierarchy modalOwnerOfContainer:container], modal);
+  RCTFabricModalHostViewController *controller = (RCTFabricModalHostViewController *)container.nextResponder;
+
+  controller.delegate = nil;
+
+  XCTAssertEqual([hierarchy modalOwnerOfContainer:container], modal);
+  XCTAssertFalse([hierarchy validate]);
+  [modal unmountChildComponentView:child index:0];
+}
+
 - (void)testSnapshotKeepsCapturedFactsAndRejectsAnUnpublishedChildInsertion
 {
   UIView *parent = [UIView new];
@@ -145,6 +226,100 @@ struct MountedTree {
 @end
 
 @implementation BottomSheetMountedPortalContextGraphTests
+- (void)testStockModalContentProjectsOnlyTheActualLocalPanel
+{
+  MountedTree fixture;
+  auto sheet = fixture.node(14);
+  auto host = fixture.node(13, {sheet}, true, true);
+  auto root = fixture.mount({fixture.node(4),
+      fixture.modal(30, {fixture.node(2), fixture.node(11, {fixture.node(12), host})})});
+  auto publication = [[BottomSheetMountedPortalContextGraph alloc]
+      initWithMountingManager:fixture.manager];
+  fixture.bootstrap(publication, root);
+  std::vector<PortalRetainedPaths> requests{{&host->getFamily(), {&sheet->getFamily()}}};
+
+  auto branches = [publication hiddenBranchesForRoot:root retainedPaths:requests];
+
+  XCTAssertEqualObjects(branches, ([NSSet setWithObject:fixture.view(12)]));
+  XCTAssertFalse([branches containsObject:fixture.view(2)]);
+  XCTAssertFalse([branches containsObject:fixture.view(4)]);
+
+  UIView<RCTComponentViewProtocol> *panel = fixture.view(11);
+  RCTModalHostViewComponentView *modal = (RCTModalHostViewComponentView *)fixture.view(30);
+  auto hierarchy = [BottomSheetNativeHierarchySnapshot new];
+  auto path = [publication contextPathForView:panel root:root hierarchy:hierarchy];
+  XCTAssertTrue(path.has_value());
+  if (path) XCTAssertTrue(path->contexts == (std::vector<Tag>{11}));
+  XCTAssertTrue([hierarchy validate]);
+
+  UIView *outside = [UIView new];
+  [panel.superview addSubview:outside];
+  auto outsideHierarchy = [BottomSheetNativeHierarchySnapshot new];
+  auto outsidePath = [publication contextPathForView:outside root:root hierarchy:outsideHierarchy];
+  XCTAssertTrue(outsidePath.has_value());
+  if (outsidePath) XCTAssertTrue(outsidePath->contexts.empty());
+  XCTAssertTrue([outsideHierarchy validate]);
+  [outside removeFromSuperview];
+
+  [modal unmountChildComponentView:panel index:1];
+  XCTAssertNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
+  auto detached = [BottomSheetNativeHierarchySnapshot new];
+  XCTAssertFalse([publication contextPathForView:panel root:root hierarchy:detached].has_value());
+
+  [modal mountChildComponentView:panel index:1];
+  XCTAssertEqualObjects([publication hiddenBranchesForRoot:root retainedPaths:requests],
+                       ([NSSet setWithObject:fixture.view(12)]));
+  RCTFabricModalHostViewController *controller =
+      (RCTFabricModalHostViewController *)panel.superview.nextResponder;
+  CallbackModalOwner *foreignOwner = [CallbackModalOwner new];
+  foreignOwner.tag = 30; // Same tag is insufficient without the registry identity.
+  controller.delegate = (id<RCTFabricModalHostViewControllerDelegate>)foreignOwner;
+  XCTAssertNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
+}
+
+- (void)testModalContainingBlockIncludesItsNativeBackgroundWithoutHidingTheApplication
+{
+  MountedTree fixture;
+  auto sheet = fixture.node(14);
+  auto host = fixture.node(13, {sheet}, true, true);
+  auto root = fixture.mount({fixture.node(4), fixture.modal(30, {fixture.node(12), host})});
+  auto publication = [[BottomSheetMountedPortalContextGraph alloc]
+      initWithMountingManager:fixture.manager];
+  fixture.bootstrap(publication, root);
+  UIView *nativeBackground = [UIView new];
+  [fixture.view(13).superview addSubview:nativeBackground];
+  std::vector<PortalRetainedPaths> requests{{&host->getFamily(), {&sheet->getFamily()}}};
+
+  auto branches = [publication hiddenBranchesForRoot:root retainedPaths:requests];
+
+  XCTAssertEqualObjects(branches, ([NSSet setWithObjects:fixture.view(12), nativeBackground, nil]));
+  XCTAssertFalse([branches containsObject:fixture.view(4)]);
+
+  auto hierarchy = [BottomSheetNativeHierarchySnapshot new];
+  auto path = [publication contextPathForView:nativeBackground root:root hierarchy:hierarchy];
+  XCTAssertTrue(path.has_value());
+  if (path) XCTAssertTrue(path->contexts == (std::vector<Tag>{30}));
+  XCTAssertTrue([hierarchy validate]);
+
+  RCTModalHostViewComponentView *foreign = [RCTModalHostViewComponentView new];
+  foreign.tag = 30;
+  [foreign mountChildComponentView:foreign index:0];
+  auto cyclic = [BottomSheetNativeHierarchySnapshot new];
+  auto cyclicPath = [publication contextPathForView:foreign root:root hierarchy:cyclic];
+  XCTAssertTrue(!cyclicPath || cyclicPath->contexts.empty());
+  [foreign unmountChildComponentView:foreign index:0];
+
+  RCTViewComponentView *foreignContent = [RCTViewComponentView new];
+  [foreign mountChildComponentView:foreignContent index:0];
+  [fixture.view(14) addSubview:foreign];
+  auto unmapped = [BottomSheetNativeHierarchySnapshot new];
+  auto foreignPath = [publication contextPathForView:foreignContent
+      root:root hierarchy:unmapped];
+  XCTAssertTrue(!foreignPath || foreignPath->contexts.empty());
+  [foreign removeFromSuperview];
+  [foreign unmountChildComponentView:foreignContent index:0];
+}
+
 
 - (void)testNativeActionPathMapsPlainChildrenToTheirLogicalPortalContext
 {

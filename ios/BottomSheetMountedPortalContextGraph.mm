@@ -4,6 +4,7 @@
 #import <React/RCTMountingManager.h>
 #import <React/RCTViewComponentView.h>
 #import <objc/runtime.h>
+#include <cstring>
 
 using namespace facebook::react;
 using namespace facebook::react::bottomsheet;
@@ -113,6 +114,11 @@ Tag parentTag(const Mutation& mutation) {
       Tag ownerTag = static_cast<Tag>([hierarchy tagOfView:owner]);
       return owner && [self mounted:ownerTag] == owner ? ownerTag : 0;
     }
+    UIView *modalOwner = [hierarchy modalOwnerOfContainer:parent];
+    if (modalOwner) {
+      Tag ownerTag = static_cast<Tag>([hierarchy tagOfView:modalOwner]);
+      return [self mounted:ownerTag] == modalOwner ? ownerTag : 0;
+    }
   }
   return 0;
 }
@@ -148,7 +154,10 @@ Tag parentTag(const Mutation& mutation) {
                  toBranches:(NSMutableSet<UIView *> *)branches
 {
   UIView *owner = [self mounted:parent];
-  if (((id<BottomSheetPortalNativeContainer>)container).portalNativeOwner != owner) return NO;
+  UIView *containerOwner = [container conformsToProtocol:@protocol(BottomSheetPortalNativeContainer)]
+      ? ((id<BottomSheetPortalNativeContainer>)container).portalNativeOwner
+      : [hierarchy modalOwnerOfContainer:container];
+  if (containerOwner != owner) return NO;
   NSMutableSet<UIView *> *keptNativePath = [NSMutableSet new];
   NSMutableArray<UIView *> *pending = [NSMutableArray arrayWithObject:container];
   while (pending.count) {
@@ -179,6 +188,8 @@ Tag parentTag(const Mutation& mutation) {
     if (hasConcreteComponentDescriptor(view)) return NO;
     if ([view conformsToProtocol:@protocol(BottomSheetPortalNativeContainer)] &&
         ((id<BottomSheetPortalNativeContainer>)view).portalNativeOwner != owner) return NO;
+    UIView *modalOwner = [hierarchy modalOwnerOfContainer:view];
+    if (modalOwner && modalOwner != owner) return NO;
     [pending addObjectsFromArray:[hierarchy childrenOfView:view] ?: @[]];
   }
 
@@ -240,10 +251,22 @@ Tag parentTag(const Mutation& mutation) {
   for (const auto& [parent, retained] : projection->retainedChildren) {
     UIView *view = [self mounted:parent];
     if (!view) continue; // A flattened logical parent has no native-only children.
-    for (UIView *child in [hierarchy childrenOfView:view]) {
+    NSMutableArray<UIView *> *children = [[hierarchy childrenOfView:view] mutableCopy];
+    if (std::strcmp(graph->nodes.at(parent)->getComponentName(), "ModalHostView") == 0) {
+      // Stock Modal children mount under its controller's view. Applied edges
+      // and the checked public owner discover that container without loading it.
+      for (const auto& [childTag, expectedParent] : _members.parents) {
+        if (expectedParent != parent) continue;
+        UIView *container = [hierarchy parentOfView:[self mounted:childTag]];
+        if (!container || [hierarchy modalOwnerOfContainer:container] != view) return nil;
+        if ([children indexOfObjectIdenticalTo:container] == NSNotFound) [children addObject:container];
+      }
+    }
+    for (UIView *child in children) {
       Tag tag = static_cast<Tag>([hierarchy tagOfView:child]);
       if (graph->nodes.contains(tag) && [self mounted:tag] == child) continue;
-      if ([child conformsToProtocol:@protocol(BottomSheetPortalNativeContainer)]) {
+      if ([child conformsToProtocol:@protocol(BottomSheetPortalNativeContainer)] ||
+          [hierarchy modalOwnerOfContainer:child] == view) {
         if (![self addManagedContainer:child parentTag:parent graph:*graph
                              retained:retained hierarchy:hierarchy toBranches:branches]) return nil;
         continue;
@@ -282,12 +305,30 @@ Tag parentTag(const Mutation& mutation) {
   auto graph = discoverPortalContexts(*root);
   if (!graph) return std::nullopt;
   size_t depth = 0;
+  NSHashTable<UIView *> *seen = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
   for (UIView *current = view; current;
-       current = [hierarchy parentOfView:current], depth++) {
+       depth++) {
+    if ([seen containsObject:current]) return std::nullopt;
+    [seen addObject:current];
     Tag tag = static_cast<Tag>([hierarchy tagOfView:current]);
     if (!hierarchy.isValid) return std::nullopt;
     auto node = graph->nodes.find(tag);
-    if (node == graph->nodes.end() || [self mounted:tag] != current) continue;
+    if (node == graph->nodes.end() || [self mounted:tag] != current) {
+      UIView *modalOwner = [hierarchy modalOwnerOfContainer:current];
+      if (modalOwner) {
+        Tag ownerTag = static_cast<Tag>([hierarchy tagOfView:modalOwner]);
+        if (!hierarchy.isValid) return std::nullopt;
+        if (!graph->nodes.contains(ownerTag) || [self mounted:ownerTag] != modalOwner) {
+          // Another source may own this controller. Its component's physical
+          // ancestors cannot establish a context in this publication.
+          return PortalNativeContextPath{{}, depth};
+        }
+        current = modalOwner; // Family and applied edge are checked below on the next step.
+      } else {
+        current = [hierarchy parentOfView:current];
+      }
+      continue;
+    }
     if (node->second == root.get()) {
       if (_rootIdentity.view != current ||
           _rootIdentity.family.lock() != node->second->getFamilyShared()) return std::nullopt;

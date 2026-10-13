@@ -1,4 +1,5 @@
 #import "BottomSheetNativeHierarchySnapshot.h"
+#import <React/RCTFabricModalHostViewController.h>
 #import <objc/runtime.h>
 #include <dlfcn.h>
 
@@ -9,13 +10,28 @@ static NSMapTable *BottomSheetNativeFactTable(void)
             valueOptions:NSPointerFunctionsStrongMemory capacity:0];
 }
 
+static IMP BottomSheetFrameworkGetter(Class type, SEL selector)
+{
+  Method method = class_getInstanceMethod(type, selector);
+  if (!method) return NULL;
+  IMP getter = method_getImplementation(method);
+  Dl_info classImage = {0}, getterImage = {0};
+  return dladdr((__bridge const void *)type, &classImage) &&
+      dladdr((const void *)getter, &getterImage) && classImage.dli_fbase &&
+      classImage.dli_fbase == getterImage.dli_fbase ? getter : NULL;
+}
+
 @implementation BottomSheetNativeHierarchySnapshot {
   IMP _parentGetter;
   IMP _childrenGetter;
   IMP _tagGetter;
+  IMP _nextResponderGetter;
+  IMP _loadedViewGetter;
+  IMP _modalDelegateGetter;
   NSMapTable<UIView *, id> *_parents;
   NSMapTable<UIView *, NSArray<UIView *> *> *_children;
   NSMapTable<UIView *, NSNumber *> *_tags;
+  NSMapTable<UIView *, id> *_modalOwners;
   BOOL _valid;
 }
 
@@ -26,10 +42,14 @@ static NSMapTable *BottomSheetNativeFactTable(void)
     _parents = BottomSheetNativeFactTable();
     _children = BottomSheetNativeFactTable();
     _tags = BottomSheetNativeFactTable();
+    _modalOwners = BottomSheetNativeFactTable();
     Class base = objc_getClass("UIView");
     _parentGetter = method_getImplementation(class_getInstanceMethod(base, @selector(superview)));
     _childrenGetter = method_getImplementation(class_getInstanceMethod(base, @selector(subviews)));
     _tagGetter = method_getImplementation(class_getInstanceMethod(base, @selector(tag)));
+    _nextResponderGetter = BottomSheetFrameworkGetter(base, @selector(nextResponder));
+    _loadedViewGetter = BottomSheetFrameworkGetter(UIViewController.class, @selector(viewIfLoaded));
+    _modalDelegateGetter = BottomSheetFrameworkGetter(RCTFabricModalHostViewController.class, @selector(delegate));
     Dl_info classImage = {0};
     _valid = dladdr((__bridge const void *)base, &classImage) && classImage.dli_fbase;
     // A global replacement must not become the supposedly standard getter.
@@ -117,6 +137,45 @@ static NSMapTable *BottomSheetNativeFactTable(void)
           child.superview != view) return NO;
     }
   }
+  for (UIView *view in _modalOwners) {
+    if (([self readModalOwnerOfContainer:view] ?: NSNull.null) != [_modalOwners objectForKey:view]) return NO;
+  }
   return _valid;
+}
+
+- (UIView *)modalOwnerOfContainer:(UIView *)view
+{
+  NSCAssert(NSThread.isMainThread, @"Native hierarchy must be read on main");
+  id cached = [_modalOwners objectForKey:view];
+  if (!cached) {
+    cached = [self readModalOwnerOfContainer:view] ?: NSNull.null;
+    [_modalOwners setObject:cached forKey:view];
+  }
+  return cached == NSNull.null ? nil : cached;
+}
+
+- (UIView *)readModalOwnerOfContainer:(UIView *)view
+{
+  if (object_getClass(view) != UIView.class) return nil;
+  if (![self canRead:@selector(nextResponder) fromView:view implementation:_nextResponderGetter]) return nil;
+  UIResponder *responder = view.nextResponder;
+  if (object_getClass(responder) != RCTFabricModalHostViewController.class) return nil;
+  RCTFabricModalHostViewController *controller = (RCTFabricModalHostViewController *)responder;
+  Method loadedView = class_getInstanceMethod(object_getClass(controller), @selector(viewIfLoaded));
+  Method delegate = class_getInstanceMethod(RCTFabricModalHostViewController.class, @selector(delegate));
+  if (!loadedView || !delegate || method_getImplementation(loadedView) != _loadedViewGetter ||
+      method_getImplementation(delegate) != _modalDelegateGetter) {
+    _valid = NO;
+    return nil;
+  }
+  if (controller.viewIfLoaded != view) return nil;
+  id owner = controller.delegate;
+  // Its public header imports C++ dependencies; keep this physical-fact module
+  // Objective-C and verify the stock runtime class without dispatching to it.
+  Class modalOwnerClass = objc_getClass("RCTModalHostViewComponentView");
+  for (Class type = object_getClass(owner); type; type = class_getSuperclass(type)) {
+    if (type == modalOwnerClass) return owner;
+  }
+  return nil;
 }
 @end
