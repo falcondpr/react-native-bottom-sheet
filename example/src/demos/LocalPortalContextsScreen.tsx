@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { Button, Platform, StyleSheet, Text, View } from 'react-native';
 import {
   BottomSheetProvider,
@@ -7,16 +7,18 @@ import {
 
 import { SheetBackground } from '../demoShared';
 
-const PortalPanel = ({
+export const PortalPanel = ({
   name,
   index,
   onIndexChange,
   extraBackground,
+  children,
 }: {
-  name: 'A' | 'B';
+  name: string;
   index: number;
   onIndexChange: (index: number) => void;
   extraBackground: boolean;
+  children?: ReactNode;
 }) => {
   const [backgroundCount, setBackgroundCount] = useState(0);
   const [sheetCount, setSheetCount] = useState(0);
@@ -53,6 +55,7 @@ const PortalPanel = ({
             />
             <Text>Sheet activations: {sheetCount}</Text>
             <Button title={`Close ${name}`} onPress={() => onIndexChange(0)} />
+            {children}
           </View>
         </ModalBottomSheet>
       </BottomSheetProvider>

@@ -2,10 +2,15 @@
 #include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/core/LayoutableShadowNode.h>
 #include <react/renderer/core/ShadowNodeFamily.h>
+#include <cstring>
 
 namespace facebook::react::bottomsheet {
 
 namespace {
+bool isModalHost(const ShadowNode& node) {
+  return std::strcmp(node.getComponentName(), "ModalHostView") == 0;
+}
+
 bool indexNodes(const ShadowNode& node, PortalShadowNodeIndex& nodes) {
   if (!nodes.emplace(node.getTag(), &node).second) return false;
   for (const auto& child : node.getChildren()) {
@@ -66,6 +71,9 @@ std::optional<PortalContextGraph> discoverPortalContexts(const ShadowNode& root)
     context->second.hosts.insert(tag);
   }
   for (auto& [tag, context] : graph.contexts) {
+    // Modal content belongs to its native presentation, not the source JSX
+    // container. Contexts within that content can still nest with each other.
+    if (isModalHost(*context.boundary)) continue;
     auto ancestors = context.boundary->getFamily().getAncestors(root);
     for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
       Tag parent = it->first.get().getTag();
@@ -73,6 +81,7 @@ std::optional<PortalContextGraph> discoverPortalContexts(const ShadowNode& root)
         context.parent = parent;
         break;
       }
+      if (isModalHost(it->first.get())) break;
     }
   }
   return graph;
@@ -92,8 +101,33 @@ std::optional<Tag> PortalContextGraph::hostForPresentation(
   for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
     Tag tag = it->first.get().getTag();
     if (hostContexts.contains(tag)) return tag;
+    if (isModalHost(it->first.get())) break;
   }
   return std::nullopt;
+}
+
+std::vector<Tag> PortalContextGraph::contextPathForNode(
+    const ShadowNode& node,
+    const ShadowNode& root) const {
+  std::optional<Tag> context;
+  if (contexts.contains(node.getTag())) context = node.getTag();
+  else if (!isModalHost(node)) {
+    auto ancestors = node.getFamily().getAncestors(root);
+    for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
+      Tag tag = it->first.get().getTag();
+      if (contexts.contains(tag)) {
+        context = tag;
+        break;
+      }
+      if (isModalHost(it->first.get())) break;
+    }
+  }
+  std::vector<Tag> path;
+  while (context) {
+    path.push_back(*context);
+    context = contexts.at(*context).parent;
+  }
+  return path;
 }
 
 std::optional<PortalIsolationProjection> projectPortalIsolation(

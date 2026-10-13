@@ -2,6 +2,7 @@
 #import <React/RCTComponentViewRegistry.h>
 #import <React/RCTMountingManager.h>
 #import <React/RCTViewComponentView.h>
+#import <React/RCTModalHostViewComponentView.h>
 #import "../../../ios/BottomSheetPortalMountingObserver.h"
 #import "../../../ios/BottomSheetAccessibilityMaskLedger.h"
 #import "../../../ios/BottomSheetPortalIsolation.h"
@@ -9,6 +10,7 @@
 #import "../../../ios/BottomSheetPresentationModalIsolationAdapter.h"
 #import "../../../ios/BottomSheetPortalNativeContainer.h"
 #include <react/renderer/components/view/ViewComponentDescriptor.h>
+#include <react/renderer/components/modal/ModalHostViewComponentDescriptor.h>
 #include <react/renderer/mounting/Differentiator.h>
 
 using namespace facebook::react;
@@ -40,6 +42,8 @@ struct RuntimeFixture {
   std::shared_ptr<UIManager> uiManager = std::make_shared<UIManager>(RuntimeExecutor{}, context);
   ViewComponentDescriptor descriptor{{.eventDispatcher = {}, .contextContainer = context,
                                       .flavor = nullptr}};
+  ModalHostViewComponentDescriptor modalDescriptor{
+      {.eventDispatcher = {}, .contextContainer = context, .flavor = nullptr}};
   ShadowTree *tree;
   RCTMountingManager *__strong mountingManager = [RCTMountingManager new];
   UIView *__strong viewport = [UIView new];
@@ -52,6 +56,8 @@ struct RuntimeFixture {
     uiManager->getShadowTreeRegistry().add(std::move(ownedTree));
     [mountingManager.componentViewRegistry.componentViewFactory
         registerComponentViewClass:RCTViewComponentView.class];
+    [mountingManager.componentViewRegistry.componentViewFactory
+        registerComponentViewClass:RCTModalHostViewComponentView.class];
     [mountingManager attachSurfaceToView:viewport surfaceId:1];
   }
   ~RuntimeFixture() {
@@ -77,6 +83,17 @@ struct RuntimeFixture {
     [mountingManager scheduleTransaction:tree->getMountingCoordinator()];
     return tree->getMountingCoordinator()->getBaseRevision().rootShadowNode;
   }
+  std::shared_ptr<ModalHostViewShadowNode> modal(Tag tag, Children children) {
+    auto props = modalDescriptor.cloneProps(PropsParserContext(1, *context), nullptr,
+        RawProps(folly::dynamic::object("visible", false)));
+    auto family = modalDescriptor.createFamily(
+        {.tag = tag, .surfaceId = 1, .instanceHandle = nullptr});
+    auto state = std::make_shared<ModalHostViewShadowNode::ConcreteState>(
+        std::make_shared<const ModalHostViewState>(facebook::react::Size{800, 600}), family);
+    return std::static_pointer_cast<ModalHostViewShadowNode>(modalDescriptor.createShadowNode(
+        {.props = props, .children = std::make_shared<const Children>(std::move(children)),
+         .state = state}, family));
+  }
   BottomSheetPortalMountingObserver *observer() {
     std::weak_ptr<UIManager> current = uiManager;
     return [[BottomSheetPortalMountingObserver alloc] initWithMountingManager:mountingManager
@@ -91,6 +108,76 @@ struct RuntimeFixture {
 @interface BottomSheetPortalMountingObserverTests : XCTestCase
 @end
 @implementation BottomSheetPortalMountingObserverTests
+
+- (void)testStockModalAndApplicationPortalsShareTheWriterWithoutMergingTheirScopes
+{
+  RuntimeFixture fixture;
+  auto modalPanel = fixture.node(11, {fixture.node(12),
+      fixture.node(13, {fixture.node(14)}, true)});
+  fixture.mount({fixture.node(4), fixture.node(41, {fixture.node(42),
+      fixture.node(43, {fixture.node(44, {fixture.modal(30, {fixture.node(2), modalPanel})})}, true)})});
+  auto observer = fixture.observer();
+  MountingTransaction first(1, 1, {}, {});
+  UIView *applicationOwner = fixture.view(44);
+  UIView *modalOwner = fixture.view(14);
+  [observer didMount:first owner:applicationOwner];
+  [observer didMount:first owner:modalOwner];
+  auto applicationIdentity = [BottomSheetPresentationIdentity new];
+  auto modalIdentity = [BottomSheetPresentationIdentity new];
+  auto application = [BottomSheetPortalPresentation presentationForIdentity:applicationIdentity
+      anchor:applicationOwner active:YES eligible:YES];
+  auto modal = [BottomSheetPortalPresentation presentationForIdentity:modalIdentity
+      anchor:modalOwner active:YES eligible:YES];
+  XCTAssertNotNil(application);
+  XCTAssertNotNil(modal);
+  if (!application || !modal) return;
+  NSArray *presentations = @[application, modal];
+  auto adapter = [BottomSheetPresentationModalIsolationAdapter new];
+  BottomSheetPresentationOrderProvider order = ^BottomSheetPresentationOrder(
+      BottomSheetPresentationIdentity *a, BottomSheetPresentationIdentity *b) {
+    return BottomSheetPresentationOrderUnknown;
+  };
+
+  XCTAssertTrue([adapter reconcilePortalPresentations:presentations
+      orderProvider:order ifCurrent:nil]);
+  XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
+  XCTAssertTrue(fixture.view(42).accessibilityElementsHidden);
+  XCTAssertFalse(fixture.view(2).accessibilityElementsHidden);
+  XCTAssertFalse(fixture.view(4).accessibilityElementsHidden);
+  XCTAssertFalse(modalOwner.accessibilityElementsHidden);
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:modalIdentity
+      actionOrigin:modalOwner presentations:presentations orderProvider:order],
+      BottomSheetPresentationEscapeRouteAttemptLocal);
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:applicationIdentity
+      actionOrigin:fixture.view(2) presentations:presentations orderProvider:order],
+      BottomSheetPresentationEscapeRoutePassThrough);
+
+  auto inactiveModal = [BottomSheetPortalPresentation presentationForIdentity:modalIdentity
+      anchor:modalOwner active:NO eligible:YES];
+  XCTAssertNotNil(inactiveModal);
+  if (!inactiveModal) return;
+  NSArray *releasedModal = @[application, inactiveModal];
+  XCTAssertTrue([adapter reconcilePortalPresentations:releasedModal
+      orderProvider:order ifCurrent:nil]);
+  XCTAssertFalse(fixture.view(12).accessibilityElementsHidden);
+  XCTAssertTrue(fixture.view(42).accessibilityElementsHidden);
+
+  XCTAssertTrue([adapter reconcilePortalPresentations:presentations
+      orderProvider:order ifCurrent:nil]);
+  auto modalView = (RCTModalHostViewComponentView *)fixture.view(30);
+  UIView<RCTComponentViewProtocol> *panel = (UIView<RCTComponentViewProtocol> *)fixture.view(11);
+  [modalView unmountChildComponentView:panel index:1];
+  XCTAssertFalse([adapter reconcilePortalPresentations:presentations
+      orderProvider:order ifCurrent:nil]);
+  XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
+  XCTAssertTrue(fixture.view(42).accessibilityElementsHidden);
+  [modalView mountChildComponentView:panel index:1];
+  XCTAssertTrue([adapter reconcilePortalPresentations:presentations
+      orderProvider:order ifCurrent:nil]);
+  [adapter invalidate];
+  XCTAssertFalse(fixture.view(12).accessibilityElementsHidden);
+  XCTAssertFalse(fixture.view(42).accessibilityElementsHidden);
+}
 
 - (void)testCompletedMountMasksNewBackgroundWithoutChangingActivePresentation
 {

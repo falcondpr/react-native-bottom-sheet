@@ -9,6 +9,7 @@ export type CaseKey =
   | 'close-request'
   | 'portal-accessibility-stack'
   | 'portal-local-contexts'
+  | 'portal-composed-contexts'
   | 'modal-scroll-view'
   | 'modal-flat-list'
   | 'keyboard-content-detent'
@@ -38,6 +39,11 @@ export type DemoCase = {
 };
 
 export const DEMO_CASES: DemoCase[] = [
+  {
+    key: 'portal-composed-contexts',
+    title: 'RN Modal + local contexts (iOS)',
+    href: '/portal-composed-contexts',
+  },
   {
     key: 'portal-local-contexts',
     title: 'Local portal contexts (iOS)',

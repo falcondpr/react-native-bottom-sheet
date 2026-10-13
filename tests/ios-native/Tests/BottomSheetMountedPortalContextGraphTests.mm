@@ -231,8 +231,9 @@ struct MountedTree {
   MountedTree fixture;
   auto sheet = fixture.node(14);
   auto host = fixture.node(13, {sheet}, true, true);
-  auto root = fixture.mount({fixture.node(4),
-      fixture.modal(30, {fixture.node(2), fixture.node(11, {fixture.node(12), host})})});
+  auto modal = fixture.modal(30, {fixture.node(2), fixture.node(11, {fixture.node(12), host})});
+  auto root = fixture.mount({fixture.node(4), fixture.node(41, {fixture.node(42),
+      fixture.node(43, {fixture.node(44, {modal})}, true, true)})});
   auto publication = [[BottomSheetMountedPortalContextGraph alloc]
       initWithMountingManager:fixture.manager];
   fixture.bootstrap(publication, root);
@@ -245,7 +246,7 @@ struct MountedTree {
   XCTAssertFalse([branches containsObject:fixture.view(4)]);
 
   UIView<RCTComponentViewProtocol> *panel = fixture.view(11);
-  RCTModalHostViewComponentView *modal = (RCTModalHostViewComponentView *)fixture.view(30);
+  RCTModalHostViewComponentView *modalView = (RCTModalHostViewComponentView *)fixture.view(30);
   auto hierarchy = [BottomSheetNativeHierarchySnapshot new];
   auto path = [publication contextPathForView:panel root:root hierarchy:hierarchy];
   XCTAssertTrue(path.has_value());
@@ -261,12 +262,12 @@ struct MountedTree {
   XCTAssertTrue([outsideHierarchy validate]);
   [outside removeFromSuperview];
 
-  [modal unmountChildComponentView:panel index:1];
+  [modalView unmountChildComponentView:panel index:1];
   XCTAssertNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
   auto detached = [BottomSheetNativeHierarchySnapshot new];
   XCTAssertFalse([publication contextPathForView:panel root:root hierarchy:detached].has_value());
 
-  [modal mountChildComponentView:panel index:1];
+  [modalView mountChildComponentView:panel index:1];
   XCTAssertEqualObjects([publication hiddenBranchesForRoot:root retainedPaths:requests],
                        ([NSSet setWithObject:fixture.view(12)]));
   RCTFabricModalHostViewController *controller =
@@ -282,7 +283,9 @@ struct MountedTree {
   MountedTree fixture;
   auto sheet = fixture.node(14);
   auto host = fixture.node(13, {sheet}, true, true);
-  auto root = fixture.mount({fixture.node(4), fixture.modal(30, {fixture.node(12), host})});
+  auto modal = fixture.modal(30, {fixture.node(12), host});
+  auto root = fixture.mount({fixture.node(4), fixture.node(41, {fixture.node(42),
+      fixture.node(43, {fixture.node(44, {modal})}, true, true)})});
   auto publication = [[BottomSheetMountedPortalContextGraph alloc]
       initWithMountingManager:fixture.manager];
   fixture.bootstrap(publication, root);

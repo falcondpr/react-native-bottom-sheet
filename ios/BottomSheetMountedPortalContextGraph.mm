@@ -341,13 +341,7 @@ Tag parentTag(const Mutation& mutation) {
           parent == _members.parents.end() ||
           parent->second != [self registeredParentOf:current hierarchy:hierarchy]) return std::nullopt;
     }
-    std::vector<Tag> contexts;
-    if (graph->contexts.contains(tag)) contexts.push_back(tag);
-    auto ancestors = node->second->getFamily().getAncestors(*root);
-    for (auto ancestor = ancestors.rbegin(); ancestor != ancestors.rend(); ++ancestor) {
-      Tag parentTag = ancestor->first.get().getTag();
-      if (graph->contexts.contains(parentTag)) contexts.push_back(parentTag);
-    }
+    auto contexts = graph->contextPathForNode(*node->second, *root);
     return hierarchy.isValid ? std::optional<PortalNativeContextPath>{{contexts, depth}}
                              : std::nullopt;
   }

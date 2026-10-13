@@ -2,6 +2,7 @@
 
 #include "../../../common/cpp/react/renderer/components/ReactNativeBottomSheetSpec/PortalContextGraph.h"
 #include <react/renderer/components/view/ViewComponentDescriptor.h>
+#include <react/renderer/components/modal/ModalHostViewComponentDescriptor.h>
 #include <react/renderer/core/ShadowNodeFragment.h>
 
 using namespace facebook::react;
@@ -15,6 +16,24 @@ ViewComponentDescriptor descriptor({
     .contextContainer = std::make_shared<ContextContainer>(),
     .flavor = nullptr,
 });
+
+ModalHostViewComponentDescriptor modalDescriptor({
+    .eventDispatcher = {},
+    .contextContainer = std::make_shared<ContextContainer>(),
+    .flavor = nullptr,
+});
+
+std::shared_ptr<ModalHostViewShadowNode> modal(Tag tag, Children children) {
+  auto family = modalDescriptor.createFamily(
+      {.tag = tag, .surfaceId = 1, .instanceHandle = nullptr});
+  auto state = std::make_shared<ModalHostViewShadowNode::ConcreteState>(
+      std::make_shared<const ModalHostViewState>(facebook::react::Size{800, 600}), family);
+  return std::static_pointer_cast<ModalHostViewShadowNode>(
+      modalDescriptor.createShadowNode(
+          {.props = std::make_shared<ModalHostViewProps>(),
+           .children = std::make_shared<const Children>(std::move(children)),
+           .state = state}, family));
+}
 
 std::shared_ptr<ViewShadowNode> node(
     Tag tag,
@@ -40,6 +59,37 @@ std::shared_ptr<ViewShadowNode> node(
 @end
 
 @implementation BottomSheetPortalContextGraphTests
+
+- (void)testModalContentKeepsLocalNestingWithoutInheritingItsSourceContext
+{
+  auto sheetC = node(44);
+  auto hostC = node(43, {sheetC}, true, true);
+  auto sheetB = node(34, {node(41, {node(42), hostC})});
+  auto hostB = node(33, {sheetB}, true, true);
+  auto outsideModalPanel = node(2);
+  auto modalContent = modal(30, {outsideModalPanel, node(31, {node(32), hostB})});
+  auto sheetA = node(18);
+  auto hostA = node(13, {node(14, {modalContent}), sheetA}, true, true);
+  auto root = node(1, {node(11, {node(12), hostA})});
+  auto graph = discoverPortalContexts(*root);
+  XCTAssertTrue(graph.has_value());
+  if (!graph) return;
+
+  XCTAssertFalse(graph->contexts.at(31).parent.has_value());
+  XCTAssertTrue(graph->contexts.at(41).parent == 31);
+  XCTAssertFalse(graph->hostForPresentation(outsideModalPanel->getFamily(), *root).has_value());
+  PortalNativeMembers members{
+      .alive = {2, 11, 12, 13, 14, 18, 30, 31, 32, 33, 34, 41, 42, 43, 44},
+      .parents = {{11, 1}, {12, 11}, {13, 11}, {14, 13}, {18, 13},
+                  {30, 14}, {2, 30}, {31, 30}, {32, 31}, {33, 31},
+                  {34, 33}, {41, 34}, {42, 41}, {43, 41}, {44, 43}}};
+  auto projection = projectPortalIsolation(*graph, members,
+      {{&hostA->getFamily(), {&sheetA->getFamily()}},
+       {&hostB->getFamily(), {&sheetB->getFamily()}},
+       {&hostC->getFamily(), {&sheetC->getFamily()}}});
+  XCTAssertTrue(projection.has_value());
+  if (projection) XCTAssertTrue((projection->hiddenBranches == std::set<Tag>{12, 14, 32, 42}));
+}
 
 - (void)testDisjointFlattenedAreasUseTheirOwnContainingBlocks
 {

@@ -35,6 +35,11 @@ struct PortalContextGraph {
   std::optional<Tag> hostForPresentation(
       const ShadowNodeFamily& presentation,
       const ShadowNode& root) const;
+
+  // Innermost first, bounded by actual native Modal presentation ancestry.
+  std::vector<Tag> contextPathForNode(
+      const ShadowNode& node,
+      const ShadowNode& root) const;
 };
 
 /** Unresolvable layout or ambiguous identity rejects the whole projection. */
