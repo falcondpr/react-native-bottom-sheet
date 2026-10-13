@@ -1,7 +1,9 @@
 #import "BottomSheetMountedPortalContextGraph.h"
+#import "BottomSheetPortalNativeContainer.h"
 #import <React/RCTComponentViewRegistry.h>
 #import <React/RCTMountingManager.h>
 #import <React/RCTViewComponentView.h>
+#import <objc/runtime.h>
 
 using namespace facebook::react;
 using namespace facebook::react::bottomsheet;
@@ -11,6 +13,17 @@ struct MountedIdentity {
   __weak UIView<RCTComponentViewProtocol> *view;
   ShadowNodeFamily::Weak family;
 };
+
+bool hasConcreteComponentDescriptor(UIView *view) {
+  // RN's UIView category supplies the protocol to every UIKit view. Concrete
+  // Fabric classes override this required provider; do not invoke its asserting
+  // UIView default merely to distinguish a foreign component from native chrome.
+  SEL selector = @selector(componentDescriptorProvider);
+  Method concrete = class_getClassMethod(view.class, selector);
+  Method fallback = class_getClassMethod(UIView.class, selector);
+  return concrete && (!fallback ||
+      method_getImplementation(concrete) != method_getImplementation(fallback));
+}
 
 template <typename Mutation>
 Tag parentTag(const Mutation& mutation) {
@@ -94,7 +107,12 @@ Tag parentTag(const Mutation& mutation) {
   for (UIView *parent = view.superview; parent; parent = parent.superview) {
     Tag tag = static_cast<Tag>(parent.tag);
     if ([self mounted:tag] == parent) return tag;
-    if ([parent conformsToProtocol:@protocol(RCTComponentViewProtocol)]) return 0;
+    if (hasConcreteComponentDescriptor(parent)) return 0;
+    if ([parent conformsToProtocol:@protocol(BottomSheetPortalNativeContainer)]) {
+      UIView *owner = ((id<BottomSheetPortalNativeContainer>)parent).portalNativeOwner;
+      Tag ownerTag = static_cast<Tag>(owner.tag);
+      return owner && [self mounted:ownerTag] == owner ? ownerTag : 0;
+    }
   }
   return 0;
 }
@@ -118,6 +136,59 @@ Tag parentTag(const Mutation& mutation) {
   }
   for (const auto& child : node.getChildren()) {
     if (![self validateBranch:*child]) return NO;
+  }
+  return YES;
+}
+
+- (BOOL)addManagedContainer:(UIView *)container
+                  parentTag:(Tag)parent
+                      graph:(const PortalContextGraph &)graph
+                   retained:(const std::set<Tag> &)retained
+                 toBranches:(NSMutableSet<UIView *> *)branches
+{
+  UIView *owner = [self mounted:parent];
+  if (((id<BottomSheetPortalNativeContainer>)container).portalNativeOwner != owner) return NO;
+  NSMutableSet<UIView *> *keptNativePath = [NSMutableSet new];
+  NSMutableArray<UIView *> *pending = [NSMutableArray arrayWithObject:container];
+  while (pending.count) {
+    UIView *view = pending.lastObject;
+    [pending removeLastObject];
+    Tag tag = static_cast<Tag>(view.tag);
+    if ([self mounted:tag] == view) {
+      auto node = graph.nodes.find(tag);
+      auto edge = _members.parents.find(tag);
+      if (node == graph.nodes.end() || edge == _members.parents.end() ||
+          edge->second != parent) return NO;
+      std::optional<Tag> logicalChild;
+      for (const auto& [ancestor, index] : node->second->getFamily().getAncestors(*_root)) {
+        if (ancestor.get().getTag() == parent) {
+          logicalChild = ancestor.get().getChildren()[index]->getTag();
+          break;
+        }
+      }
+      if (!logicalChild) return NO;
+      if (retained.contains(*logicalChild)) {
+        for (UIView *path = view; path && path != container.superview; path = path.superview) {
+          [keptNativePath addObject:path];
+        }
+      }
+      continue; // Whole registered frontiers are projected at their logical edges.
+    }
+    if (hasConcreteComponentDescriptor(view)) return NO;
+    if ([view conformsToProtocol:@protocol(BottomSheetPortalNativeContainer)] &&
+        ((id<BottomSheetPortalNativeContainer>)view).portalNativeOwner != owner) return NO;
+    [pending addObjectsFromArray:view.subviews];
+  }
+
+  [pending addObject:container];
+  while (pending.count) {
+    UIView *view = pending.lastObject;
+    [pending removeLastObject];
+    if (![keptNativePath containsObject:view]) {
+      [branches addObject:view];
+    } else if ([self mounted:static_cast<Tag>(view.tag)] != view) {
+      [pending addObjectsFromArray:view.subviews];
+    }
   }
   return YES;
 }
@@ -161,12 +232,17 @@ Tag parentTag(const Mutation& mutation) {
     for (UIView *child in view.subviews) {
       Tag tag = static_cast<Tag>(child.tag);
       if (graph->nodes.contains(tag) && [self mounted:tag] == child) continue;
+      if ([child conformsToProtocol:@protocol(BottomSheetPortalNativeContainer)]) {
+        if (![self addManagedContainer:child parentTag:parent graph:*graph
+                             retained:retained toBranches:branches]) return nil;
+        continue;
+      }
       NSMutableArray<UIView *> *pending = [NSMutableArray arrayWithObject:child];
       while (pending.count) {
         UIView *next = pending.lastObject;
         [pending removeLastObject];
         Tag nextTag = static_cast<Tag>(next.tag);
-        if ([self mounted:nextTag] == next) {
+        if ([self mounted:nextTag] == next || hasConcreteComponentDescriptor(next)) {
           return nil; // Opaque native ownership must be adapted explicitly.
         }
         [pending addObjectsFromArray:next.subviews];
@@ -211,7 +287,7 @@ Tag parentTag(const Mutation& mutation) {
     [pending removeLastObject];
     if (![deleted containsObject:view] &&
         ([self mounted:static_cast<Tag>(view.tag)] == view ||
-         [view conformsToProtocol:@protocol(RCTComponentViewProtocol)])) {
+         hasConcreteComponentDescriptor(view))) {
       [survivors addObject:view];
       continue; // A surviving registered subtree keeps all of its native children.
     }

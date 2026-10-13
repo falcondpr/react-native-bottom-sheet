@@ -155,12 +155,18 @@ std::optional<PortalIsolationProjection> projectPortalIsolation(
     Tag child = scope;
     auto& outerEdges = contextEdges.at(*ancestor);
     const auto& whole = retainedPresentations.at(*ancestor);
+    std::vector<std::pair<Tag, Tag>> liftedEdges;
     while (child != *ancestor && !whole.contains(child)) {
       auto parent = logicalParents.find(child);
       if (parent == logicalParents.end()) return std::nullopt;
-      if (whole.contains(parent->second)) break;
-      outerEdges[parent->second].insert(child);
+      liftedEdges.emplace_back(parent->second, child);
       child = parent->second;
+    }
+    // A whole retained ancestor already connects the entire path. Partial
+    // lifting below it would incorrectly hide content in intervening containers.
+    if (whole.contains(child)) continue;
+    for (const auto& [parent, retainedChild] : liftedEdges) {
+      outerEdges[parent].insert(retainedChild);
     }
   }
   for (const auto& [scope, edges] : contextEdges) {

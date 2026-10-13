@@ -241,7 +241,7 @@ std::shared_ptr<ViewShadowNode> node(
   auto sheetB = node(34);
   auto innerHost = node(33, {sheetB}, true, true);
   auto innerArea = node(31, {node(32), innerHost}, false);
-  auto sheetA = node(14, {node(16), innerArea});
+  auto sheetA = node(14, {node(17, {node(16), innerArea}, false)});
   auto outerHost = node(13, {sheetA, node(15)}, true, true);
   auto root = node(1, {node(11, {node(12), outerHost}, false)});
   auto graph = discoverPortalContexts(*root);

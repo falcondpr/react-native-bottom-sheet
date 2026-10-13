@@ -65,6 +65,14 @@
   return _impl.animateIn;
 }
 
+- (UIView *)portalNativeOwner
+{
+  id<BottomSheetContentViewDelegate> delegate = self.delegate;
+  return [delegate respondsToSelector:@selector(portalNativeOwnerForBottomSheetView:)]
+      ? [delegate portalNativeOwnerForBottomSheetView:self]
+      : nil;
+}
+
 - (void)setAnimateIn:(BOOL)animateIn
 {
   _impl.animateIn = animateIn;

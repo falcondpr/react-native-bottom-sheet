@@ -537,6 +537,22 @@ using namespace facebook::react;
                                   mode:mode];
 }
 
+- (UIView *)portalNativeOwnerForBottomSheetView:(BottomSheetContentView *)view
+{
+  if (view != _sheetView || view.delegate != self) {
+    return nil;
+  }
+  if (view.superview == self && self.contentView == view) {
+    return self;
+  }
+  UIWindow *window = self.window;
+  if (_nativeOverlay && window != nil && self.contentView == nil &&
+      _overlayContainer.superview == window && view.superview == _overlayContainer) {
+    return self;
+  }
+  return nil;
+}
+
 @end
 
 Class<RCTComponentViewProtocol> BottomSheetViewCls(void)

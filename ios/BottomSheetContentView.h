@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 
 #import "BottomSheetPresentationOwnership.h"
+#import "BottomSheetPortalNativeContainer.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -21,9 +22,12 @@ NS_ASSUME_NONNULL_BEGIN
 // layer can push the content wrapper's target size (and, in overlay mode, the
 // sheet frame) into the shadow tree.
 - (void)bottomSheetViewDidLayout:(BottomSheetContentView *)view;
+@optional
+// Supplies current registered ownership for the internal native content path.
+- (nullable UIView *)portalNativeOwnerForBottomSheetView:(BottomSheetContentView *)view;
 @end
 
-@interface BottomSheetContentView : UIView
+@interface BottomSheetContentView : UIView <BottomSheetPortalNativeContainer>
 
 @property (nonatomic, weak, nullable) id<BottomSheetContentViewDelegate> delegate;
 @property (nonatomic) BOOL animateIn;

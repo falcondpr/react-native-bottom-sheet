@@ -4,6 +4,7 @@
 #import <React/RCTViewComponentView.h>
 
 #import "../../../ios/BottomSheetMountedPortalContextGraph.h"
+#import "../../../ios/BottomSheetPortalNativeContainer.h"
 #include <react/renderer/components/view/ViewComponentDescriptor.h>
 #include <react/renderer/mounting/Differentiator.h>
 #include <react/renderer/mounting/ShadowTree.h>
@@ -88,6 +89,13 @@ struct MountedTree {
 } // namespace
 
 @interface BottomSheetMountedPortalContextGraphTests : XCTestCase
+@end
+
+@interface MountedPortalContainer : UIView <BottomSheetPortalNativeContainer>
+@property (nonatomic, weak, nullable) UIView *portalNativeOwner;
+@end
+
+@implementation MountedPortalContainer
 @end
 
 @implementation BottomSheetMountedPortalContextGraphTests
@@ -283,16 +291,18 @@ struct MountedTree {
       initWithMountingManager:fixture.manager];
   fixture.bootstrap(publication, root);
   std::vector<PortalRetainedPaths> requests{{&host->getFamily(), {&sheet->getFamily()}}};
-  MountedTree foreign(101, fixture.manager);
-  foreign.mount({foreign.node(114)});
-  [fixture.view(11) addSubview:foreign.viewport];
+  for (RCTMountingManager *manager in @[fixture.manager, [RCTMountingManager new]]) {
+    MountedTree foreign(101, manager);
+    foreign.mount({foreign.node(114)});
+    [fixture.view(11) addSubview:foreign.viewport];
 
-  XCTAssertNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
-  XCTAssertFalse(foreign.viewport.accessibilityElementsHidden);
+    XCTAssertNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
+    XCTAssertFalse(foreign.viewport.accessibilityElementsHidden);
 
-  [foreign.viewport removeFromSuperview];
-  XCTAssertEqualObjects([publication hiddenBranchesForRoot:root retainedPaths:requests],
-                       ([NSSet setWithObject:fixture.view(12)]));
+    [foreign.viewport removeFromSuperview];
+    XCTAssertEqualObjects([publication hiddenBranchesForRoot:root retainedPaths:requests],
+                         ([NSSet setWithObject:fixture.view(12)]));
+  }
 }
 
 - (void)testARegisteredForeignParentCannotBeSkippedInsideARetainedPresentation
@@ -318,6 +328,64 @@ struct MountedTree {
                        ([NSSet setWithObject:fixture.view(12)]));
 }
 
+- (void)testOwnedHoistedContainerKeepsItsCurrentRegisteredParentBinding
+{
+  MountedTree fixture;
+  auto sheet = fixture.node(14, {fixture.node(16)});
+  auto host = fixture.node(13, {sheet}, true, true);
+  auto root = fixture.mount({fixture.node(11, {fixture.node(12), host})});
+  auto publication = [[BottomSheetMountedPortalContextGraph alloc]
+      initWithMountingManager:fixture.manager];
+  fixture.bootstrap(publication, root);
+  std::vector<PortalRetainedPaths> requests{{&host->getFamily(), {&sheet->getFamily()}}};
+  MountedPortalContainer *content = [MountedPortalContainer new];
+  content.portalNativeOwner = fixture.view(14);
+  [fixture.viewport addSubview:content];
+  [content addSubview:fixture.view(16)];
+
+  XCTAssertEqualObjects([publication hiddenBranchesForRoot:root retainedPaths:requests],
+                       ([NSSet setWithObject:fixture.view(12)]));
+
+  content.portalNativeOwner = nil;
+  XCTAssertNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
+}
+
+- (void)testOwnedNativeChromeIsExcludedOnlyAlongANarrowRetainedInnerPath
+{
+  MountedTree fixture;
+  auto innerSheet = fixture.node(24);
+  auto innerHost = fixture.node(23, {innerSheet}, true, true);
+  auto contentRoot = fixture.node(16, {fixture.node(17),
+      fixture.node(21, {fixture.node(22), innerHost})});
+  auto sheetA = fixture.node(14, {contentRoot});
+  auto topA = fixture.node(18);
+  auto hostA = fixture.node(13, {sheetA, topA}, true, true);
+  auto root = fixture.mount({fixture.node(11, {fixture.node(12), hostA})});
+  auto publication = [[BottomSheetMountedPortalContextGraph alloc]
+      initWithMountingManager:fixture.manager];
+  fixture.bootstrap(publication, root);
+  MountedPortalContainer *content = [MountedPortalContainer new];
+  content.portalNativeOwner = fixture.view(14);
+  UIView *chrome = [UIView new];
+  UIView *body = [UIView new];
+  [fixture.view(14) addSubview:content];
+  [content addSubview:chrome];
+  [content addSubview:body];
+  [body addSubview:fixture.view(16)];
+  std::vector<PortalRetainedPaths> narrow{
+      {&hostA->getFamily(), {&topA->getFamily()}},
+      {&innerHost->getFamily(), {&innerSheet->getFamily()}}};
+
+  XCTAssertEqualObjects([publication hiddenBranchesForRoot:root retainedPaths:narrow],
+      ([NSSet setWithObjects:fixture.view(12), fixture.view(17), fixture.view(22), chrome, nil]));
+
+  std::vector<PortalRetainedPaths> whole{
+      {&hostA->getFamily(), {&sheetA->getFamily()}},
+      {&innerHost->getFamily(), {&innerSheet->getFamily()}}};
+  XCTAssertEqualObjects([publication hiddenBranchesForRoot:root retainedPaths:whole],
+      ([NSSet setWithObjects:fixture.view(12), fixture.view(18), fixture.view(22), nil]));
+}
+
 - (void)testDeletionRetiresExactNativeInstancesBeforeTheRegistryCanRecycleThem
 {
   MountedTree fixture;
@@ -329,13 +397,17 @@ struct MountedTree {
   auto publication = [[BottomSheetMountedPortalContextGraph alloc]
       initWithMountingManager:fixture.manager];
   fixture.bootstrap(publication, first);
+  UILabel *nativeTitle = [UILabel new];
+  [fixture.view(12) addSubview:nativeTitle];
   auto nextArea = area->clone({.children = std::make_shared<const Children>(Children{host})});
   auto next = first->ShadowNode::clone({.children =
       std::make_shared<const Children>(Children{nextArea})});
   auto mutations = calculateShadowViewMutations(*first, *next);
 
-  XCTAssertEqualObjects([publication nativeDeletionForMutations:mutations].deletedViews,
+  auto deletion = [publication nativeDeletionForMutations:mutations];
+  XCTAssertEqualObjects(deletion.deletedViews,
                        ([NSSet setWithObject:fixture.view(12)]));
+  XCTAssertEqualObjects(deletion.survivingRegisteredViews, ([NSSet set]));
 
   fixture.mount({nextArea});
   XCTAssertNil([publication nativeDeletionForMutations:mutations]);
