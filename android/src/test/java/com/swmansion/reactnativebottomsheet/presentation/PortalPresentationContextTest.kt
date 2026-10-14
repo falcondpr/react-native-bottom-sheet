@@ -57,7 +57,7 @@ class PortalPresentationContextTest {
   }
 }
 
-internal class TestReactRoot(context: Context) : FrameLayout(context), RootView {
+internal open class TestReactRoot(context: Context) : FrameLayout(context), RootView {
   override fun onChildStartedNativeGesture(childView: View?, ev: MotionEvent) = Unit
 
   override fun onChildEndedNativeGesture(childView: View, ev: MotionEvent) = Unit

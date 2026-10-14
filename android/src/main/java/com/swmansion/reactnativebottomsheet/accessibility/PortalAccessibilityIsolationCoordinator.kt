@@ -6,43 +6,48 @@ import androidx.annotation.UiThread
 import com.swmansion.reactnativebottomsheet.presentation.PortalPresentationCoordinator
 import com.swmansion.reactnativebottomsheet.presentation.PortalRetainedPresentation
 import java.lang.ref.WeakReference
-import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.WeakHashMap
 
-/** Owns root-scoped masking while one or more BottomSheetViews can publish portal policy. */
+/** One mutation ledger per window consumes the complete supplied presentation policy. */
 @UiThread
 internal object PortalAccessibilityIsolationCoordinator {
   internal interface Lease {
     fun release()
   }
 
-  private class RootState(
-    windowRoot: View,
-    root: ViewGroup,
-  ) {
+  private class WindowState(windowRoot: View) {
     private val windowRoot = WeakReference(windowRoot)
-    val reconciler = PortalAccessibilityReconciler(root)
-    private val root = WeakReference(root)
-    private var mountCallback: MountReconciliationCallback? = null
+    private val reconciler = PortalAccessibilityReconciler(windowRoot)
+    private val mountCallbacks = WeakHashMap<ViewGroup, MountReconciliationCallback>()
 
-    fun belongsTo(windowRoot: View): Boolean = this.windowRoot.get() === windowRoot
-
-    fun observeMounts() {
-      if (mountCallback != null) return
-      val root = root.get() ?: return
+    fun reconcile(
+      retainedPresentations: List<PortalRetainedPresentation>,
+      isCurrent: () -> Boolean,
+    ) {
+      val retainedByRoot = IdentityHashMap<ViewGroup, MutableList<View>>()
+      retainedPresentations.forEach { retained ->
+        retainedByRoot.getOrPut(retained.reactRoot) { mutableListOf() }.add(retained.anchor)
+      }
+      // The authority still supplies legacy RN-root scopes until Android P1 is
+      // resolved. This consumer accepts boundaries without inferring their size.
+      val scopes = retainedByRoot.map { (root, anchors) -> PortalAccessibilityScope(root, anchors) }
+      if (!reconciler.reconcile(scopes, isCurrent)) return
+      mountCallbacks.keys
+        .toList()
+        .filter { !retainedByRoot.containsKey(it) }
+        .forEach {
+          mountCallbacks.remove(it)?.remove()
+        }
       val windowRoot = windowRoot.get() ?: return
-      val callbacks = ReactNativeMountReconciliationAdapter.resolve(root) ?: return
-      val callback = MountReconciliationCallback(windowRoot, root)
-      callback.observation =
-        ReactNativeMountReconciliationAdapter.shared.observe(callbacks, callback)
-      mountCallback = callback
-    }
-
-    fun release() {
-      mountCallback?.remove()
-      mountCallback = null
-      reconciler.reconcile(emptyList())
+      retainedByRoot.keys.forEach { root ->
+        if (mountCallbacks.containsKey(root)) return@forEach
+        val callbacks = ReactNativeMountReconciliationAdapter.resolve(root) ?: return@forEach
+        val callback = MountReconciliationCallback(windowRoot, root)
+        callback.observation =
+          ReactNativeMountReconciliationAdapter.shared.observe(callbacks, callback)
+        mountCallbacks[root] = callback
+      }
     }
   }
 
@@ -72,7 +77,10 @@ internal object PortalAccessibilityIsolationCoordinator {
     }
   }
 
-  private val roots = WeakHashMap<ViewGroup, RootState>()
+  private val windows = WeakHashMap<View, WindowState>()
+  // Only queued during synchronous reconciliation; no Active/order state is retained.
+  private val pendingPolicies = IdentityHashMap<View, List<PortalRetainedPresentation>>()
+  private var reconciling = false
   private var leaseCount = 0
   private var policyObservation: PortalPresentationCoordinator.PolicyObservation? = null
 
@@ -92,8 +100,10 @@ internal object PortalAccessibilityIsolationCoordinator {
         if (leaseCount == 0) {
           policyObservation?.remove()
           policyObservation = null
-          roots.values.toList().forEach(RootState::release)
-          roots.clear()
+          for (root in windows.keys.toList()) {
+            if (leaseCount != 0) break
+            onPolicyChanged(root, emptyList())
+          }
         }
       }
     }
@@ -103,29 +113,20 @@ internal object PortalAccessibilityIsolationCoordinator {
     windowRoot: View,
     retainedPresentations: List<PortalRetainedPresentation>,
   ) {
-    val retainedByRoot = IdentityHashMap<ViewGroup, MutableList<View>>()
-    retainedPresentations.forEach { retained ->
-      retainedByRoot.getOrPut(retained.reactRoot) { mutableListOf() }.add(retained.anchor)
-    }
-    val desiredRoots = identitySet<ViewGroup>()
-    retainedByRoot.forEach { (root, anchors) ->
-      val state = roots.getOrPut(root) { RootState(windowRoot, root) }
-      if (state.reconciler.reconcile(anchors)) {
-        state.observeMounts()
-        desiredRoots.add(root)
-      } else {
-        state.release()
-        roots.remove(root)
+    pendingPolicies[windowRoot] = retainedPresentations.toList()
+    if (reconciling) return
+    reconciling = true
+    try {
+      while (pendingPolicies.isNotEmpty()) {
+        val (root, retained) = pendingPolicies.entries.first().let { it.key to it.value }
+        pendingPolicies.remove(root)
+        val state = windows.getOrPut(root) { WindowState(root) }
+        state.reconcile(retained) { !pendingPolicies.containsKey(root) }
+        if (retained.isEmpty() && !pendingPolicies.containsKey(root)) windows.remove(root)
       }
+    } finally {
+      reconciling = false
+      pendingPolicies.clear()
     }
-    roots.entries
-      .filter { (root, state) -> state.belongsTo(windowRoot) && root !in desiredRoots }
-      .map { it.key }
-      .forEach { root ->
-        roots.remove(root)?.release()
-      }
   }
-
-  private fun <T> identitySet(): MutableSet<T> =
-    Collections.newSetFromMap(IdentityHashMap<T, Boolean>())
 }

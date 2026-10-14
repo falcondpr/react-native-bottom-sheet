@@ -80,8 +80,9 @@ class ReactNativeMountReconciliationAdapterTest {
       val owner = View(activity.get()).also(root::addView)
       activity.get().setContentView(root)
       val reconciler = PortalAccessibilityReconciler(root)
-      reconciler.reconcile(listOf(owner))
-      val observation = adapter.observe(boundary) { reconciler.reconcile(listOf(owner)) }
+      val scopes = listOf(PortalAccessibilityScope(root, listOf(owner)))
+      reconciler.reconcile(scopes)
+      val observation = adapter.observe(boundary) { reconciler.reconcile(scopes) }
       val inserted = View(activity.get()).also(root::addView)
       existing.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
       root.removeView(owner)

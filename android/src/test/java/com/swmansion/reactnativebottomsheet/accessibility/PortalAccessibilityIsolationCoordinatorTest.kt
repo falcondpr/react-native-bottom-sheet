@@ -1,6 +1,7 @@
 package com.swmansion.reactnativebottomsheet.accessibility
 
 import android.app.Activity
+import android.content.Context
 import android.view.View
 import android.widget.FrameLayout
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -18,6 +19,101 @@ import org.robolectric.annotation.Config
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35])
 class PortalAccessibilityIsolationCoordinatorTest {
+  @Test
+  fun `releasing the last lease during a mask write restores the complete window`() {
+    val activity = Robolectric.buildActivity(Activity::class.java).setup()
+    val lease = PortalAccessibilityIsolationCoordinator.acquire()
+    try {
+      val root = TestReactRoot(activity.get())
+      var released = false
+      val backgrounds =
+        List(3) {
+          MaskObservingView(activity.get()) {
+              if (!released) {
+                released = true
+                lease.release()
+              }
+            }
+            .also(root::addView)
+        }
+      val owner = View(activity.get()).also(root::addView)
+      activity.get().setContentView(root)
+      val registration = requireNotNull(PortalPresentationCoordinator.register(owner, true) {})
+
+      assertTrue(released)
+      backgrounds.forEach {
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, it.importantForAccessibility)
+      }
+      registration.update(true)
+      backgrounds.forEach {
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, it.importantForAccessibility)
+      }
+      registration.remove()
+    } finally {
+      lease.release()
+      activity.close()
+    }
+  }
+
+  @Test
+  @Config(sdk = [24, 35])
+  fun `retained paths from nested React roots compose before restoring the covered inner root`() {
+    val activity = Robolectric.buildActivity(Activity::class.java).setup()
+    val lease = PortalAccessibilityIsolationCoordinator.acquire()
+    try {
+      val window = FrameLayout(activity.get())
+      val toolbar = View(activity.get()).also(window::addView)
+      val outer = TestReactRoot(activity.get()).also(window::addView)
+      val backgroundA = View(activity.get()).also(outer::addView)
+      val ownerA = View(activity.get()).also(outer::addView)
+      var innerBackground: View? = null
+      var backgroundKeptDuringRestore = false
+      val inner =
+        RestoreObservingRoot(activity.get()) {
+            backgroundKeptDuringRestore =
+              innerBackground?.importantForAccessibility ==
+                View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS &&
+                backgroundA.importantForAccessibility ==
+                  View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+          }
+          .also(outer::addView)
+      innerBackground = View(activity.get()).also(inner::addView)
+      val ownerB = View(activity.get()).also(inner::addView)
+      activity.get().setContentView(window)
+      val registrationA = requireNotNull(PortalPresentationCoordinator.register(ownerA, true) {})
+      val registrationB = requireNotNull(PortalPresentationCoordinator.register(ownerB, true) {})
+
+      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, inner.importantForAccessibility)
+      assertTrue(backgroundKeptDuringRestore)
+      listOf(backgroundA, innerBackground).forEach {
+        assertEquals(
+          View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+          it.importantForAccessibility,
+        )
+      }
+      listOf(toolbar, ownerA, ownerB).forEach {
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, it.importantForAccessibility)
+      }
+      registrationB.remove()
+      assertEquals(
+        View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+        backgroundA.importantForAccessibility,
+      )
+      assertEquals(
+        View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+        inner.importantForAccessibility,
+      )
+      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, innerBackground.importantForAccessibility)
+      registrationA.remove()
+      listOf(backgroundA, inner, innerBackground, toolbar).forEach {
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, it.importantForAccessibility)
+      }
+    } finally {
+      lease.release()
+      activity.close()
+    }
+  }
+
   @Test
   fun `nested Top stays isolated through closing and transfers directly on settle`() {
     val activity = Robolectric.buildActivity(Activity::class.java).setup()
@@ -213,6 +309,26 @@ class PortalAccessibilityIsolationCoordinatorTest {
       ) {
         onRestore()
       }
+      super.setImportantForAccessibility(mode)
+    }
+  }
+
+  private class MaskObservingView(context: Context, private val onMask: () -> Unit) :
+    View(context) {
+    override fun setImportantForAccessibility(mode: Int) {
+      super.setImportantForAccessibility(mode)
+      if (mode == View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS) onMask()
+    }
+  }
+
+  private class RestoreObservingRoot(context: Context, private val onRestore: () -> Unit) :
+    TestReactRoot(context) {
+    override fun setImportantForAccessibility(mode: Int) {
+      if (
+        importantForAccessibility == View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS &&
+          mode != View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+      )
+        onRestore()
       super.setImportantForAccessibility(mode)
     }
   }

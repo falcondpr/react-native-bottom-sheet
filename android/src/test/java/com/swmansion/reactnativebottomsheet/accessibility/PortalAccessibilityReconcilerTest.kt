@@ -1,21 +1,167 @@
 package com.swmansion.reactnativebottomsheet.accessibility
 
 import android.app.Activity
+import android.app.Dialog
 import android.content.Context
+import android.os.Looper
 import android.view.View
 import android.widget.FrameLayout
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.lang.ref.WeakReference
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35])
 class PortalAccessibilityReconcilerTest {
+  @Test
+  @Config(sdk = [24, 35])
+  fun `shared scope retains a whole Active ancestor without hiding its content for another retained path`() {
+    val activity = Robolectric.buildActivity(Activity::class.java).setup()
+    try {
+      val area = FrameLayout(activity.get())
+      val background = View(activity.get()).also(area::addView)
+      val whole = FrameLayout(activity.get()).also(area::addView)
+      val chrome = View(activity.get()).also(whole::addView)
+      val nested = FrameLayout(activity.get()).also(whole::addView)
+      val nestedBackground = View(activity.get()).also(nested::addView)
+      val descendant = View(activity.get()).also(nested::addView)
+      activity.get().setContentView(area)
+      val reconciler = PortalAccessibilityReconciler(area)
+
+      reconciler.reconcile(
+        listOf(
+          PortalAccessibilityScope(area, listOf(whole)),
+          PortalAccessibilityScope(area, listOf(descendant)),
+        )
+      )
+
+      assertEquals(
+        View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+        background.importantForAccessibility,
+      )
+      listOf(whole, chrome, nested, nestedBackground, descendant).forEach {
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, it.importantForAccessibility)
+      }
+
+      reconciler.reconcile(
+        listOf(
+          PortalAccessibilityScope(area, listOf(whole)),
+          PortalAccessibilityScope(nested, listOf(descendant)),
+        )
+      )
+      assertEquals(
+        View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+        nestedBackground.importantForAccessibility,
+      )
+      assertEquals(
+        View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+        background.importantForAccessibility,
+      )
+      listOf(whole, chrome, nested, descendant).forEach {
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, it.importantForAccessibility)
+      }
+    } finally {
+      activity.close()
+    }
+  }
+
+  @Test
+  @Config(sdk = [24, 35])
+  fun `inner isolation lifts only its path through covered outer content and releases without opening the outer background`() {
+    val activity = Robolectric.buildActivity(Activity::class.java).setup()
+    try {
+      val window = FrameLayout(activity.get())
+      val toolbar = View(activity.get()).also(window::addView)
+      val area = FrameLayout(activity.get()).also(window::addView)
+      val background = View(activity.get()).also(area::addView)
+      val host = FrameLayout(activity.get()).also(area::addView)
+      val covered = FrameLayout(activity.get()).also(host::addView)
+      val chrome = View(activity.get()).also(covered::addView)
+      val innerArea = FrameLayout(activity.get()).also(covered::addView)
+      val innerBackground = View(activity.get()).also(innerArea::addView)
+      val innerOwner = View(activity.get()).also(innerArea::addView)
+      val top = View(activity.get()).also(host::addView)
+      activity.get().setContentView(window)
+      val reconciler = PortalAccessibilityReconciler(window)
+      val outerScope = PortalAccessibilityScope(area, listOf(top))
+
+      reconciler.reconcile(
+        listOf(outerScope, PortalAccessibilityScope(innerArea, listOf(innerOwner)))
+      )
+
+      listOf(background, chrome, innerBackground).forEach {
+        assertEquals(
+          View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+          it.importantForAccessibility,
+        )
+      }
+      listOf(toolbar, covered, innerArea, innerOwner, top).forEach {
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, it.importantForAccessibility)
+      }
+
+      reconciler.reconcile(listOf(outerScope))
+      listOf(background, covered).forEach {
+        assertEquals(
+          View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+          it.importantForAccessibility,
+        )
+      }
+      listOf(chrome, innerBackground, top, toolbar).forEach {
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, it.importantForAccessibility)
+      }
+      reconciler.reconcile(emptyList())
+      listOf(background, covered, chrome, innerBackground, top, toolbar).forEach {
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, it.importantForAccessibility)
+      }
+    } finally {
+      activity.close()
+    }
+  }
+
+  @Test
+  @Config(sdk = [24, 35])
+  fun `disjoint supplied scopes isolate both backgrounds without hiding the outside toolbar`() {
+    val activity = Robolectric.buildActivity(Activity::class.java).setup()
+    try {
+      val window = FrameLayout(activity.get())
+      val toolbar = View(activity.get()).also(window::addView)
+      val areaA = FrameLayout(activity.get()).also(window::addView)
+      val backgroundA = View(activity.get()).also(areaA::addView)
+      val ownerA = View(activity.get()).also(areaA::addView)
+      val areaB = FrameLayout(activity.get()).also(window::addView)
+      val backgroundB = View(activity.get()).also(areaB::addView)
+      val ownerB = View(activity.get()).also(areaB::addView)
+      activity.get().setContentView(window)
+
+      PortalAccessibilityReconciler(window)
+        .reconcile(
+          listOf(
+            PortalAccessibilityScope(areaA, listOf(ownerA)),
+            PortalAccessibilityScope(areaB, listOf(ownerB)),
+          )
+        )
+
+      listOf(backgroundA, backgroundB).forEach {
+        assertEquals(
+          View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+          it.importantForAccessibility,
+        )
+      }
+      listOf(toolbar, areaA, ownerA, areaB, ownerB).forEach {
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, it.importantForAccessibility)
+      }
+    } finally {
+      activity.close()
+    }
+  }
+
   @Test
   fun `one retained owner masks every side branch without masking the owner subtree`() {
     val activity = Robolectric.buildActivity(Activity::class.java).setup()
@@ -35,7 +181,8 @@ class PortalAccessibilityReconcilerTest {
       root.addView(backgroundAfter)
       activity.get().setContentView(root)
 
-      PortalAccessibilityReconciler(root).reconcile(listOf(owner))
+      PortalAccessibilityReconciler(root)
+        .reconcile(listOf(PortalAccessibilityScope(root, listOf(owner))))
 
       listOf(backgroundBefore, nestedBackground, backgroundAfter).forEach {
         assertEquals(
@@ -65,7 +212,8 @@ class PortalAccessibilityReconcilerTest {
       val secondSide = View(activity.get()).also(secondBranch::addView)
       activity.get().setContentView(root)
 
-      PortalAccessibilityReconciler(root).reconcile(listOf(firstOwner, secondOwner))
+      PortalAccessibilityReconciler(root)
+        .reconcile(listOf(PortalAccessibilityScope(root, listOf(firstOwner, secondOwner))))
 
       listOf(background, firstSide, secondSide).forEach {
         assertEquals(
@@ -82,7 +230,8 @@ class PortalAccessibilityReconcilerTest {
   }
 
   @Test
-  fun `invalid retained path releases this root without mutating the other root`() {
+  @Config(sdk = [24, 35])
+  fun `invalid scoped proposals preserve existing masks without partially applying valid scopes or touching another window`() {
     val activity = Robolectric.buildActivity(Activity::class.java).setup()
     try {
       val window = FrameLayout(activity.get())
@@ -95,12 +244,37 @@ class PortalAccessibilityReconcilerTest {
       window.addView(otherRoot)
       activity.get().setContentView(window)
       val reconciler = PortalAccessibilityReconciler(root)
-      reconciler.reconcile(listOf(owner))
-
-      reconciler.reconcile(listOf(otherOwner))
-
-      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, background.importantForAccessibility)
-      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, otherOwner.importantForAccessibility)
+      val scope = PortalAccessibilityScope(root, listOf(owner))
+      reconciler.reconcile(listOf(scope))
+      val added = View(activity.get()).also(root::addView)
+      val dialog = Dialog(activity.get())
+      try {
+        val dialogArea = FrameLayout(activity.get())
+        val dialogBackground = View(activity.get()).also(dialogArea::addView)
+        val dialogOwner = View(activity.get()).also(dialogArea::addView)
+        dialog.setContentView(dialogArea)
+        dialog.show()
+        shadowOf(Looper.getMainLooper()).idle()
+        listOf(
+            PortalAccessibilityScope(root, listOf(otherOwner)),
+            PortalAccessibilityScope(root, emptyList()),
+            PortalAccessibilityScope(dialogArea, listOf(dialogOwner)),
+          )
+          .forEach { invalid ->
+            assertFalse(reconciler.reconcile(listOf(scope, invalid)))
+            assertEquals(
+              View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+              background.importantForAccessibility,
+            )
+            listOf(added, otherOwner, dialogBackground, dialogOwner).forEach {
+              assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, it.importantForAccessibility)
+            }
+          }
+        reconciler.reconcile(emptyList())
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, background.importantForAccessibility)
+      } finally {
+        dialog.dismiss()
+      }
     } finally {
       activity.close()
     }
@@ -114,11 +288,11 @@ class PortalAccessibilityReconcilerTest {
       val owner = View(activity.get()).also(root::addView)
       activity.get().setContentView(root)
       val reconciler = PortalAccessibilityReconciler(root)
-      reconciler.reconcile(listOf(owner))
+      reconciler.reconcile(listOf(PortalAccessibilityScope(root, listOf(owner))))
       val added = CountingImportanceView(activity.get()).also(root::addView)
 
-      reconciler.reconcile(listOf(owner))
-      reconciler.reconcile(listOf(owner))
+      reconciler.reconcile(listOf(PortalAccessibilityScope(root, listOf(owner))))
+      reconciler.reconcile(listOf(PortalAccessibilityScope(root, listOf(owner))))
 
       assertEquals(
         View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
@@ -126,7 +300,7 @@ class PortalAccessibilityReconcilerTest {
       )
       assertEquals(1, added.writeCount)
       root.removeView(added)
-      reconciler.reconcile(listOf(owner))
+      reconciler.reconcile(listOf(PortalAccessibilityScope(root, listOf(owner))))
       assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, added.importantForAccessibility)
     } finally {
       activity.close()
@@ -164,9 +338,9 @@ class PortalAccessibilityReconcilerTest {
   ): WeakReference<View> {
     val branch = View(context)
     root.addView(branch)
-    reconciler.reconcile(listOf(owner))
+    reconciler.reconcile(listOf(PortalAccessibilityScope(root, listOf(owner))))
     root.removeView(branch)
-    reconciler.reconcile(listOf(owner))
+    reconciler.reconcile(listOf(PortalAccessibilityScope(root, listOf(owner))))
     assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, branch.importantForAccessibility)
     return WeakReference(branch)
   }
