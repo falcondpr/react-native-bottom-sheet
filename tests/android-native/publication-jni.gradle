@@ -1,0 +1,9 @@
+// Opt-in packaging for the non-UI JNI test; ordinary library builds are unchanged.
+gradle.beforeProject { project ->
+  if (project.path == ':swmansion_react-native-bottom-sheet') {
+    project.pluginManager.withPlugin('com.android.library') {
+      project.android.sourceSets.androidTest.jniLibs.srcDir(
+          new File(project.projectDir, 'build/publication-jni/libs'))
+    }
+  }
+}
