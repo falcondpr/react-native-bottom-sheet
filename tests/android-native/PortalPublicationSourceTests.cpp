@@ -364,6 +364,64 @@ int main() {
            !f.source->receiptForState(1, 14, nullptr));
   }
 
+  {
+    Fixture f;
+    auto& oldTree = f.tree();
+    auto old = delivered(f.commit(oldTree, {
+        f.make(13, true, "absolute", {f.make(14, true, "relative", {}, true)}, false, true)}), 14);
+    auto oldRoot = oldTree.getCurrentRevision().rootShadowNode;
+    f.commit(oldTree, oldRoot->getChildren());
+    f.manager->getShadowTreeRegistry().remove(1);
+    f.surfaces.clear();
+    auto& restarted = f.tree();
+    auto fresh = delivered(f.commit(restarted, {
+        f.make(13, true, "absolute", {f.make(14, true, "relative", {}, true)}, false, true)}), 14);
+    expect("restarting a surface with reused tags rejects States from its retired lifetime",
+           oldRoot->getFamilyShared() != restarted.getCurrentRevision().rootShadowNode->getFamilyShared() &&
+           !f.source->rootForState(1, 14, old) && !f.source->receiptForState(1, 14, old) &&
+           f.source->rootForState(1, 14, fresh) == restarted.getCurrentRevision().rootShadowNode);
+  }
+
+  {
+    Fixture f;
+    auto& tree = f.tree();
+    auto firstMount = f.commit(tree, {
+        f.make(11, false, "relative", {
+            f.make(13, true, "absolute", {f.make(14, true, "relative", {}, true)}, false, true)}),
+        f.make(21, false, "relative", {
+            f.make(23, true, "absolute", {f.make(24, true, "relative", {}, true)}, false, true)})});
+    auto firstRoot = tree.getCurrentRevision().rootShadowNode;
+    auto secondMount = f.commit(tree, firstRoot->getChildren());
+    auto secondRoot = tree.getCurrentRevision().rootShadowNode;
+    auto a1 = delivered(firstMount, 14);
+    auto b1 = delivered(firstMount, 24);
+    auto a2 = delivered(secondMount, 14);
+    auto b2 = delivered(secondMount, 24);
+    expect("complete owner States resolve one final revision while mixed revisions reject",
+           f.source->rootForStates(1, {{14, a1}, {24, b1}}) == firstRoot &&
+           f.source->rootForStates(1, {{14, a2}, {24, b2}}) == secondRoot &&
+           !f.source->rootForStates(1, {{14, a1}, {24, b2}}) &&
+           !f.source->rootForStates(1, {}));
+  }
+
+  {
+    Fixture f;
+    auto& tree = f.tree();
+    auto mount = f.commit(tree, {
+        f.make(13, true, "absolute", {f.make(14, true, "relative", {}, true)}, false, true),
+        f.make(23, true, "absolute", {f.make(24, true, "relative", {}, true)}, false, true),
+        f.make(34, true, "relative", {}, true)});
+    auto a = delivered(mount, 14);
+    auto b = delivered(mount, 24);
+    auto nonportal = delivered(mount, 34);
+    expect("complete source agreement includes nonportal sheets and rejects missing or excess entries",
+           f.source->rootForStates(1, {{14, a}, {24, b}, {34, nonportal}}) ==
+               tree.getCurrentRevision().rootShadowNode &&
+           !f.source->rootForStates(1, {{14, a}, {24, b}}) &&
+           !f.source->rootForStates(1, {{24, b}, {34, nonportal}}) &&
+           !f.source->rootForStates(1, {{14, a}, {24, b}, {34, nonportal}, {99, nonportal}}));
+  }
+
   std::cout << "STATE RESULT tests=" << tests << " failures=" << failures << '\n';
   return failures ? 1 : 0;
 }
