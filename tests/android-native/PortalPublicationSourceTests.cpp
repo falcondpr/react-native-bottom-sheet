@@ -302,6 +302,68 @@ int main() {
            f.source->rootForState(1, 14, stamped) == tree.getCurrentRevision().rootShadowNode);
   }
 
+  {
+    Fixture f;
+    auto& tree = f.tree();
+    auto areaA = f.make(11, false, "relative", {
+        f.make(13, true, "absolute", {f.make(14, true, "relative", {}, true)}, false, true)});
+    auto areaB = f.make(21, false, "relative", {
+        f.make(23, true, "absolute", {f.make(24, true, "relative", {}, true)}, false, true)});
+    auto mount = f.commit(tree, {areaA, areaB});
+    auto a = f.source->receiptForState(1, 14, delivered(mount, 14));
+    auto b = f.source->receiptForState(1, 24, delivered(mount, 24));
+    expect("receipts preserve one publication identity and separate local host context paths",
+           a && b && !a->publicationId.empty() && a->publicationId == b->publicationId &&
+           a->host == 13 && a->contexts == std::vector<Tag>{11} &&
+           b->host == 23 && b->contexts == std::vector<Tag>{21});
+  }
+
+  {
+    Fixture f;
+    auto& tree = f.tree();
+    auto innerHost = f.make(23, true, "absolute", {
+        f.make(24, true, "relative", {}, true)}, false, true);
+    auto outerSheet = f.make(14, true, "relative", {innerHost}, true);
+    auto outerHost = f.make(13, true, "absolute", {outerSheet}, false, true);
+    auto mount = f.commit(tree, {f.make(11, false, "relative", {outerHost})});
+    auto outer = f.source->receiptForState(1, 14, delivered(mount, 14));
+    auto inner = f.source->receiptForState(1, 24, delivered(mount, 24));
+    expect("an outer presentation receipt does not adopt its descendant portal context",
+           outer && inner && outer->host == 13 && outer->contexts == std::vector<Tag>{11} &&
+           inner->host == 23 && inner->contexts == std::vector<Tag>{14, 11});
+  }
+
+  {
+    Fixture f;
+    auto& tree = f.tree();
+    auto host = f.make(13, true, "absolute", {
+        f.make(14, true, "relative", {}, true)}, false, true);
+    auto area = f.make(11, false, "relative", {f.make(31, false, "static", {host})});
+    LaterLayoutHook later(f.views, *f.context);
+    f.manager->registerCommitHook(later);
+    auto first = delivered(f.commit(tree, {area}), 14);
+    later.relative = true;
+    auto second = delivered(f.commit(tree, {area}), 14);
+    auto delayed = f.source->receiptForState(1, 14, first);
+    auto current = f.source->receiptForState(1, 14, second);
+    expect("reading a delayed receipt never substitutes the newer containing block",
+           delayed && current && delayed->publicationId != current->publicationId &&
+           delayed->contexts == std::vector<Tag>{11} && current->contexts == std::vector<Tag>{31});
+    f.manager->unregisterCommitHook(later);
+  }
+
+  {
+    Fixture f;
+    auto& tree = f.tree();
+    auto standalone = delivered(f.commit(tree, {
+        f.make(14, true, "relative", {}, true)}), 14);
+    expect("a nonportal or unavailable state never supplies a root fallback receipt",
+           f.source->rootForState(1, 14, standalone) &&
+           !f.source->receiptForState(1, 14, standalone) &&
+           !f.source->receiptForState(2, 14, standalone) &&
+           !f.source->receiptForState(1, 14, nullptr));
+  }
+
   std::cout << "STATE RESULT tests=" << tests << " failures=" << failures << '\n';
   return failures ? 1 : 0;
 }

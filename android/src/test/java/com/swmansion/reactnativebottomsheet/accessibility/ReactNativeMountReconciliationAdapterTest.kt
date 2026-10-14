@@ -269,6 +269,12 @@ class ReactNativeMountReconciliationAdapterTest {
       onBootstrap()
     }
 
+    override fun receipt(
+      surfaceId: Int,
+      tag: Int,
+      state: com.facebook.react.uimanager.StateWrapper?,
+    ): FabricPortalReceipt? = null
+
     override fun release() {
       releases++
     }

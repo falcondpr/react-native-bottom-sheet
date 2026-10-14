@@ -3,6 +3,7 @@
 #include <fbjni/fbjni.h>
 #include <react/fabric/Binding.h>
 #include <react/fabric/JFabricUIManager.h>
+#include <react/fabric/StateWrapperImpl.h>
 #include <react/renderer/scheduler/Scheduler.h>
 
 namespace facebook::react::bottomsheet {
@@ -12,6 +13,18 @@ using NativeBinding = FabricUIManagerBinding;
 #else
 using NativeBinding = Binding;
 #endif
+
+struct JFabricPortalReceipt : jni::JavaClass<JFabricPortalReceipt> {
+  static constexpr auto kJavaDescriptor =
+      "Lcom/swmansion/reactnativebottomsheet/accessibility/FabricPortalReceipt;";
+
+  static jni::local_ref<JFabricPortalReceipt> create(const PortalSourceReceipt& receipt) {
+    auto contexts = jni::JArrayInt::newArray(receipt.contexts.size());
+    contexts->setRegion(0, receipt.contexts.size(), receipt.contexts.data());
+    return newInstance(
+        jni::make_jstring(receipt.publicationId), static_cast<jint>(receipt.host), contexts);
+  }
+};
 
 class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublication> {
  public:
@@ -25,6 +38,7 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
     registerHybrid({
         makeNativeMethod("initHybrid", FabricPortalPublication::initHybrid),
         makeNativeMethod("bootstrapNative", FabricPortalPublication::bootstrapNative),
+        makeNativeMethod("receiptNative", FabricPortalPublication::receiptNative),
     });
   }
 
@@ -42,6 +56,23 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
 
   void bootstrapNative() {
     source_.bootstrap();
+  }
+
+  jni::local_ref<JFabricPortalReceipt> receiptNative(
+      jint surface, jint tag, jni::alias_ref<StateWrapper::javaobject> object) {
+    if (!object || !object->isInstanceOf(StateWrapperImpl::javaClassStatic())) return nullptr;
+    StateWrapperImpl* wrapper;
+    try {
+      wrapper = jni::static_ref_cast<StateWrapperImpl::jhybridobject>(object)->cthis();
+    } catch (const jni::JniException& exception) {
+      // fbjni reports a reset hybrid pointer as NPE. Other JNI failures surface.
+      if (!exception.getThrowable()->isInstanceOf(jni::findClassLocal("java/lang/NullPointerException"))) throw;
+      return nullptr;
+    }
+    // The delivered State must not be replaced by the family's newest State.
+    auto receipt = source_.receiptForState(surface, tag, wrapper->getState());
+    if (!receipt) return nullptr;
+    return JFabricPortalReceipt::create(*receipt);
   }
 
   PortalPublicationSource source_;

@@ -6,9 +6,17 @@
 #include <deque>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 
 namespace facebook::react::bottomsheet {
+
+// Source metadata only; accepting native membership requires separate validation.
+struct PortalSourceReceipt {
+  std::string publicationId;
+  Tag host;
+  std::vector<Tag> contexts;
+};
 
 /**
  * Source identity only; native attachment/registry validation belongs to the
@@ -23,6 +31,9 @@ class PortalPublicationSource final : private UIManagerCommitHook {
   void bootstrap();
 
   RootShadowNode::Shared rootForState(
+      SurfaceId surface, Tag tag, const State::Shared& state) const;
+
+  std::optional<PortalSourceReceipt> receiptForState(
       SurfaceId surface, Tag tag, const State::Shared& state) const;
 
  private:

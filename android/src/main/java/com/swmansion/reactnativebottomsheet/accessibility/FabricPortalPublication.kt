@@ -6,6 +6,7 @@ import androidx.annotation.UiThread
 import com.facebook.jni.HybridData
 import com.facebook.proguard.annotations.DoNotStrip
 import com.facebook.react.fabric.FabricUIManager
+import com.facebook.react.uimanager.StateWrapper
 import com.facebook.soloader.SoLoader
 
 /** One source resource per observed UIManager; all access is deferred to the UI queue. */
@@ -20,6 +21,9 @@ private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
     if (active) bootstrapNative()
   }
 
+  override fun receipt(surfaceId: Int, tag: Int, state: StateWrapper?): FabricPortalReceipt? =
+    if (active && state != null) receiptNative(surfaceId, tag, state) else null
+
   override fun release() {
     if (!active) return
     active = false
@@ -27,6 +31,13 @@ private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
   }
 
   @DoNotStrip private external fun bootstrapNative()
+
+  @DoNotStrip
+  private external fun receiptNative(
+    surfaceId: Int,
+    tag: Int,
+    state: StateWrapper,
+  ): FabricPortalReceipt?
 
   companion object {
     fun acquire(identity: Any): FabricPublicationLease? {

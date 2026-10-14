@@ -125,5 +125,21 @@ RootShadowNode::Shared PortalPublicationSource::rootForState(
   return result;
 }
 
+std::optional<PortalSourceReceipt> PortalPublicationSource::receiptForState(
+    SurfaceId surface, Tag tag, const State::Shared& state) const {
+  auto root = rootForState(surface, tag, state);
+  if (!root) return std::nullopt;
+  auto graph = discoverPortalContexts(*root);
+  if (!graph) return std::nullopt;
+  const auto& node = *graph->nodes.at(tag);
+  auto host = graph->hostForPresentation(node.getFamily(), *root);
+  if (!host) return std::nullopt;
+  const auto& concrete = static_cast<const BottomSheetViewShadowNode::ConcreteState&>(*state);
+  return PortalSourceReceipt{
+      concrete.getData().portalPublicationId, *host,
+      graph->contextPathForNode(
+          *graph->contexts.at(graph->hostContexts.at(*host)).boundary, *root)};
+}
+
 } // namespace facebook::react::bottomsheet
 #endif
