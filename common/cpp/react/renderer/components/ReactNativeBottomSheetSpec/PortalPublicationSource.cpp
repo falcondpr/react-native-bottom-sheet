@@ -1,0 +1,113 @@
+#include "PortalPublicationSource.h"
+
+#ifdef ANDROID
+#include "PortalContextGraph.h"
+#include "ShadowNodes.h"
+#include <algorithm>
+#include <atomic>
+#include <stdexcept>
+
+namespace facebook::react::bottomsheet {
+namespace {
+std::atomic<uint64_t> nextSource{0};
+}
+
+PortalPublicationSource::PortalPublicationSource(
+    const std::shared_ptr<UIManager>& manager)
+    : manager_(manager), prefix_(std::to_string(++nextSource) + ":") {
+  if (!manager) throw std::invalid_argument("Missing Fabric UIManager");
+  manager->registerCommitHook(*this);
+}
+
+PortalPublicationSource::~PortalPublicationSource() {
+  if (auto manager = manager_.lock()) manager->unregisterCommitHook(*this);
+}
+
+void PortalPublicationSource::rememberFinalRoot(const RootShadowNode::Shared& root) const {
+  auto index = indexPortalShadowNodes(*root);
+  if (!index) return;
+  std::lock_guard lock(mutex_);
+  std::erase_if(finalRoots_, [](const auto& entry) { return entry.first.expired(); });
+  for (const auto& [tag, node] : *index) {
+    auto state = node->getState();
+    auto concrete = dynamic_cast<const BottomSheetViewShadowNode::ConcreteState*>(state.get());
+    if (!concrete || !concrete->getData().portalPublicationId.starts_with(prefix_)) continue;
+    auto [entry, inserted] = finalRoots_.try_emplace(std::weak_ptr<const State>{state}, FinalRoot{root});
+    if (!inserted && (entry->second.root.owner_before(root) || root.owner_before(entry->second.root))) {
+      entry->second.ambiguous = true;
+    }
+  }
+}
+
+RootShadowNode::Unshared PortalPublicationSource::shadowTreeWillCommit(
+    const ShadowTree&,
+    const RootShadowNode::Shared& oldRoot,
+    const RootShadowNode::Unshared& proposal) noexcept {
+  auto index = indexPortalShadowNodes(*proposal);
+  if (!index) return proposal;
+  rememberFinalRoot(oldRoot);
+  std::string id;
+  {
+    std::lock_guard lock(mutex_);
+    // oldRoot is final, including changes from hooks registered after this one.
+    // Never retain this hook's proposal as a committed source.
+    if (std::find(history_.begin(), history_.end(), oldRoot) == history_.end()) {
+      history_.push_back(oldRoot);
+      // Bound retained tree memory even when Java delivery is indefinitely late.
+      // An evicted receipt is unavailable, never replaced with another root.
+      if (history_.size() > 32) history_.pop_front();
+    }
+    id = prefix_ + std::to_string(++next_);
+  }
+  auto result = proposal;
+  for (const auto& [tag, node] : *index) {
+    auto sheet = dynamic_cast<const BottomSheetViewShadowNode*>(node);
+    if (!sheet) continue;
+    const auto& previous = static_cast<const BottomSheetViewShadowNode::ConcreteState&>(*sheet->getState());
+    auto stamped = std::make_shared<BottomSheetViewState>(previous.getData());
+    stamped->portalPublicationId = id;
+    auto state = std::make_shared<const BottomSheetViewShadowNode::ConcreteState>(stamped, previous);
+    result = std::static_pointer_cast<RootShadowNode>(result->cloneTree(
+        sheet->getFamily(), [&](const ShadowNode& current) { return current.clone({.state = state}); }));
+  }
+  return result;
+}
+
+RootShadowNode::Shared PortalPublicationSource::rootForState(
+    SurfaceId surface, Tag tag, const State::Shared& state) const {
+  auto concrete = dynamic_cast<const BottomSheetViewShadowNode::ConcreteState*>(state.get());
+  if (!concrete || !concrete->getData().portalPublicationId.starts_with(prefix_)) return nullptr;
+  auto manager = manager_.lock();
+  if (!manager) return nullptr;
+  std::vector<RootShadowNode::Shared> candidates;
+  bool live = false;
+  manager->getShadowTreeRegistry().visit(surface, [&](const ShadowTree& tree) {
+    live = true;
+    candidates = {tree.getCurrentRevision().rootShadowNode,
+                  tree.getMountingCoordinator()->getBaseRevision().rootShadowNode};
+  });
+  if (!live) return nullptr;
+  {
+    std::lock_guard lock(mutex_);
+    candidates.insert(candidates.end(), history_.begin(), history_.end());
+  }
+  RootShadowNode::Shared result;
+  for (const auto& root : candidates) {
+    if (root->getSurfaceId() != surface) continue;
+    auto index = indexPortalShadowNodes(*root);
+    if (index && index->contains(tag) && index->at(tag)->getState() == state) {
+      rememberFinalRoot(root);
+      {
+        std::lock_guard lock(mutex_);
+        const auto& final = finalRoots_.at(std::weak_ptr<const State>{state});
+        if (final.ambiguous || final.root.lock() != root) return nullptr;
+      }
+      if (result && result != root) return nullptr;
+      result = root;
+    }
+  }
+  return result;
+}
+
+} // namespace facebook::react::bottomsheet
+#endif
