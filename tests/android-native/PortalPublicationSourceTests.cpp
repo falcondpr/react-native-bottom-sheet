@@ -285,6 +285,23 @@ int main() {
     f.manager->unregisterCommitHook(later);
   }
 
+  {
+    Fixture f;
+    f.source.reset();
+    auto& tree = f.tree();
+    auto sheet = f.make(14, true, "relative", {}, true);
+    auto first = delivered(f.commit(tree, {sheet}), 14);
+    f.source = std::make_unique<PortalPublicationSource>(f.manager);
+    f.source->bootstrap();
+    auto transaction = tree.getMountingCoordinator()->pullTransaction(true);
+    auto stamped = transaction ? delivered(*transaction, 14) : nullptr;
+    expect("source installation bootstraps an already mounted sheet through a new native state mutation",
+           data(first).portalPublicationId.empty() && stamped && stamped != first &&
+           !data(stamped).portalPublicationId.empty() && data(stamped).contentOffsetY == 39 &&
+           data(stamped).frameSize == facebook::react::Size{300, 560} && data(stamped).contentRegionInset == 24 &&
+           f.source->rootForState(1, 14, stamped) == tree.getCurrentRevision().rootShadowNode);
+  }
+
   std::cout << "STATE RESULT tests=" << tests << " failures=" << failures << '\n';
   return failures ? 1 : 0;
 }

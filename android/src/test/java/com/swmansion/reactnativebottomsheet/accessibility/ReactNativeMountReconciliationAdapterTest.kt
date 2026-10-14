@@ -10,6 +10,7 @@ import com.facebook.react.bridge.UIManager
 import com.facebook.react.bridge.UIManagerListener
 import java.lang.reflect.Proxy
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -108,6 +109,168 @@ class ReactNativeMountReconciliationAdapterTest {
       assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_YES, existing.importantForAccessibility)
     } finally {
       activity.close()
+    }
+  }
+
+  @Test
+  fun `Fabric observations share one deferred native source until the final observation is removed`() {
+    val posted = mutableListOf<Runnable>()
+    val boundary = FakeMountCallbacks(isFabric = true)
+    var acquisitions = 0
+    val native = FakePublicationLease()
+    val adapter =
+      ReactNativeMountReconciliationAdapter(
+        postToUiThread = { posted.add(it) },
+        acquirePublicationSource = {
+          assertSame(boundary.identity, it)
+          acquisitions++
+          native
+        },
+      )
+    val first = adapter.observe(boundary) {}
+    val second = adapter.observe(boundary) {}
+    assertEquals(0, acquisitions)
+    boundary.listener?.didMountItems(FakeUIManager)
+    posted.removeAt(0).run()
+    assertEquals(1, acquisitions)
+    assertEquals(1, native.bootstraps)
+    boundary.listener?.didMountItems(FakeUIManager)
+    posted.removeAt(0).run()
+    assertEquals(1, acquisitions)
+    first.remove()
+    assertEquals(0, native.releases)
+    second.remove()
+    assertEquals(0, native.releases)
+    posted.removeAt(0).run()
+    assertEquals(1, native.releases)
+  }
+
+  @Test
+  fun `removing an observation before queued installation prevents native acquisition`() {
+    val posted = mutableListOf<Runnable>()
+    var acquisitions = 0
+    val adapter =
+      ReactNativeMountReconciliationAdapter(
+        postToUiThread = { posted.add(it) },
+        acquirePublicationSource = {
+          acquisitions++
+          FakePublicationLease()
+        },
+      )
+    val observation = adapter.observe(FakeMountCallbacks(true)) {}
+    observation.remove()
+    posted.removeAt(0).run()
+    assertEquals(0, acquisitions)
+    assertEquals(0, posted.size)
+  }
+
+  @Test
+  fun `Paper reconciliation never acquires a native Fabric source`() {
+    val posted = mutableListOf<Runnable>()
+    var acquisitions = 0
+    var reconciliations = 0
+    val adapter =
+      ReactNativeMountReconciliationAdapter(
+        postToUiThread = { posted.add(it) },
+        acquirePublicationSource = {
+          acquisitions++
+          FakePublicationLease()
+        },
+      )
+    val boundary = FakeMountCallbacks(false)
+    val observation = adapter.observe(boundary) { reconciliations++ }
+    boundary.listener?.willDispatchViewUpdates(FakeUIManager)
+    boundary.paperBlocks.removeAt(0).invoke()
+    posted.removeAt(0).run()
+    assertEquals(1, reconciliations)
+    assertEquals(0, acquisitions)
+    observation.remove()
+  }
+
+  @Test
+  fun `bootstrap removal releases the native resource only after its call returns`() {
+    val posted = mutableListOf<Runnable>()
+    lateinit var observation: ReactNativeMountReconciliationAdapter.Observation
+    lateinit var native: FakePublicationLease
+    native = FakePublicationLease {
+      observation.remove()
+      assertEquals(0, native.releases)
+    }
+    val adapter =
+      ReactNativeMountReconciliationAdapter(
+        postToUiThread = { posted.add(it) },
+        acquirePublicationSource = { native },
+      )
+    observation = adapter.observe(FakeMountCallbacks(true)) {}
+    posted.removeAt(0).run()
+    assertEquals(1, native.bootstraps)
+    assertEquals(0, native.releases)
+    posted.removeAt(0).run()
+    assertEquals(1, native.releases)
+  }
+
+  @Test
+  fun `an unavailable binding retries only after another supported mount event`() {
+    val posted = mutableListOf<Runnable>()
+    var acquisitions = 0
+    val native = FakePublicationLease()
+    val adapter =
+      ReactNativeMountReconciliationAdapter(
+        postToUiThread = { posted.add(it) },
+        acquirePublicationSource = {
+          acquisitions++
+          if (acquisitions == 1) null else native
+        },
+      )
+    val boundary = FakeMountCallbacks(true)
+    val observation = adapter.observe(boundary) {}
+    posted.removeAt(0).run()
+    assertEquals(1, acquisitions)
+    assertEquals(0, posted.size)
+    boundary.listener?.didMountItems(FakeUIManager)
+    posted.removeAt(0).run()
+    assertEquals(2, acquisitions)
+    assertEquals(1, native.bootstraps)
+    observation.remove()
+    posted.removeAt(0).run()
+  }
+
+  @Test
+  fun `a bootstrap mount callback reconciles once without acquiring another source`() {
+    val posted = mutableListOf<Runnable>()
+    val boundary = FakeMountCallbacks(true)
+    var acquisitions = 0
+    var reconciliations = 0
+    val native = FakePublicationLease { boundary.listener?.didMountItems(FakeUIManager) }
+    val adapter =
+      ReactNativeMountReconciliationAdapter(
+        postToUiThread = { posted.add(it) },
+        acquirePublicationSource = {
+          acquisitions++
+          native
+        },
+      )
+    val observation = adapter.observe(boundary) { reconciliations++ }
+    posted.removeAt(0).run()
+    posted.removeAt(0).run()
+    assertEquals(1, acquisitions)
+    assertEquals(1, reconciliations)
+    observation.remove()
+    posted.removeAt(0).run()
+  }
+
+  private class FakePublicationLease(private val onBootstrap: () -> Unit = {}) :
+    FabricPublicationLease {
+    var bootstraps = 0
+    var releases = 0
+
+    override fun bootstrap() {
+      bootstraps++
+      onBootstrap()
+    }
+
+    override fun release() {
+      releases++
     }
   }
 

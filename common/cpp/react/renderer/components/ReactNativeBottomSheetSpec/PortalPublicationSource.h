@@ -19,6 +19,9 @@ class PortalPublicationSource final : private UIManagerCommitHook {
   explicit PortalPublicationSource(const std::shared_ptr<UIManager>& manager);
   ~PortalPublicationSource() override;
 
+  // Called outside a mounting stack, after installing the source.
+  void bootstrap();
+
   RootShadowNode::Shared rootForState(
       SurfaceId surface, Tag tag, const State::Shared& state) const;
 

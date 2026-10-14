@@ -32,7 +32,9 @@ internal class ReactNativeMountReconciliationAdapter(
   private val postToUiThread: (Runnable) -> Unit = {
     Handler(Looper.getMainLooper()).post(it)
     Unit
-  }
+  },
+  private val acquirePublicationSource: (Any) -> FabricPublicationLease? =
+    FabricPortalPublication::acquire,
 ) {
   internal interface Observation {
     fun remove()
@@ -41,6 +43,8 @@ internal class ReactNativeMountReconciliationAdapter(
   private inner class ManagerState(val boundary: ReactNativeMountCallbacks) {
     val callbacks = mutableListOf<() -> Unit>()
     var reconciliationPosted = false
+    var reconciliationRequested = false
+    var publicationSource: FabricPublicationLease? = null
     var active = true
     val listener =
       object : UIManagerListener {
@@ -63,12 +67,25 @@ internal class ReactNativeMountReconciliationAdapter(
       }
 
     fun scheduleReconciliation() {
+      reconciliationRequested = true
+      scheduleWork()
+    }
+
+    fun scheduleWork() {
       if (!active || reconciliationPosted) return
       reconciliationPosted = true
       postToUiThread(
         Runnable {
           reconciliationPosted = false
-          if (active) callbacks.toList().forEach { it() }
+          if (!active) return@Runnable
+          if (boundary.isFabric && publicationSource == null) {
+            publicationSource = acquirePublicationSource(boundary.identity)
+            publicationSource?.bootstrap()
+          }
+          if (active && reconciliationRequested) {
+            reconciliationRequested = false
+            callbacks.toList().forEach { it() }
+          }
         }
       )
     }
@@ -85,6 +102,7 @@ internal class ReactNativeMountReconciliationAdapter(
         ManagerState(boundary).also { boundary.addListener(it.listener) }
       }
     state.callbacks.add(reconcile)
+    if (boundary.isFabric) state.scheduleWork()
     return object : Observation {
       private var active = true
 
@@ -96,6 +114,12 @@ internal class ReactNativeMountReconciliationAdapter(
           state.active = false
           managers.remove(state.boundary.identity)
           state.boundary.removeListener(state.listener)
+          state.publicationSource?.let { source ->
+            // Native bootstrap may call back into observation removal.
+            // Reset the hybrid only after its native stack has unwound.
+            postToUiThread(Runnable { source.release() })
+          }
+          state.publicationSource = null
         }
       }
     }

@@ -23,6 +23,22 @@ PortalPublicationSource::~PortalPublicationSource() {
   if (auto manager = manager_.lock()) manager->unregisterCommitHook(*this);
 }
 
+void PortalPublicationSource::bootstrap() {
+  auto manager = manager_.lock();
+  if (!manager) return;
+  std::vector<SurfaceId> surfaces;
+  manager->getShadowTreeRegistry().enumerate([&](const ShadowTree& tree, bool&) {
+    surfaces.push_back(tree.getSurfaceId());
+  });
+  for (auto surface : surfaces) {
+    manager->getShadowTreeRegistry().visit(surface, [](const ShadowTree& tree) {
+      tree.commit([](const RootShadowNode& root) {
+        return std::static_pointer_cast<RootShadowNode>(root.ShadowNode::clone({}));
+      }, {});
+    });
+  }
+}
+
 void PortalPublicationSource::rememberFinalRoot(const RootShadowNode::Shared& root) const {
   auto index = indexPortalShadowNodes(*root);
   if (!index) return;
