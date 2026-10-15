@@ -13,12 +13,17 @@ internal enum class PortalPresentationAssignment {
   CLOSE_FALLBACK,
 }
 
-internal data class PortalRetainedPresentation(val reactRoot: ViewGroup, val anchor: View)
+internal data class PortalPresentationAnchor(val reactRoot: ViewGroup, val anchor: View)
+
+internal data class PortalAccessibilityPolicy(
+  val retainedPresentations: List<PortalPresentationAnchor>,
+  val activePresentations: List<PortalPresentationAnchor>,
+)
 
 internal fun interface PortalAccessibilityPolicyObserver {
   fun onPolicyChanged(
     windowRoot: View,
-    retainedPresentations: List<PortalRetainedPresentation>,
+    policy: PortalAccessibilityPolicy,
   )
 }
 
@@ -75,10 +80,22 @@ internal object PortalPresentationCoordinator {
     }
   }
 
-  private class AccessibilityPolicySnapshot(paths: List<List<View>>) {
-    private val paths = paths.map { path -> path.map(::WeakReference) }
+  private class AccessibilityPolicySnapshot(
+    retainedPaths: List<List<View>>,
+    activePaths: List<List<View>>,
+  ) {
+    private val retainedPaths = weakPaths(retainedPaths)
+    private val activePaths = weakPaths(activePaths)
 
-    fun matches(current: List<List<View>>): Boolean =
+    fun matches(retained: List<List<View>>, active: List<List<View>>): Boolean =
+      pathsMatch(retainedPaths, retained) && pathsMatch(activePaths, active)
+
+    private fun weakPaths(paths: List<List<View>>) = paths.map { path -> path.map(::WeakReference) }
+
+    private fun pathsMatch(
+      paths: List<List<WeakReference<View>>>,
+      current: List<List<View>>,
+    ): Boolean =
       paths.size == current.size &&
         paths.zip(current).all { (previous, next) ->
           previous.size == next.size && previous.zip(next).all { (old, new) -> old.get() === new }
@@ -87,7 +104,7 @@ internal object PortalPresentationCoordinator {
 
   private class WindowState(root: View) : ViewTreeObserver.OnPreDrawListener {
     val entries = mutableListOf<Entry>()
-    var accessibilityPolicySnapshot = AccessibilityPolicySnapshot(emptyList())
+    var accessibilityPolicySnapshot = AccessibilityPolicySnapshot(emptyList(), emptyList())
     private val root = WeakReference(root)
     private var observer: WeakReference<ViewTreeObserver>? = null
 
@@ -178,6 +195,8 @@ internal object PortalPresentationCoordinator {
         window,
         emptyList(),
         emptyList(),
+        emptyList(),
+        emptyList(),
         forceAccessibilityPolicyReconciliation,
       )
       window.stopObserving()
@@ -204,9 +223,14 @@ internal object PortalPresentationCoordinator {
       window,
       retainedEntries.zip(retainedContexts).mapNotNull { (entry, context) ->
         val anchor = entry.anchor.get() ?: return@mapNotNull null
-        PortalRetainedPresentation(context.reactRoot, anchor)
+        PortalPresentationAnchor(context.reactRoot, anchor)
       },
       retainedContexts.map(PortalPresentationContext::path),
+      contexts.mapNotNull { (entry, context) ->
+        val anchor = entry.anchor.get() ?: return@mapNotNull null
+        PortalPresentationAnchor(context.reactRoot, anchor)
+      },
+      contexts.values.map(PortalPresentationContext::path),
       forceAccessibilityPolicyReconciliation,
     )
   }
@@ -214,14 +238,19 @@ internal object PortalPresentationCoordinator {
   private fun publishAccessibilityPolicy(
     root: View,
     window: WindowState,
-    retainedPresentations: List<PortalRetainedPresentation>,
+    retainedPresentations: List<PortalPresentationAnchor>,
     retainedPaths: List<List<View>>,
+    activePresentations: List<PortalPresentationAnchor>,
+    activePaths: List<List<View>>,
     force: Boolean,
   ) {
-    if (!force && window.accessibilityPolicySnapshot.matches(retainedPaths)) return
-    window.accessibilityPolicySnapshot = AccessibilityPolicySnapshot(retainedPaths)
+    if (!force && window.accessibilityPolicySnapshot.matches(retainedPaths, activePaths)) return
+    window.accessibilityPolicySnapshot = AccessibilityPolicySnapshot(retainedPaths, activePaths)
     accessibilityPolicyObservers.toList().forEach {
-      it.onPolicyChanged(root, retainedPresentations)
+      it.onPolicyChanged(
+        root,
+        PortalAccessibilityPolicy(retainedPresentations, activePresentations),
+      )
     }
   }
 }

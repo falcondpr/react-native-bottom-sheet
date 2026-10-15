@@ -3,8 +3,8 @@ package com.swmansion.reactnativebottomsheet.accessibility
 import android.view.View
 import android.view.ViewGroup
 import androidx.annotation.UiThread
+import com.swmansion.reactnativebottomsheet.presentation.PortalAccessibilityPolicy
 import com.swmansion.reactnativebottomsheet.presentation.PortalPresentationCoordinator
-import com.swmansion.reactnativebottomsheet.presentation.PortalRetainedPresentation
 import java.lang.ref.WeakReference
 import java.util.IdentityHashMap
 import java.util.WeakHashMap
@@ -22,25 +22,27 @@ internal object PortalAccessibilityIsolationCoordinator {
     private val mountCallbacks = WeakHashMap<ViewGroup, MountReconciliationCallback>()
 
     fun reconcile(
-      retainedPresentations: List<PortalRetainedPresentation>,
+      policy: PortalAccessibilityPolicy,
       isCurrent: () -> Boolean,
     ) {
+      if (!isCurrent()) return
       val retainedByRoot = IdentityHashMap<ViewGroup, MutableList<View>>()
-      retainedPresentations.forEach { retained ->
+      policy.retainedPresentations.forEach { retained ->
         retainedByRoot.getOrPut(retained.reactRoot) { mutableListOf() }.add(retained.anchor)
       }
       // The authority still supplies legacy RN-root scopes until Android P1 is
       // resolved. This consumer accepts boundaries without inferring their size.
       val scopes = retainedByRoot.map { (root, anchors) -> PortalAccessibilityScope(root, anchors) }
-      if (!reconciler.reconcile(scopes, isCurrent)) return
+      val activeRoots = policy.activePresentations.map { it.reactRoot }.toSet()
       mountCallbacks.keys
         .toList()
-        .filter { !retainedByRoot.containsKey(it) }
+        .filter { it !in activeRoots }
         .forEach {
           mountCallbacks.remove(it)?.remove()
         }
-      val windowRoot = windowRoot.get() ?: return
-      retainedByRoot.keys.forEach { root ->
+      val windowRoot = windowRoot.get()
+      activeRoots.forEach { root ->
+        if (windowRoot == null) return@forEach
         if (mountCallbacks.containsKey(root)) return@forEach
         val callbacks = ReactNativeMountReconciliationAdapter.resolve(root) ?: return@forEach
         val callback = MountReconciliationCallback(windowRoot, root)
@@ -48,6 +50,7 @@ internal object PortalAccessibilityIsolationCoordinator {
           ReactNativeMountReconciliationAdapter.shared.observe(callbacks, callback)
         mountCallbacks[root] = callback
       }
+      reconciler.reconcile(scopes, isCurrent)
     }
   }
 
@@ -79,7 +82,7 @@ internal object PortalAccessibilityIsolationCoordinator {
 
   private val windows = WeakHashMap<View, WindowState>()
   // Only queued during synchronous reconciliation; no Active/order state is retained.
-  private val pendingPolicies = IdentityHashMap<View, List<PortalRetainedPresentation>>()
+  private val pendingPolicies = IdentityHashMap<View, PortalAccessibilityPolicy>()
   private var reconciling = false
   private var leaseCount = 0
   private var policyObservation: PortalPresentationCoordinator.PolicyObservation? = null
@@ -102,7 +105,7 @@ internal object PortalAccessibilityIsolationCoordinator {
           policyObservation = null
           for (root in windows.keys.toList()) {
             if (leaseCount != 0) break
-            onPolicyChanged(root, emptyList())
+            onPolicyChanged(root, PortalAccessibilityPolicy(emptyList(), emptyList()))
           }
         }
       }
@@ -111,18 +114,23 @@ internal object PortalAccessibilityIsolationCoordinator {
 
   private fun onPolicyChanged(
     windowRoot: View,
-    retainedPresentations: List<PortalRetainedPresentation>,
+    policy: PortalAccessibilityPolicy,
   ) {
-    pendingPolicies[windowRoot] = retainedPresentations.toList()
+    pendingPolicies[windowRoot] =
+      policy.copy(
+        retainedPresentations = policy.retainedPresentations.toList(),
+        activePresentations = policy.activePresentations.toList(),
+      )
     if (reconciling) return
     reconciling = true
     try {
       while (pendingPolicies.isNotEmpty()) {
-        val (root, retained) = pendingPolicies.entries.first().let { it.key to it.value }
+        val (root, currentPolicy) = pendingPolicies.entries.first().let { it.key to it.value }
         pendingPolicies.remove(root)
         val state = windows.getOrPut(root) { WindowState(root) }
-        state.reconcile(retained) { !pendingPolicies.containsKey(root) }
-        if (retained.isEmpty() && !pendingPolicies.containsKey(root)) windows.remove(root)
+        state.reconcile(currentPolicy) { !pendingPolicies.containsKey(root) }
+        if (currentPolicy.activePresentations.isEmpty() && !pendingPolicies.containsKey(root))
+          windows.remove(root)
       }
     } finally {
       reconciling = false
