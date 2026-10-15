@@ -269,6 +269,12 @@ class ReactNativeMountReconciliationAdapterTest {
       onBootstrap()
     }
 
+    override fun sheetTags(
+      surfaceId: Int,
+      tag: Int,
+      state: com.facebook.react.uimanager.StateWrapper?,
+    ): IntArray? = null
+
     override fun receipt(
       surfaceId: Int,
       tag: Int,

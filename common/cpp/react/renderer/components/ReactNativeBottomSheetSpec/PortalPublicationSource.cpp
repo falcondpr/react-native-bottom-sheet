@@ -126,6 +126,19 @@ RootShadowNode::Shared PortalPublicationSource::rootForState(
   return result;
 }
 
+std::optional<std::vector<Tag>> PortalPublicationSource::sheetTagsForState(
+    SurfaceId surface, Tag tag, const State::Shared& state) const {
+  auto root = rootForState(surface, tag, state);
+  if (!root) return std::nullopt;
+  auto nodes = indexPortalShadowNodes(*root);
+  if (!nodes) return std::nullopt;
+  std::vector<Tag> tags;
+  for (const auto& [nodeTag, node] : *nodes) {
+    if (dynamic_cast<const BottomSheetViewShadowNode*>(node)) tags.push_back(nodeTag);
+  }
+  return tags;
+}
+
 RootShadowNode::Shared PortalPublicationSource::rootForStates(
     SurfaceId surface, const std::map<Tag, State::Shared>& states) const {
   RootShadowNode::Shared result;

@@ -38,6 +38,7 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
     registerHybrid({
         makeNativeMethod("initHybrid", FabricPortalPublication::initHybrid),
         makeNativeMethod("bootstrapNative", FabricPortalPublication::bootstrapNative),
+        makeNativeMethod("sheetTagsNative", FabricPortalPublication::sheetTagsNative),
         makeNativeMethod("receiptNative", FabricPortalPublication::receiptNative),
     });
   }
@@ -70,6 +71,15 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
     }
     // The delivered State must not be replaced by the family's newest State.
     return wrapper->getState();
+  }
+
+  jni::local_ref<jintArray> sheetTagsNative(
+      jint surface, jint tag, jni::alias_ref<StateWrapper::javaobject> object) {
+    auto tags = source_.sheetTagsForState(surface, tag, deliveredState(object));
+    if (!tags) return nullptr;
+    auto result = jni::JArrayInt::newArray(tags->size());
+    result->setRegion(0, tags->size(), tags->data());
+    return result;
   }
 
   jni::local_ref<JFabricPortalReceipt> receiptNative(

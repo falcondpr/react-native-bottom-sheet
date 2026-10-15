@@ -21,6 +21,9 @@ private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
     if (active) bootstrapNative()
   }
 
+  override fun sheetTags(surfaceId: Int, tag: Int, state: StateWrapper?): IntArray? =
+    if (active) sheetTagsNative(surfaceId, tag, state) else null
+
   override fun receipt(
     surfaceId: Int,
     tag: Int,
@@ -43,6 +46,9 @@ private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
   }
 
   @DoNotStrip private external fun bootstrapNative()
+
+  @DoNotStrip
+  private external fun sheetTagsNative(surfaceId: Int, tag: Int, state: StateWrapper?): IntArray?
 
   @DoNotStrip
   private external fun receiptNative(

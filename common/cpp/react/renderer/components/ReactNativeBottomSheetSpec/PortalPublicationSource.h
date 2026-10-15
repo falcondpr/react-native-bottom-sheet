@@ -33,6 +33,10 @@ class PortalPublicationSource final : private UIManagerCommitHook {
   RootShadowNode::Shared rootForState(
       SurfaceId surface, Tag tag, const State::Shared& state) const;
 
+  // Source inventory, including inactive/nonportal sheets; not native membership.
+  std::optional<std::vector<Tag>> sheetTagsForState(
+      SurfaceId surface, Tag tag, const State::Shared& state) const;
+
   // Complete source agreement, before native attachment/registry validation.
   RootShadowNode::Shared rootForStates(
       SurfaceId surface, const std::map<Tag, State::Shared>& states) const;

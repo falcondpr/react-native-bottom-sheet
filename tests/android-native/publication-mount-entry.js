@@ -4,8 +4,7 @@ import NativeSheet from '../../src/BottomSheetNativeComponent';
 import { renderPortalHost } from '../../src/PortalHost';
 
 function MountedPublication() {
-  const sheet = React.createElement(NativeSheet, {
-    testID: 'mounted-sheet',
+  const sheetProps = {
     style: { flex: 1 },
     detents: [
       { value: 0, kind: 'points', programmatic: false },
@@ -17,15 +16,29 @@ function MountedPublication() {
     hasCloseRequestHandler: false,
     scrollableExpandNegotiation: 0,
     scrollableCollapseNegotiation: 0,
+  };
+  const sheet = React.createElement(NativeSheet, {
+    ...sheetProps,
+    testID: 'mounted-sheet',
   });
   return React.createElement(
     View,
-    {
-      testID: 'local-area',
-      collapsable: false,
-      style: { width: 320, height: 640, position: 'relative' },
-    },
-    renderPortalHost([['one', sheet]])
+    { collapsable: false, style: { width: 640, height: 640 } },
+    React.createElement(
+      View,
+      {
+        testID: 'local-area',
+        collapsable: false,
+        style: { width: 320, height: 640, position: 'relative' },
+      },
+      renderPortalHost([['one', sheet]])
+    ),
+    React.createElement(NativeSheet, {
+      ...sheetProps,
+      testID: 'inactive-nonportal-sheet',
+      index: 0,
+      modal: false,
+    })
   );
 }
 

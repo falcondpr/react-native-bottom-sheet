@@ -414,6 +414,11 @@ int main() {
     auto a = delivered(mount, 14);
     auto b = delivered(mount, 24);
     auto nonportal = delivered(mount, 34);
+    expect("one exact delivered State discovers all source sheets including nonportal sheets",
+           f.source->sheetTagsForState(1, 14, a) == std::vector<Tag>{14, 24, 34} &&
+           !f.source->sheetTagsForState(2, 14, a) &&
+           !f.source->sheetTagsForState(1, 99, a) &&
+           !f.source->sheetTagsForState(1, 14, nullptr));
     expect("complete source agreement includes nonportal sheets and rejects missing or excess entries",
            f.source->rootForStates(1, {{14, a}, {24, b}, {34, nonportal}}) ==
                tree.getCurrentRevision().rootShadowNode &&

@@ -80,7 +80,9 @@ class FabricPortalPublicationMountJniTest {
           if (awaitedPublication.count == 0L) return@verify
           try {
             val views = descendants(root)
-            val sheet = views.filterIsInstance<BottomSheetView>().singleOrNull() ?: return@verify
+            val sheets = views.filterIsInstance<BottomSheetView>()
+            if (sheets.size != 2) return@verify
+            val sheet = sheets.single { it.tag == "mounted-sheet" }
             val area = views.single { it.tag == "local-area" }
             val portalHost = views.single {
               it.getTag(com.facebook.react.R.id.view_tag_native_id) ==
@@ -94,8 +96,7 @@ class FabricPortalPublicationMountJniTest {
             deliveredState = requireNotNull(sheet.stateWrapper)
             sheetTag = sheet.id
             val receipt =
-              requireNotNull(lease)
-                .receipt(surface.surfaceID, sheetTag, mapOf(sheetTag to deliveredState))
+              requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet)
                 ?: return@verify
             assertTrue(receipt.publicationId.isNotEmpty())
             assertEquals(portalHost.id, receipt.hostTag)
@@ -125,7 +126,7 @@ class FabricPortalPublicationMountJniTest {
       }
       onMain {
         // The queued release ran first. Keep the mounted surface and its JS tree unchanged.
-        assertNull(firstSource.receipt(surface.surfaceID, sheetTag, mapOf(sheetTag to firstState)))
+        assertNull(firstSource.sheetTags(surface.surfaceID, sheetTag, firstState))
         awaitedPublication = refreshed
         observation =
           adapter.observe(
@@ -135,9 +136,7 @@ class FabricPortalPublicationMountJniTest {
       }
       onMain {
         assertNotSame(firstSource, lease)
-        assertNull(
-          requireNotNull(lease).receipt(surface.surfaceID, sheetTag, mapOf(sheetTag to firstState))
-        )
+        assertNull(requireNotNull(lease).sheetTags(surface.surfaceID, sheetTag, firstState))
       }
       assertTrue(
         "Reobserved mounted State delivery timed out",
@@ -145,13 +144,46 @@ class FabricPortalPublicationMountJniTest {
       )
       failure.get()?.let { throw it }
       assertNotEquals(firstPublicationId, publicationId)
+      onMain {
+        val manager =
+          requireNotNull(ReactNativeMountReconciliationAdapter.resolve(root)).identity
+            as FabricUIManager
+        val sheet = requireNotNull(mountedSheet)
+        val inactive =
+          descendants(root).filterIsInstance<BottomSheetView>().single {
+            it.tag == "inactive-nonportal-sheet"
+          }
+        val state = requireNotNull(inactive.stateWrapper)
+        inactive.stateWrapper = null
+        try {
+          assertNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
+        } finally {
+          inactive.stateWrapper = state
+        }
+        val parent = inactive.parent as ViewGroup
+        val index = parent.indexOfChild(inactive)
+        parent.removeView(inactive)
+        try {
+          assertSame(inactive, manager.resolveView(inactive.id))
+          assertNotNull(
+            requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet)
+          )
+        } finally {
+          parent.addView(inactive, index)
+        }
+      }
+      var stoppedStates = emptyMap<Int, StateWrapper?>()
+      onMain {
+        stoppedStates =
+          descendants(root).filterIsInstance<BottomSheetView>().associate {
+            it.id to it.stateWrapper
+          }
+        assertNotNull(requireNotNull(lease).receipt(surface.surfaceID, sheetTag, stoppedStates))
+      }
       await(surface.stop())
       started = false
       onMain {
-        assertNull(
-          requireNotNull(lease)
-            .receipt(surface.surfaceID, sheetTag, mapOf(sheetTag to deliveredState))
-        )
+        assertNull(requireNotNull(lease).receipt(surface.surfaceID, sheetTag, stoppedStates))
       }
     } finally {
       try {
