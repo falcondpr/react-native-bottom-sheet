@@ -2,8 +2,8 @@
 """Build/run non-UI JNI tests in the existing library instrumentation APK.
 
 Fixture mode reuses SDK/CMake flags and production objects with a test-only
-native factory. Installation mode loads the actual production library through
-a live ReactHost, in a separate test process. Production files stay unchanged.
+native factory. Installation and mount modes load the actual production library
+through a live ReactHost, in separate processes. Production files stay unchanged.
 """
 import argparse
 import json
@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / 'android/build/publication-jni'
 TEST_CLASS = 'com.swmansion.reactnativebottomsheet.accessibility.FabricPortalPublicationJniTest'
 INSTALL_TEST_CLASS = 'com.swmansion.reactnativebottomsheet.accessibility.FabricPortalPublicationInstallJniTest'
+MOUNT_TEST_CLASS = 'com.swmansion.reactnativebottomsheet.accessibility.FabricPortalPublicationMountJniTest'
 ABIS = ('arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64')
 
 
@@ -52,7 +53,7 @@ def physical_device():
     os.environ['ANDROID_SERIAL'] = selected
 
 
-def build_native(abi, installation=False):
+def build_native(abi, installation=False, mount=False):
     databases = sorted((ROOT / 'example/android/app/.cxx/Debug').glob(
         f'*/{abi}/compile_commands.json'), key=lambda path: path.stat().st_mtime, reverse=True)
     item = None
@@ -68,11 +69,21 @@ def build_native(abi, installation=False):
     ninja = re.search(r'^CMAKE_MAKE_PROGRAM:[^=]+=(.+)$', cache, re.MULTILINE)[1]
     target = re.search(r'^build (.+): CXX_SHARED_LIBRARY_LINKER__react_codegen_ReactNativeBottomSheetSpec_',
                        (directory / 'build.ninja').read_text(), re.MULTILINE)[1]
-    if installation:
+    if installation or mount:
         # This process loads the production JNI library, never the fixture's copy.
-        library = OUTPUT / 'production-libs' / abi / Path(target).name
-        library.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(target, library)
+        folder = OUTPUT / ('mount-libs' if mount else 'production-libs') / abi
+        folder.mkdir(parents=True, exist_ok=True)
+        libraries = [Path(target)]
+        if mount:
+            # The app's real entry point registers its codegen descriptors.
+            app_modules = Path(target).parent / 'libappmodules.so'
+            if not app_modules.is_file():
+                sys.exit(f'Missing app component registration for {abi}.')
+            libraries = [app_modules, *Path(target).parent.glob('libreact_codegen_*.so')]
+            for old in folder.glob('*.so'):
+                old.unlink()
+        for library in libraries:
+            shutil.copy2(library, folder / library.name)
         print(f'Production JNI packaged: {abi}', flush=True)
         return
     command = shlex.split(item['command'])
@@ -106,23 +117,31 @@ def build_native(abi, installation=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--assemble', action='store_true', help='Build only; no device is needed.')
-    parser.add_argument('--installation', action='store_true',
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--installation', action='store_true',
                         help='Test acquisition through a live ReactHost in a separate process.')
+    mode.add_argument('--mount', action='store_true',
+                      help='Test production State delivery through an unattached ReactSurface.')
     args = parser.parse_args()
-    test_class = INSTALL_TEST_CLASS if args.installation else TEST_CLASS
-    expected_tests = 1 if args.installation else 2
+    test_class = MOUNT_TEST_CLASS if args.mount else INSTALL_TEST_CLASS if args.installation else TEST_CLASS
+    expected_tests = 1 if args.installation or args.mount else 2
     if not args.assemble:
         physical_device()
+    if args.mount:
+        run(['node', str(ROOT / 'scripts/build-android-publication-mount.js')])
     gradle = [str(ROOT / 'example/android/gradlew'), '--project-dir', str(ROOT / 'example/android'),
               '--no-daemon', '--console=plain', '-PreactNativeArchitectures=' + ','.join(ABIS)]
     run(gradle + [':app:assembleDebug'])
     for abi in ABIS:
-        build_native(abi, args.installation)
+        build_native(abi, args.installation, args.mount)
     task = 'assembleDebugAndroidTest' if args.assemble else 'connectedDebugAndroidTest'
     started = time.time()
     if args.installation:
         gradle += ['-PbottomSheetPublicationInstallJni=true',
                    '-Pandroid.testInstrumentationRunnerArguments.bottomSheetPublicationInstallJni=true']
+    if args.mount:
+        gradle += ['-PbottomSheetPublicationMountJni=true',
+                   '-Pandroid.testInstrumentationRunnerArguments.bottomSheetPublicationMountJni=true']
     run(gradle + ['--init-script', str(ROOT / 'tests/android-native/publication-jni.gradle'),
                  '-Pandroid.testInstrumentationRunnerArguments.class=' + test_class,
                  '-Pandroid.testInstrumentationRunnerArguments.bottomSheetPublicationJni=true',

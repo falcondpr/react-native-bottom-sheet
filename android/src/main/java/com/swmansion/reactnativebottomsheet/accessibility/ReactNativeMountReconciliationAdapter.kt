@@ -6,6 +6,7 @@ package com.swmansion.reactnativebottomsheet.accessibility
 import android.os.Handler
 import android.os.Looper
 import android.view.ViewGroup
+import com.facebook.react.ReactRootView
 import com.facebook.react.bridge.UIManager
 import com.facebook.react.bridge.UIManagerListener
 import com.facebook.react.uimanager.ReactRoot
@@ -130,7 +131,9 @@ internal class ReactNativeMountReconciliationAdapter(
 
     fun resolve(root: ViewGroup): ReactNativeMountCallbacks? {
       val reactContext =
-        runCatching { UIManagerHelper.getReactContext(root) }.getOrNull() ?: return null
+        (root as? ReactRootView)?.currentReactContext
+          ?: runCatching { UIManagerHelper.getReactContext(root) }.getOrNull()
+          ?: return null
       val managerType = (root as? ReactRoot)?.getUIManagerType() ?: ViewUtil.getUIManagerType(root)
       val manager = UIManagerHelper.getUIManager(reactContext, managerType) ?: return null
       if (managerType != UIManagerType.FABRIC && manager !is UIManagerModule) return null

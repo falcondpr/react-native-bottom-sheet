@@ -4,7 +4,6 @@ package com.swmansion.reactnativebottomsheet.accessibility
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.facebook.react.ReactRootView
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint
 import com.facebook.react.defaults.DefaultReactHost
 import com.facebook.react.fabric.FabricUIManager
@@ -65,9 +64,9 @@ class FabricPortalPublicationInstallJniTest {
     try {
       await(host.start())
       onMain {
-        // This root stays unattached: no Surface, Activity or displayed UI is created.
-        val root =
-          ReactRootView(requireNotNull(host.currentReactContext)).apply { setIsFabric(true) }
+        // The SDK root keeps the Android host Context, not a ReactContext.
+        // Its Surface stays stopped and unattached; no Activity or UI is displayed.
+        val root = requireNotNull(host.createSurface(context, "Unstarted", null).view)
         val boundary = requireNotNull(ReactNativeMountReconciliationAdapter.resolve(root))
         manager = boundary.identity as FabricUIManager
         assertTrue(boundary.isFabric)

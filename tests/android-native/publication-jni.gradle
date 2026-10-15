@@ -2,10 +2,15 @@
 gradle.beforeProject { project ->
   if (project.path == ':swmansion_react-native-bottom-sheet') {
     project.pluginManager.withPlugin('com.android.library') {
-      def nativeFolder = project.findProperty('bottomSheetPublicationInstallJni') == 'true'
+      def mount = project.findProperty('bottomSheetPublicationMountJni') == 'true'
+      def nativeFolder = mount ? 'mount-libs' : project.findProperty('bottomSheetPublicationInstallJni') == 'true'
           ? 'production-libs' : 'libs'
       project.android.sourceSets.androidTest.jniLibs.srcDir(
           new File(project.projectDir, 'build/publication-jni/' + nativeFolder))
+      if (mount) {
+        project.android.sourceSets.androidTest.assets.srcDir(
+            new File(project.projectDir, 'build/publication-jni/mount-assets'))
+      }
     }
   }
 }
