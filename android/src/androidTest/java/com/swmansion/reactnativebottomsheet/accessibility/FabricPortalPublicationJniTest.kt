@@ -23,9 +23,9 @@ class FabricPortalPublicationJniTest {
     FabricPublicationJniFixture.create().use { fixture ->
       val lease = fixture.lease()
       try {
-        assertNull(fixture.takeDeliveredState())
+        assertNull(fixture.takeDeliveredPublicationState())
         lease.bootstrap()
-        val state = requireNotNull(fixture.takeDeliveredState())
+        val state = requireNotNull(fixture.takeDeliveredPublicationState())
         try {
           val receipt = requireNotNull(lease.receipt(1, 14, state))
           assertTrue(receipt.publicationId.isNotEmpty())
@@ -38,8 +38,8 @@ class FabricPortalPublicationJniTest {
           lease.release()
           lease.release()
           lease.bootstrap()
-          fixture.moveHost(31)
-          assertNull(fixture.takeDeliveredState())
+          fixture.makeWrapperContainingBlock()
+          assertNull(fixture.takeDeliveredPublicationState())
           assertNull(lease.receipt(1, 14, state))
         } finally {
           state.destroyState()
@@ -58,14 +58,18 @@ class FabricPortalPublicationJniTest {
       var current: StateWrapper? = null
       try {
         lease.bootstrap()
-        delayed = requireNotNull(fixture.takeDeliveredState())
-        fixture.moveHost(31)
-        current = requireNotNull(fixture.takeDeliveredState())
+        delayed = requireNotNull(fixture.takeDeliveredPublicationState())
+        fixture.makeWrapperContainingBlock()
+        current = requireNotNull(fixture.takeDeliveredPublicationState())
+        assertTrue(
+          "The delayed wrapper must have a newer State in the same family",
+          fixture.hasNewerStateInSameFamily(delayed, current),
+        )
         val oldReceipt = requireNotNull(lease.receipt(1, 14, delayed))
         val newReceipt = requireNotNull(lease.receipt(1, 14, current))
-        assertNotEquals(oldReceipt.publicationId, newReceipt.publicationId)
         assertEquals(listOf(11), oldReceipt.contexts)
         assertEquals(listOf(31), newReceipt.contexts)
+        assertNotEquals(oldReceipt.publicationId, newReceipt.publicationId)
         lease.release()
         assertNull(lease.receipt(1, 14, current))
       } finally {
@@ -104,11 +108,13 @@ class FabricPortalPublicationJniTest {
 
 internal class FabricPublicationJniFixture
 private constructor(private val mHybridData: HybridData) : AutoCloseable {
-  external fun lease(): FabricPublicationLease
+  external fun lease(): FabricPortalPublication
 
-  external fun takeDeliveredState(): StateWrapper?
+  external fun takeDeliveredPublicationState(): StateWrapper?
 
-  external fun moveHost(context: Int)
+  external fun makeWrapperContainingBlock()
+
+  external fun hasNewerStateInSameFamily(delivered: StateWrapper, current: StateWrapper): Boolean
 
   override fun close() = mHybridData.resetNative()
 

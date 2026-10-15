@@ -21,8 +21,12 @@ class FabricPublicationJniFixture final : public jni::HybridClass<FabricPublicat
         LayoutContext{}, *manager_, *context_);
     tree_ = tree.get();
     manager_->getShadowTreeRegistry().add(std::move(tree));
-    host_ = make(13, "absolute", {make(14, "relative", {}, true)}, false, true);
-    commit(11);
+    auto host = make(13, "absolute", {make(14, "relative", {}, true)}, false, true);
+    auto area = make(11, "relative", {make(31, "static", {host})});
+    commit([&](const RootShadowNode& root) {
+      return std::static_pointer_cast<RootShadowNode>(root.ShadowNode::clone(
+          {.children = std::make_shared<const Children>(Children{area})}));
+    });
     tree_->getMountingCoordinator()->pullTransaction(true);
   }
 
@@ -33,8 +37,12 @@ class FabricPublicationJniFixture final : public jni::HybridClass<FabricPublicat
   static void registerNatives() {
     registerHybrid({
         makeNativeMethod("lease", FabricPublicationJniFixture::lease),
-        makeNativeMethod("takeDeliveredState", FabricPublicationJniFixture::takeDeliveredState),
-        makeNativeMethod("moveHost", FabricPublicationJniFixture::moveHost),
+        makeNativeMethod(
+            "takeDeliveredPublicationState", FabricPublicationJniFixture::takeDeliveredPublicationState),
+        makeNativeMethod(
+            "makeWrapperContainingBlock", FabricPublicationJniFixture::makeWrapperContainingBlock),
+        makeNativeMethod(
+            "hasNewerStateInSameFamily", FabricPublicationJniFixture::hasNewerStateInSameFamily),
     });
   }
 
@@ -53,12 +61,8 @@ class FabricPublicationJniFixture final : public jni::HybridClass<FabricPublicat
         .state = descriptor.createInitialState(props, family)}, family);
   }
 
-  void commit(Tag context) {
-    auto area = make(context, "relative", {host_});
-    auto status = tree_->commit([&](const RootShadowNode& root) {
-      return std::static_pointer_cast<RootShadowNode>(root.ShadowNode::clone(
-          {.children = std::make_shared<const Children>(Children{area})}));
-    }, {});
+  void commit(const ShadowTreeCommitTransaction& transaction) {
+    auto status = tree_->commit(transaction, {});
     if (status != ShadowTreeCommitStatus::Succeeded) {
       throw std::runtime_error("Fixture commit failed");
     }
@@ -68,24 +72,41 @@ class FabricPublicationJniFixture final : public jni::HybridClass<FabricPublicat
     return bottomsheet::FabricPortalPublication::newObjectCxxArgs(manager_);
   }
 
-  jni::local_ref<StateWrapperImpl::jhybridobject> takeDeliveredState() {
+  jni::local_ref<StateWrapper::jhybridobject> takeDeliveredPublicationState() {
     auto transaction = tree_->getMountingCoordinator()->pullTransaction(true);
     if (!transaction) return nullptr;
     for (const auto& mutation : transaction->getMutations()) {
       const auto& child = mutation.newChildShadowView;
-      if (child.tag == 14 && child.state) {
+      const auto* state =
+          dynamic_cast<const BottomSheetViewShadowNode::ConcreteState*>(child.state.get());
+      if (child.tag == 14 && state && !state->getData().portalPublicationId.empty()) {
         // Same SDK construction and State assignment as FabricMountingManager.
         auto wrapper = StateWrapperImpl::newObjectJavaArgs();
         wrapper->cthis()->setState(child.state);
-        return wrapper;
+        return jni::static_ref_cast<StateWrapper::jhybridobject>(wrapper);
       }
     }
     return nullptr;
   }
 
-  void moveHost(jint context) {
-    host_ = tree_->getCurrentRevision().rootShadowNode->getChildren().at(0)->getChildren().at(0);
-    commit(context);
+  void makeWrapperContainingBlock() {
+    commit([&](const RootShadowNode& root) {
+      const auto& wrapper = *bottomsheet::indexPortalShadowNodes(root)->at(31);
+      auto props = views_.cloneProps(PropsParserContext(1, *context_), wrapper.getProps(),
+          RawProps(folly::dynamic::object("position", "relative")));
+      return std::static_pointer_cast<RootShadowNode>(root.cloneTree(wrapper.getFamily(),
+          [&](const ShadowNode& node) { return node.clone({.props = props}); }));
+    });
+  }
+
+  jboolean hasNewerStateInSameFamily(
+      jni::alias_ref<StateWrapper::javaobject> delivered,
+      jni::alias_ref<StateWrapper::javaobject> current) {
+    auto oldState =
+        jni::static_ref_cast<StateWrapperImpl::jhybridobject>(delivered)->cthis()->getState();
+    auto newState =
+        jni::static_ref_cast<StateWrapperImpl::jhybridobject>(current)->cthis()->getState();
+    return oldState && newState && oldState != newState && oldState->getMostRecentState() == newState;
   }
 
   std::shared_ptr<ContextContainer> context_ = std::make_shared<ContextContainer>();
@@ -93,7 +114,6 @@ class FabricPublicationJniFixture final : public jni::HybridClass<FabricPublicat
   ViewComponentDescriptor views_{{.eventDispatcher = {}, .contextContainer = context_, .flavor = nullptr}};
   BottomSheetViewComponentDescriptor sheets_{{.eventDispatcher = {}, .contextContainer = context_, .flavor = nullptr}};
   ShadowTree* tree_ = nullptr;
-  std::shared_ptr<const ShadowNode> host_;
 };
 } // namespace
 
