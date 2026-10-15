@@ -16,7 +16,7 @@ struct PortalSourceReceipt {
   std::string publicationId;
   Tag host;
   std::vector<Tag> contexts;
-  // Presentation first; ends at its nearest ModalHostView or the source root.
+  // Presentation first; ends at its nearest native presentation root or source root.
   std::vector<Tag> ancestors;
   // Expected structure from RN's own Differentiator, not applied membership.
   std::vector<Tag> logicalTags;

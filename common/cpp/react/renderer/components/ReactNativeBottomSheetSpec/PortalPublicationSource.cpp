@@ -180,7 +180,7 @@ std::optional<PortalSourceReceipt> PortalPublicationSource::receiptForState(
   for (auto it = path.rbegin(); it != path.rend(); ++it) {
     const auto& ancestor = it->first.get();
     ancestors.push_back(ancestor.getTag());
-    if (isPortalModalHost(ancestor)) break;
+    if (isPortalNativePresentationRoot(ancestor)) break;
   }
   std::vector<Tag> logicalTags;
   for (const auto& [nodeTag, node] : graph->nodes) logicalTags.push_back(nodeTag);

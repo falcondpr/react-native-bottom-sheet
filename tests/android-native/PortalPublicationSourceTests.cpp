@@ -458,6 +458,58 @@ int main() {
            receipt->ancestors == std::vector<Tag>{14, 13, 11, 30});
   }
 
+  {
+    Fixture f;
+    auto& tree = f.tree();
+    auto area = f.make(11, false, "relative", {
+        f.make(13, true, "absolute", {f.make(14, true, "relative", {}, true)}, false, true)});
+    auto overlay = f.make(24, true, "relative", {area}, true);
+    auto overlayProps = f.sheets.cloneProps(PropsParserContext(1, *f.context), overlay->getProps(),
+        RawProps(folly::dynamic::object("nativeOverlay", true)));
+    overlay = overlay->clone({.props = overlayProps});
+    auto outsideHost = f.make(7, true, "absolute", {f.make(8, true, "relative", {}, true)}, false, true);
+    auto firstMount = f.commit(tree, {f.make(5, false, "relative", {outsideHost, overlay})});
+    auto firstState = delivered(firstMount, 14);
+    auto inlineProps = f.sheets.cloneProps(PropsParserContext(1, *f.context), overlayProps,
+        RawProps(folly::dynamic::object("nativeOverlay", false)));
+    auto secondMount = f.commit(tree, tree.getCurrentRevision().rootShadowNode->cloneTree(
+        overlay->getFamily(), [&](const ShadowNode& node) { return node.clone({.props = inlineProps}); })->getChildren());
+    auto oldReceipt = f.source->receiptForState(1, 14, firstState);
+    auto currentReceipt = f.source->receiptForState(1, 14, delivered(secondMount, 14));
+    expect("nativeOverlay ancestry and local nesting follow its native root across a return to inline",
+           overlay->getTraits().check(ShadowNodeTraits::Trait::RootNodeKind) &&
+           oldReceipt && oldReceipt->contexts == std::vector<Tag>{11} &&
+           oldReceipt->ancestors == std::vector<Tag>{14, 13, 11, 24} &&
+           currentReceipt && currentReceipt->contexts == std::vector<Tag>{11, 5} &&
+           currentReceipt->ancestors == std::vector<Tag>{14, 13, 11, 24, 5, 1});
+  }
+
+  {
+    Fixture f;
+    auto& tree = f.tree();
+    auto overlay = f.make(24, true, "static", {
+        f.make(13, true, "absolute", {f.make(14, true, "relative", {}, true)}, false, true)}, true);
+    auto props = f.sheets.cloneProps(PropsParserContext(1, *f.context), overlay->getProps(),
+        RawProps(folly::dynamic::object("nativeOverlay", true)));
+    auto geometry = std::make_shared<BottomSheetViewState>(data(overlay->getState()));
+    geometry->frameSize = {};
+    auto state = std::make_shared<const BottomSheetViewShadowNode::ConcreteState>(geometry,
+        static_cast<const BottomSheetViewShadowNode::ConcreteState&>(*overlay->getState()));
+    overlay = overlay->clone({.props = props, .state = state});
+    auto outsideHost = f.make(7, true, "absolute", {f.make(8, true, "relative", {}, true)}, false, true);
+    auto mount = f.commit(tree, {f.make(5, false, "relative", {outsideHost, overlay})});
+    auto root = tree.getCurrentRevision().rootShadowNode;
+    auto graph = discoverPortalContexts(*root);
+    auto receipt = f.source->receiptForState(1, 14, delivered(mount, 14));
+    auto nativeRoot = static_cast<const BottomSheetViewShadowNode*>(graph->nodes.at(24));
+    expect("a static nativeOverlay before its first geometry report cannot inherit an outside containing block",
+           data(nativeRoot->getState()).frameSize == facebook::react::Size{} &&
+           nativeRoot->getLayoutMetrics().positionType == PositionType::Static &&
+           graph->hostContexts.at(13) == 24 && !graph->contexts.at(24).parent &&
+           receipt && receipt->contexts == std::vector<Tag>{24} &&
+           receipt->ancestors == std::vector<Tag>{14, 13, 24});
+  }
+
   std::cout << "STATE RESULT tests=" << tests << " failures=" << failures << '\n';
   return failures ? 1 : 0;
 }

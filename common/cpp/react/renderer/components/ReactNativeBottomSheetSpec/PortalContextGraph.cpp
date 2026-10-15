@@ -6,8 +6,10 @@
 
 namespace facebook::react::bottomsheet {
 
-bool isPortalModalHost(const ShadowNode& node) {
-  return std::strcmp(node.getComponentName(), "ModalHostView") == 0;
+bool isPortalNativePresentationRoot(const ShadowNode& node) {
+  return std::strcmp(node.getComponentName(), "ModalHostView") == 0 ||
+      (std::strcmp(node.getComponentName(), "BottomSheetView") == 0 &&
+       node.getTraits().check(ShadowNodeTraits::Trait::RootNodeKind));
 }
 
 namespace {
@@ -39,6 +41,9 @@ const ShadowNode* containingBlock(
     auto props = dynamic_cast<const ViewProps*>(node.getProps().get());
     if (!props || props->yogaStyle.display() == yoga::Display::None) {
       return nullptr;
+    }
+    if (isPortalNativePresentationRoot(node)) {
+      return isContents(props->yogaStyle.display()) ? nullptr : &node;
     }
     if (isContents(props->yogaStyle.display())) continue;
     if (&node == &root ||
@@ -73,7 +78,7 @@ std::optional<PortalContextGraph> discoverPortalContexts(const ShadowNode& root)
   for (auto& [tag, context] : graph.contexts) {
     // Modal content belongs to its native presentation, not the source JSX
     // container. Contexts within that content can still nest with each other.
-    if (isPortalModalHost(*context.boundary)) continue;
+    if (isPortalNativePresentationRoot(*context.boundary)) continue;
     auto ancestors = context.boundary->getFamily().getAncestors(root);
     for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
       Tag parent = it->first.get().getTag();
@@ -81,7 +86,7 @@ std::optional<PortalContextGraph> discoverPortalContexts(const ShadowNode& root)
         context.parent = parent;
         break;
       }
-      if (isPortalModalHost(it->first.get())) break;
+      if (isPortalNativePresentationRoot(it->first.get())) break;
     }
   }
   return graph;
@@ -101,7 +106,7 @@ std::optional<Tag> PortalContextGraph::hostForPresentation(
   for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
     Tag tag = it->first.get().getTag();
     if (hostContexts.contains(tag)) return tag;
-    if (isPortalModalHost(it->first.get())) break;
+    if (isPortalNativePresentationRoot(it->first.get())) break;
   }
   return std::nullopt;
 }
@@ -111,7 +116,7 @@ std::vector<Tag> PortalContextGraph::contextPathForNode(
     const ShadowNode& root) const {
   std::optional<Tag> context;
   if (contexts.contains(node.getTag())) context = node.getTag();
-  else if (!isPortalModalHost(node)) {
+  else if (!isPortalNativePresentationRoot(node)) {
     auto ancestors = node.getFamily().getAncestors(root);
     for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
       Tag tag = it->first.get().getTag();
@@ -119,7 +124,7 @@ std::vector<Tag> PortalContextGraph::contextPathForNode(
         context = tag;
         break;
       }
-      if (isPortalModalHost(it->first.get())) break;
+      if (isPortalNativePresentationRoot(it->first.get())) break;
     }
   }
   std::vector<Tag> path;

@@ -30,11 +30,13 @@ import com.facebook.react.uimanager.UIManagerHelper
 import com.facebook.react.uimanager.events.EventDispatcher
 import com.facebook.react.views.view.ReactViewGroup
 import com.swmansion.reactnativebottomsheet.accessibility.PortalAccessibilityIsolationCoordinator
+import com.swmansion.reactnativebottomsheet.accessibility.PortalNativeContainer
 import com.swmansion.reactnativebottomsheet.closerequest.CloseRequestInputState
 import com.swmansion.reactnativebottomsheet.closerequest.OverlayCloseRequestController
 import com.swmansion.reactnativebottomsheet.closerequest.PortalCloseRequestController
 import com.swmansion.reactnativebottomsheet.closerequest.findActivity
 import com.swmansion.reactnativebottomsheet.presentation.PortalPresentationController
+import java.lang.ref.WeakReference
 
 /**
  * Fabric-mounted bottom-sheet view. It is a thin coordinator around a single [BottomSheetHostView]
@@ -270,7 +272,7 @@ class BottomSheetView(context: Context) : ReactViewGroup(context), LifecycleEven
 
     val dialog = ComponentDialog(activity, android.R.style.Theme_Translucent_NoTitleBar)
     val root =
-      BottomSheetDialogRootView(reactContext).apply {
+      BottomSheetDialogRootView(reactContext, this).apply {
         id = this@BottomSheetView.id
         eventDispatcher = this@BottomSheetView.eventDispatcher ?: currentEventDispatcher()
         addView(
@@ -306,6 +308,7 @@ class BottomSheetView(context: Context) : ReactViewGroup(context), LifecycleEven
       // Show failed (e.g. the activity went away mid-present). Dismiss so the
       // partially-created window can't leak, then fall back to inline.
       overlayCloseRequestController.unbind()
+      root.invalidatePortalNativeOwner()
       runCatching { if (dialog.isShowing) dialog.dismiss() }
       overlayDialog = null
       overlayRoot = null
@@ -317,6 +320,7 @@ class BottomSheetView(context: Context) : ReactViewGroup(context), LifecycleEven
   }
 
   private fun dismissOverlay() {
+    overlayRoot?.invalidatePortalNativeOwner()
     overlayCloseRequestController.unbind()
     overlayDialog?.let { dialog ->
       (host.parent as? ViewGroup)?.removeView(host)
@@ -496,6 +500,7 @@ class BottomSheetView(context: Context) : ReactViewGroup(context), LifecycleEven
     themedReactContext?.removeLifecycleEventListener(this)
     host.interactionListener = null
     host.presentationStateChangedListener = null
+    overlayRoot?.invalidatePortalNativeOwner()
     overlayDialog?.let { if (it.isShowing) it.dismiss() }
     overlayDialog = null
     overlayRoot = null
@@ -509,8 +514,14 @@ class BottomSheetView(context: Context) : ReactViewGroup(context), LifecycleEven
   }
 }
 
-private class BottomSheetDialogRootView(context: ThemedReactContext) :
-  ReactViewGroup(context), RootView {
+private class BottomSheetDialogRootView(context: ThemedReactContext, owner: View) :
+  ReactViewGroup(context), RootView, PortalNativeContainer {
+
+  private val owner = WeakReference(owner)
+  override val portalNativeOwner: View?
+    get() = owner.get()
+
+  fun invalidatePortalNativeOwner() = owner.clear()
 
   var eventDispatcher: EventDispatcher? = null
 
