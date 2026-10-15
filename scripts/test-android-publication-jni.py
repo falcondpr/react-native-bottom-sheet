@@ -22,7 +22,7 @@ OUTPUT = ROOT / 'android/build/publication-jni'
 TEST_CLASS = 'com.swmansion.reactnativebottomsheet.accessibility.FabricPortalPublicationJniTest'
 INSTALL_TEST_CLASS = 'com.swmansion.reactnativebottomsheet.accessibility.FabricPortalPublicationInstallJniTest'
 MOUNT_TEST_CLASS = 'com.swmansion.reactnativebottomsheet.accessibility.FabricPortalPublicationMountJniTest'
-COMPLETION_TEST_CLASS = 'com.swmansion.reactnativebottomsheet.accessibility.FabricStateMountCompletionJniTest'
+FAILURE_TEST_CLASS = 'com.swmansion.reactnativebottomsheet.accessibility.FabricPortalPublicationFailureJniTest'
 ABIS = ('arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64')
 
 
@@ -123,17 +123,17 @@ def main():
                         help='Test acquisition through a live ReactHost in a separate process.')
     mode.add_argument('--mount', action='store_true',
                       help='Test production State delivery through an unattached ReactSurface.')
-    mode.add_argument('--completion', action='store_true',
-                      help='Test completed State acceptance across an ignored native layout failure.')
+    mode.add_argument('--failure', action='store_true',
+                      help='Document source validation limits after an ignored native layout failure.')
     args = parser.parse_args()
-    mount = args.mount or args.completion
-    test_class = COMPLETION_TEST_CLASS if args.completion else MOUNT_TEST_CLASS if args.mount else INSTALL_TEST_CLASS if args.installation else TEST_CLASS
+    mount = args.mount or args.failure
+    test_class = FAILURE_TEST_CLASS if args.failure else MOUNT_TEST_CLASS if args.mount else INSTALL_TEST_CLASS if args.installation else TEST_CLASS
     expected_tests = 1 if args.installation or mount else 3
     if not args.assemble:
         physical_device()
     if mount:
         run(['node', str(ROOT / 'scripts/build-android-publication-mount.js')] +
-            (['--completion'] if args.completion else []))
+            (['--failure'] if args.failure else []))
     gradle = [str(ROOT / 'example/android/gradlew'), '--project-dir', str(ROOT / 'example/android'),
               '--no-daemon', '--console=plain', '-PreactNativeArchitectures=' + ','.join(ABIS)]
     run(gradle + [':app:assembleDebug'])
@@ -147,8 +147,8 @@ def main():
     if mount:
         gradle += ['-PbottomSheetPublicationMountJni=true',
                    '-Pandroid.testInstrumentationRunnerArguments.bottomSheetPublicationMountJni=true']
-    if args.completion:
-        gradle += ['-Pandroid.testInstrumentationRunnerArguments.bottomSheetPublicationCompletionJni=true']
+    if args.failure:
+        gradle += ['-Pandroid.testInstrumentationRunnerArguments.bottomSheetPublicationFailureJni=true']
     run(gradle + ['--init-script', str(ROOT / 'tests/android-native/publication-jni.gradle'),
                  '-Pandroid.testInstrumentationRunnerArguments.class=' + test_class,
                  '-Pandroid.testInstrumentationRunnerArguments.bottomSheetPublicationJni=true',

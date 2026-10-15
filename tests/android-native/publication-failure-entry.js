@@ -9,10 +9,10 @@ import {
 import NativeSheet from '../../src/BottomSheetNativeComponent';
 import { renderPortalHost } from '../../src/PortalHost';
 
-const FailureProbe = requireNativeComponent('CompletionFailureProbe');
-function CompletionPublication({ generation = 0 }) {
+const FailureProbe = requireNativeComponent('MountFailureProbeView');
+function FailurePublication({ generation = 0 }) {
   useLayoutEffect(() => {
-    NativeModules.CompletionProbe.didCommit(generation);
+    NativeModules.MountFailureProbe.didCommit(generation);
   }, [generation]);
   return React.createElement(
     View,
@@ -65,7 +65,4 @@ function CompletionPublication({ generation = 0 }) {
     })
   );
 }
-AppRegistry.registerComponent(
-  'CompletionPublication',
-  () => CompletionPublication
-);
+AppRegistry.registerComponent('FailurePublication', () => FailurePublication);

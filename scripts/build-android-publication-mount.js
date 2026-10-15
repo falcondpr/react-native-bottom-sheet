@@ -15,8 +15,8 @@ async function main() {
     entry: path.join(
       root,
       'tests/android-native',
-      process.argv.includes('--completion')
-        ? 'publication-completion-entry.js'
+      process.argv.includes('--failure')
+        ? 'publication-failure-entry.js'
         : 'publication-mount-entry.js'
     ),
     platform: 'android',
@@ -24,8 +24,8 @@ async function main() {
     minify: false,
     bundleOut: path.join(
       output,
-      process.argv.includes('--completion')
-        ? 'completion-mount.bundle'
+      process.argv.includes('--failure')
+        ? 'failure-mount.bundle'
         : 'publication-mount.bundle'
     ),
   });

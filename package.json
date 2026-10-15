@@ -49,7 +49,7 @@
     "test:android:jni": "python3 scripts/test-android-publication-jni.py",
     "test:android:jni:installation": "python3 scripts/test-android-publication-jni.py --installation",
     "test:android:jni:mount": "python3 scripts/test-android-publication-jni.py --mount",
-    "test:android:jni:completion": "python3 scripts/test-android-publication-jni.py --completion",
+    "test:android:jni:failure": "python3 scripts/test-android-publication-jni.py --failure",
     "test:ios:native": "./scripts/test-ios-native.sh",
     "typecheck": "tsc",
     "lint": "eslint \"**/*.{js,ts,tsx}\""

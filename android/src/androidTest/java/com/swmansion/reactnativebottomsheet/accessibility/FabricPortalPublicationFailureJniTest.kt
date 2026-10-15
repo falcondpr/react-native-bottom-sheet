@@ -36,11 +36,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
-class FabricStateMountCompletionJniTest {
+class FabricPortalPublicationFailureJniTest {
   @Test
-  fun incompleteStateIsRejectedUntilANewCompletedDelivery() {
+  fun coherentSourceRemainsReadableAfterAnUnrelatedNativeLayoutFailure() {
     val context = InstrumentationRegistry.getInstrumentation().context
-    val runId = InstrumentationRegistry.getArguments().getString("completionProbeRun")
+    val runId = InstrumentationRegistry.getArguments().getString("failureProbeRun")
     val armed = AtomicBoolean(false)
     val failures = AtomicInteger(0)
     val committed = (0..2).associateWith { CountDownLatch(1) }
@@ -57,6 +57,7 @@ class FabricStateMountCompletionJniTest {
     var batchAtFault: String? = null
     var stateBeforeFault: StateWrapper? = null
     var observation: ReactNativeMountReconciliationAdapter.Observation? = null
+    // Test-only diagnostics establish that the native fault interrupted its batch.
     val markers =
       object : ReactMarker.FabricMarkerListener {
         override fun logFabricMarker(
@@ -79,21 +80,21 @@ class FabricStateMountCompletionJniTest {
         listOf(
           MainReactPackage(),
           BottomSheetPackage(),
-          MountCompletionProbePackage(
+          MountFailureProbePackage(
             armed,
             failures,
             { faultSnapshot?.invoke() },
             { committed[it]?.countDown() },
           ),
         ),
-        jsBundleAssetPath = "completion-mount.bundle",
+        jsBundleAssetPath = "failure-mount.bundle",
         useDevSupport = false,
         exceptionHandler = { caught ->
           crash.set(caught)
           observed.values.forEach { it.countDown() }
         },
       )
-    val surface = host.createSurface(context, "CompletionPublication", null)
+    val surface = host.createSurface(context, "FailurePublication", null)
     val root = requireNotNull(surface.view)
     val adapter =
       ReactNativeMountReconciliationAdapter(
@@ -123,7 +124,7 @@ class FabricStateMountCompletionJniTest {
               ?.publicationId
           batchAtFault = events.lastOrNull { it.startsWith("start:") }?.substringAfter(':')
           Log.i(
-            "CompletionProbe",
+            "MountFailureProbe",
             "AT_FAULT batch=$batchAtFault publication=$publicationAtFault " +
               "stateChanged=${stateAtFault !== stateBeforeFault}",
           )
@@ -168,7 +169,7 @@ class FabricStateMountCompletionJniTest {
                   .put("sameStateAtFault", sheet.stateWrapper === stateAtFault)
                   .put("newStateAtFault", stateAtFault !== stateBeforeFault)
               results.add(row)
-              Log.i("CompletionProbe", row.toString())
+              Log.i("MountFailureProbe", row.toString())
               if (raw != null) previousPublication = raw.publicationId
               observed.getValue(phase).countDown()
             } catch (caught: Throwable) {
@@ -213,7 +214,8 @@ class FabricStateMountCompletionJniTest {
       val partial = results.single { it.getInt("phase") == 1 }
       val recovery = results.single { it.getInt("phase") == 2 }
       assertTrue(partial.getBoolean("rawReceipt"))
-      assertFalse(partial.getBoolean("registryReceipt"))
+      // Matching source/structure is not proof that every layout instruction succeeded.
+      assertTrue(partial.getBoolean("registryReceipt"))
       assertTrue(partial.getString("events").contains("start:"))
       assertNotNull(batchAtFault)
       assertFalse(partial.getString("events").split(',').contains("end:$batchAtFault"))
@@ -225,7 +227,7 @@ class FabricStateMountCompletionJniTest {
       InstrumentationRegistry.getInstrumentation()
         .sendStatus(
           0,
-          Bundle().apply { putString("completionProbe", results.toString()) },
+          Bundle().apply { putString("failureProbe", results.toString()) },
         )
     } finally {
       try {
@@ -237,7 +239,7 @@ class FabricStateMountCompletionJniTest {
         onMain {}
         if (started) await(surface.stop())
       } finally {
-        await(host.destroy("Completion probe", null))
+        await(host.destroy("Publication failure probe", null))
       }
     }
   }
@@ -270,7 +272,7 @@ class FabricStateMountCompletionJniTest {
     @JvmStatic
     fun initializeSdk() {
       assumeTrue(
-        InstrumentationRegistry.getArguments().getString("bottomSheetPublicationCompletionJni") ==
+        InstrumentationRegistry.getArguments().getString("bottomSheetPublicationFailureJni") ==
           "true"
       )
       SoLoader.init(InstrumentationRegistry.getInstrumentation().context, OpenSourceMergedSoMapping)
@@ -279,7 +281,7 @@ class FabricStateMountCompletionJniTest {
   }
 }
 
-private class MountCompletionProbePackage(
+private class MountFailureProbePackage(
   private val armed: AtomicBoolean,
   private val faults: AtomicInteger,
   private val atFault: () -> Unit,
@@ -287,12 +289,12 @@ private class MountCompletionProbePackage(
 ) : ReactPackage {
   @Suppress("OVERRIDE_DEPRECATION")
   override fun createNativeModules(context: ReactApplicationContext): List<NativeModule> =
-    listOf(MountCompletionProbeModule(context, committed))
+    listOf(MountFailureProbeModule(context, committed))
 
   override fun createViewManagers(context: ReactApplicationContext): List<ViewManager<*, *>> =
     listOf(
       object : SimpleViewManager<View>() {
-        override fun getName() = "CompletionFailureProbe"
+        override fun getName() = "MountFailureProbeView"
 
         override fun createViewInstance(context: ThemedReactContext): View =
           object : View(context) {
@@ -300,8 +302,10 @@ private class MountCompletionProbePackage(
               if (armed.compareAndSet(true, false)) {
                 faults.incrementAndGet()
                 atFault()
-                Log.i("CompletionProbe", "FAULT after State, during native layout")
-                throw ReactIgnorableMountingException("intentional completion probe layout failure")
+                Log.i("MountFailureProbe", "FAULT after State, during native layout")
+                throw ReactIgnorableMountingException(
+                  "intentional publication probe layout failure"
+                )
               }
               super.onMeasure(width, height)
             }
@@ -310,11 +314,11 @@ private class MountCompletionProbePackage(
     )
 }
 
-class MountCompletionProbeModule(
+class MountFailureProbeModule(
   context: ReactApplicationContext,
   private val committed: (Int) -> Unit,
 ) : ReactContextBaseJavaModule(context) {
-  override fun getName() = "CompletionProbe"
+  override fun getName() = "MountFailureProbe"
 
   @ReactMethod fun didCommit(generation: Int) = committed(generation)
 }

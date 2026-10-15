@@ -42,7 +42,6 @@ internal class ReactNativeMountReconciliationAdapter(
   }
 
   private inner class ManagerState(val boundary: ReactNativeMountCallbacks) {
-    val stateMountObservation = if (boundary.isFabric) FabricStateMountObserver.observe() else null
     val callbacks = mutableListOf<() -> Unit>()
     var reconciliationPosted = false
     var reconciliationRequested = false
@@ -57,13 +56,11 @@ internal class ReactNativeMountReconciliationAdapter(
           }
         }
 
-        override fun willMountItems(uiManager: UIManager) {
-          stateMountObservation?.willMountItems()
-        }
+        override fun willMountItems(uiManager: UIManager) = Unit
 
         override fun didMountItems(uiManager: UIManager) {
           if (boundary.isFabric) {
-            stateMountObservation?.didMountItems()
+            // A mount event requests a current read; it does not certify successful execution.
             scheduleReconciliation()
           }
         }
@@ -100,6 +97,7 @@ internal class ReactNativeMountReconciliationAdapter(
 
   private val managers = IdentityHashMap<Any, ManagerState>()
 
+  /** Reconciliation runs in queued UI work and must read current facts when invoked. */
   fun observe(
     boundary: ReactNativeMountCallbacks,
     reconcile: () -> Unit,
@@ -121,7 +119,6 @@ internal class ReactNativeMountReconciliationAdapter(
           state.active = false
           managers.remove(state.boundary.identity)
           state.boundary.removeListener(state.listener)
-          state.stateMountObservation?.remove()
           state.publicationSource?.let { source ->
             // Native bootstrap may call back into observation removal.
             // Reset the hybrid only after its native stack has unwound.

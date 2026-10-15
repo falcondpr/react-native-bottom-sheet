@@ -4,14 +4,11 @@
 package com.swmansion.reactnativebottomsheet.accessibility
 
 import android.app.Activity
-import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.facebook.react.bridge.BridgeReactContext
-import com.facebook.react.bridge.ReactMarker
-import com.facebook.react.bridge.ReactMarkerConstants
 import com.facebook.react.bridge.UIManager
 import com.facebook.react.bridge.UIManagerListener
 import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsForTests
@@ -25,11 +22,11 @@ import java.lang.reflect.Proxy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
-import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(AndroidJUnit4::class)
@@ -51,148 +48,73 @@ class FabricPortalRegistryTest {
   }
 
   @Test
-  fun `all source states need their own completed mount before a receipt is accepted`() {
+  fun `coherent delivered states are accepted without execution markers`() {
     Fixture().use { f ->
-      f.beginBatch(72)
       val next = f.newState()
       f.a.stateWrapper = next
       f.b.stateWrapper = next
-      assertNull(f.source.receiptFromRegistry(f.manager, 2, f.a))
-      f.endBatch(72)
-      assertNotNull(f.source.receiptFromRegistry(f.manager, 2, f.a))
+      assertEquals(setOf(f.a, f.b), f.read(f.a.rootView)?.keys)
     }
   }
 
   @Test
-  fun `nested manager cleanup cannot complete a state while an outer batch remains open`() {
+  fun `coalesced reconciliation reads the states delivered when queued work executes`() {
     Fixture().use { f ->
-      var listener: UIManagerListener? = null
-      val otherBoundary =
-        object : ReactNativeMountCallbacks {
-          override val identity = Any()
-          override val isFabric = true
+      val window = f.a.rootView
+      var result: Map<BottomSheetView, FabricPortalReceipt>? = null
+      val observation = f.adapter.observe(f.boundary) { result = f.read(window) }
+      try {
+        val earlier = f.newState()
+        f.a.stateWrapper = earlier
+        f.b.stateWrapper = earlier
+        f.mountListener?.didMountItems(f.manager)
+        assertNull(result)
+        assertEquals(0, f.readStates.size)
 
-          override fun addListener(value: UIManagerListener) {
-            listener = value
-          }
+        val current = f.newState()
+        f.a.stateWrapper = current
+        f.b.stateWrapper = current
+        f.mountListener?.didMountItems(f.manager)
+        assertEquals(1, f.posted.size)
+        f.posted.removeAt(0).run()
 
-          override fun removeListener(value: UIManagerListener) = Unit
-
-          override fun enqueueAfterPaperMount(block: () -> Unit) = Unit
+        assertEquals(setOf(f.a, f.b), result?.keys)
+        assertEquals(2, f.readStates.size)
+        f.readStates.forEach { states ->
+          assertSame(current, states[14])
+          assertSame(current, states[24])
         }
-      val otherObservation = f.adapter.observe(otherBoundary) {}
-      try {
-        val outer = requireNotNull(f.mountListener)
-        val inner = requireNotNull(listener)
-        outer.willMountItems(f.manager)
-        f.beginBatch(81)
-        inner.willMountItems(f.manager)
-        f.beginBatch(82)
-        f.endBatch(82)
-        inner.didMountItems(f.manager)
-        inner.willMountItems(f.manager)
-        f.beginBatch(83)
-        val next = f.newState()
-        f.a.stateWrapper = next
-        f.b.stateWrapper = next
-        f.endBatch(83)
-        assertNull(f.source.receiptFromRegistry(f.manager, 2, f.a))
-        inner.didMountItems(f.manager)
-        f.endBatch(81)
-        outer.didMountItems(f.manager)
-        outer.willMountItems(f.manager)
-        f.beginBatch(84)
-        f.a.stateWrapper = next
-        f.b.stateWrapper = next
-        f.endBatch(84)
-        outer.didMountItems(f.manager)
-        assertNotNull(f.source.receiptFromRegistry(f.manager, 2, f.a))
+        assertEquals(0, f.posted.size)
       } finally {
-        otherObservation.remove()
+        observation.remove()
       }
     }
   }
 
   @Test
-  fun `observation installed during execution cannot borrow an unseen outer batch end`() {
-    Fixture(attachToWindow = false).use { f ->
-      f.observation.remove()
-      f.beginBatch(71)
-      val nextObservation = f.adapter.observe(f.boundary) {}
+  fun `queued reconciliation rejects the hierarchy as it exists when work executes`() {
+    Fixture().use { f ->
+      val window = f.a.rootView
+      var result: Map<BottomSheetView, FabricPortalReceipt>? = emptyMap()
+      val observation = f.adapter.observe(f.boundary) { result = f.read(window) }
       try {
-        f.beginBatch(71)
-        val next = f.newState()
-        f.a.stateWrapper = next
-        f.b.stateWrapper = next
-        // The nested batch aborts without END or dispatch cleanup; only outer A ends.
-        f.endBatch(71)
-        assertNull(f.source.receiptFromRegistry(f.manager, 2, f.a))
-        shadowOf(Looper.getMainLooper()).idle()
-        assertNull(f.source.receiptFromRegistry(f.manager, 2, f.a))
-        f.beginBatch(72)
-        val completed = f.newState()
-        f.a.stateWrapper = completed
-        f.b.stateWrapper = completed
-        f.endBatch(72)
-        assertNotNull(f.source.receiptFromRegistry(f.manager, 2, f.a))
+        f.mountListener?.didMountItems(f.manager)
+        f.root.removeView(f.modalContent)
+        f.posted.removeAt(0).run()
+        assertNull(result)
+        assertEquals(0, f.posted.size)
+
+        f.root.addView(f.modalContent)
+        f.mountListener?.didMountItems(f.manager)
+        f.posted.removeAt(0).run()
+        assertEquals(setOf(f.a, f.b), result?.keys)
       } finally {
-        nextObservation.remove()
+        observation.remove()
       }
     }
   }
 
-  @Test
-  fun `queued activation from a removed observation cannot arm its replacement`() {
-    Fixture(attachToWindow = false).use { f ->
-      f.observation.remove()
-      f.adapter.observe(f.boundary) {}.remove()
-      val replacement = f.adapter.observe(f.boundary) {}
-      try {
-        // Run the old session's task, leaving the replacement's task queued.
-        shadowOf(Looper.getMainLooper()).runOneTask()
-        f.beginBatch(71)
-        val early = f.newState()
-        f.a.stateWrapper = early
-        f.b.stateWrapper = early
-        f.endBatch(71)
-        assertNull(f.source.receiptFromRegistry(f.manager, 2, f.a))
-        shadowOf(Looper.getMainLooper()).idle()
-        assertNull(f.source.receiptFromRegistry(f.manager, 2, f.a))
-        f.beginBatch(72)
-        val completed = f.newState()
-        f.a.stateWrapper = completed
-        f.b.stateWrapper = completed
-        f.endBatch(72)
-        assertNotNull(f.source.receiptFromRegistry(f.manager, 2, f.a))
-      } finally {
-        replacement.remove()
-      }
-    }
-  }
-
-  @Test
-  fun `ending the last observation requires a fresh completed state on reobservation`() {
-    Fixture(attachToWindow = false).use { f ->
-      assertNotNull(f.source.receiptFromRegistry(f.manager, 2, f.a))
-      f.observation.remove()
-      assertNull(f.source.receiptFromRegistry(f.manager, 2, f.a))
-      val nextObservation = f.adapter.observe(f.boundary) {}
-      try {
-        assertNull(f.source.receiptFromRegistry(f.manager, 2, f.a))
-        shadowOf(Looper.getMainLooper()).idle()
-        f.beginBatch(71)
-        val next = f.newState()
-        f.a.stateWrapper = next
-        f.b.stateWrapper = next
-        f.endBatch(71)
-        assertNotNull(f.source.receiptFromRegistry(f.manager, 2, f.a))
-      } finally {
-        nextObservation.remove()
-      }
-    }
-  }
-
-  private class Fixture(attachToWindow: Boolean = true) : AutoCloseable {
+  private class Fixture : AutoCloseable {
     val activity = Robolectric.buildActivity(Activity::class.java).setup()
     val context = BridgeReactContext(activity.get().applicationContext)
     val themed = ThemedReactContext(context, activity.get(), "test", 2)
@@ -223,6 +145,7 @@ class FabricPortalRegistryTest {
       ) { _, method, args ->
         if (method.name == "resolveView") registry[args!![0] as Int] else null
       } as UIManager
+    val readStates = mutableListOf<Map<Int, StateWrapper?>>()
     val source =
       object : FabricPublicationLease {
         override fun bootstrap() = Unit
@@ -236,6 +159,7 @@ class FabricPortalRegistryTest {
           tag: Int,
           states: Map<Int, StateWrapper?>,
         ): FabricPortalReceipt? {
+          readStates.add(states.toMap())
           if (states.keys != setOf(14, 24) || states.values.any { it == null }) return null
           return FabricPortalReceipt(
             "source:1",
@@ -263,20 +187,19 @@ class FabricPortalRegistryTest {
 
         override fun enqueueAfterPaperMount(block: () -> Unit) = Unit
       }
+    val posted = mutableListOf<Runnable>()
     val adapter =
       ReactNativeMountReconciliationAdapter(
-        postToUiThread = { it.run() },
+        postToUiThread = { posted.add(it) },
         acquirePublicationSource = { source },
       )
     val observation = adapter.observe(boundary) {}
 
     init {
-      shadowOf(Looper.getMainLooper()).idle()
+      posted.removeAt(0).run()
       val state = newState()
-      beginBatch(71)
       a.stateWrapper = state
       b.stateWrapper = state
-      endBatch(71)
       hostA.addView(a)
       areaA.addView(hostA)
       hostB.addView(b)
@@ -286,7 +209,7 @@ class FabricPortalRegistryTest {
       root.addView(areaA)
       root.addView(modal)
       root.addView(modalContent)
-      if (attachToWindow) activity.get().setContentView(root)
+      activity.get().setContentView(root)
     }
 
     fun read(window: View, owners: Collection<BottomSheetView> = listOf(a, b)) =
@@ -300,20 +223,6 @@ class FabricPortalRegistryTest {
         null
       } as StateWrapper
 
-    fun beginBatch(number: Int) =
-      ReactMarker.logFabricMarker(
-        ReactMarkerConstants.FABRIC_BATCH_EXECUTION_START,
-        null,
-        number,
-      )
-
-    fun endBatch(number: Int) =
-      ReactMarker.logFabricMarker(
-        ReactMarkerConstants.FABRIC_BATCH_EXECUTION_END,
-        null,
-        number,
-      )
-
     private fun host(tag: Int) =
       FrameLayout(activity.get()).apply {
         id = tag
@@ -325,6 +234,7 @@ class FabricPortalRegistryTest {
 
     override fun close() {
       observation.remove()
+      while (posted.isNotEmpty()) posted.removeAt(0).run()
       a.destroy()
       b.destroy()
       modal.onDropInstance()

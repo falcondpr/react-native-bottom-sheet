@@ -9,8 +9,10 @@ import com.swmansion.reactnativebottomsheet.BottomSheetView
 
 /**
  * Reads exact delivered States from the SDK registry, including sheets outside this native branch.
- * Every delivered State needs a completed observed execution batch; source native edges and queried
- * ancestry must agree. This does not establish full applied-family or attachment/window membership.
+ * Source native edges and queried ancestry must agree. Callers reconcile from queued
+ * mount/lifecycle work, not inline during State delivery. This validates the available source and
+ * structure, not successful execution of every RN mount instruction or attachment/window
+ * membership.
  */
 @UiThread
 internal fun FabricPublicationLease.receiptFromRegistry(
@@ -30,7 +32,6 @@ internal fun FabricPublicationLease.receiptFromRegistry(
     if (view !is BottomSheetView || view.id != tag) return null
     if (tag == presentation.id && view !== presentation) return null
     val state = view.stateWrapper
-    if (!view.isMountCompleteFor(state)) return null
     states[tag] = state
   }
   val receipt = receipt(surfaceId, presentation.id, states) ?: return null

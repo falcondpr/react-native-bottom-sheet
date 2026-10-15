@@ -275,8 +275,8 @@ class FabricPortalPublicationMountJniTest {
         } finally {
           inactive.stateWrapper = state
         }
-        // Restoring a pointer outside execution cannot borrow its previous completion.
-        assertNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
+        // Restoring the exact State is readable when the complete source/structure agrees again.
+        assertNotNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
       }
       var stoppedStates = emptyMap<Int, StateWrapper?>()
       onMain {
