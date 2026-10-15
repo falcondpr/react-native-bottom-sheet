@@ -172,6 +172,18 @@ class FabricPortalPublicationMountJniTest {
           sourceParent.addView(sheet, sourceIndex)
         }
         assertNotNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
+        val background = descendants(root).single { it.tag == "local-background" }
+        val backgroundParent = background.parent as ViewGroup
+        val backgroundIndex = backgroundParent.indexOfChild(background)
+        backgroundParent.removeView(background)
+        root.addView(background)
+        try {
+          assertNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
+        } finally {
+          root.removeView(background)
+          backgroundParent.addView(background, backgroundIndex)
+        }
+        assertNotNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
         val inactive =
           descendants(root).filterIsInstance<BottomSheetView>().single {
             it.tag == "inactive-nonportal-sheet"
@@ -188,12 +200,11 @@ class FabricPortalPublicationMountJniTest {
         parent.removeView(inactive)
         try {
           assertSame(inactive, manager.resolveView(inactive.id))
-          assertNotNull(
-            requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet)
-          )
+          assertNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
         } finally {
           parent.addView(inactive, index)
         }
+        assertNotNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
       }
       var stoppedStates = emptyMap<Int, StateWrapper?>()
       onMain {

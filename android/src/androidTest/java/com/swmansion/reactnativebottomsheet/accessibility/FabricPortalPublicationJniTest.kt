@@ -32,6 +32,8 @@ class FabricPortalPublicationJniTest {
           assertEquals(13, receipt.hostTag)
           assertEquals(listOf(11), receipt.contexts)
           assertEquals(listOf(14, 13, 31, 11, 1), receipt.ancestors)
+          assertEquals(listOf(1, 11, 13, 14, 31), receipt.logicalTags)
+          assertEquals(mapOf(1 to 0, 13 to 1, 14 to 13), receipt.nativeParents)
           assertNull(lease.receipt(2, 14, mapOf(14 to state)))
           assertNull(lease.receipt(1, 99, mapOf(14 to state)))
           state.destroyState()

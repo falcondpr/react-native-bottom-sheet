@@ -31,6 +31,10 @@ function MountedPublication() {
         collapsable: false,
         style: { width: 320, height: 640, position: 'relative' },
       },
+      React.createElement(View, {
+        testID: 'local-background',
+        style: { position: 'absolute', width: 20, height: 20 },
+      }),
       React.createElement(
         View,
         { style: { position: 'static' } },

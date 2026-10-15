@@ -8,8 +8,8 @@ import com.swmansion.reactnativebottomsheet.BottomSheetView
 
 /**
  * Reads exact delivered States from the SDK registry, including sheets outside this native branch.
- * The queried native ancestry must agree. This does not establish full native branch/family
- * membership, completed mounting, attachment or window membership.
+ * Source native materialization/edges and the queried ancestry must agree. This does not establish
+ * family bindings, completed mounting, attachment or window membership.
  */
 @UiThread
 internal fun FabricPublicationLease.receiptFromRegistry(
@@ -31,5 +31,8 @@ internal fun FabricPublicationLease.receiptFromRegistry(
     states[tag] = view.stateWrapper
   }
   val receipt = receipt(surfaceId, presentation.id, states) ?: return null
-  return receipt.takeIf { it.nativePath(manager::resolveView, presentation) != null }
+  return receipt.takeIf {
+    it.nativeMembers(manager::resolveView) != null &&
+      it.nativePath(manager::resolveView, presentation) != null
+  }
 }

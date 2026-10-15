@@ -18,6 +18,10 @@ struct PortalSourceReceipt {
   std::vector<Tag> contexts;
   // Presentation first; ends at its nearest ModalHostView or the source root.
   std::vector<Tag> ancestors;
+  // Expected structure from RN's own Differentiator, not applied membership.
+  std::vector<Tag> logicalTags;
+  // Materialized children -> parent, including the source root -> 0.
+  std::map<Tag, Tag> nativeParents;
 };
 
 /**

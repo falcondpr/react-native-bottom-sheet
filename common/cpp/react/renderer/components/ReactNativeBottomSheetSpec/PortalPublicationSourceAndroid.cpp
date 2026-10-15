@@ -23,8 +23,18 @@ struct JFabricPortalReceipt : jni::JavaClass<JFabricPortalReceipt> {
     contexts->setRegion(0, receipt.contexts.size(), receipt.contexts.data());
     auto ancestors = jni::JArrayInt::newArray(receipt.ancestors.size());
     ancestors->setRegion(0, receipt.ancestors.size(), receipt.ancestors.data());
+    auto tags = jni::JArrayInt::newArray(receipt.logicalTags.size());
+    tags->setRegion(0, receipt.logicalTags.size(), receipt.logicalTags.data());
+    std::vector<jint> edges;
+    for (const auto& [child, parent] : receipt.nativeParents) {
+      edges.push_back(child);
+      edges.push_back(parent);
+    }
+    auto parents = jni::JArrayInt::newArray(edges.size());
+    parents->setRegion(0, edges.size(), edges.data());
     return newInstance(
-        jni::make_jstring(receipt.publicationId), static_cast<jint>(receipt.host), contexts, ancestors);
+        jni::make_jstring(receipt.publicationId), static_cast<jint>(receipt.host),
+        contexts, ancestors, tags, parents);
   }
 };
 

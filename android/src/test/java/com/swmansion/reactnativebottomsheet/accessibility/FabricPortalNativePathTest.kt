@@ -11,6 +11,7 @@ import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsForTests
 import com.facebook.react.uimanager.ThemedReactContext
 import com.facebook.react.views.modal.ReactModalHostView
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
@@ -53,18 +54,30 @@ class FabricPortalNativePathTest {
       val container = f.root.parent as android.view.ViewGroup
       f.activity.get().setContentView(container)
       f.registry[30] = modal
+      val outside = FrameLayout(f.activity.get()).apply { id = 1 }
+      outside.addView(modal)
+      f.registry[1] = outside
       val receipt =
-        FabricPortalReceipt("source:1", 13, intArrayOf(11), intArrayOf(14, 13, 31, 11, 2, 30))
+        FabricPortalReceipt(
+          "source:1",
+          13,
+          intArrayOf(11),
+          intArrayOf(14, 13, 31, 11, 2, 30),
+          intArrayOf(1, 2, 11, 12, 13, 14, 30, 31),
+          intArrayOf(1, 0, 30, 1, 2, 30, 11, 2, 12, 11, 13, 11, 14, 13),
+        )
 
       assertEquals(
         listOf(f.sheet, f.wrapper, f.host, f.area, f.root, container),
         receipt.nativePath(f.registry::get, f.sheet),
       )
+      assertNotNull(receipt.nativeMembers(f.registry::get))
       container.removeView(f.root)
       val impostor = FrameLayout(f.activity.get()).apply { id = 30 }
       impostor.addView(f.root)
       f.activity.get().setContentView(impostor)
       assertNull(receipt.nativePath(f.registry::get, f.sheet))
+      assertNull(receipt.nativeMembers(f.registry::get))
     }
   }
 
@@ -113,10 +126,39 @@ class FabricPortalNativePathTest {
     }
   }
 
+  @Test
+  fun `source membership rejects missing or reparented background outside the queried path`() {
+    Fixture().use { f ->
+      assertEquals(setOf(2, 11, 12, 13, 14), f.receipt.nativeMembers(f.registry::get)?.keys)
+      f.area.removeView(f.background)
+      assertNull(f.receipt.nativeMembers(f.registry::get))
+      f.root.addView(f.background)
+      assertNull(f.receipt.nativeMembers(f.registry::get))
+      f.root.removeView(f.background)
+      f.area.addView(f.background)
+      assertNotNull(f.receipt.nativeMembers(f.registry::get))
+    }
+  }
+
+  @Test
+  fun `ordinary native chrome is allowed but an unexpected SDK member or materialized flat node is rejected`() {
+    Fixture().use { f ->
+      val chrome = FrameLayout(f.activity.get()).apply { id = 99 }
+      f.root.addView(chrome)
+      assertNotNull(f.receipt.nativeMembers(f.registry::get))
+      f.registry[99] = chrome
+      assertNull(f.receipt.nativeMembers(f.registry::get))
+      f.registry.remove(99)
+      f.registry[31] = View(f.activity.get()).apply { id = 31 }
+      assertNull(f.receipt.nativeMembers(f.registry::get))
+    }
+  }
+
   private class Fixture : AutoCloseable {
     val activity = Robolectric.buildActivity(Activity::class.java).setup()
     val root = FrameLayout(activity.get()).apply { id = 2 }
     val area = FrameLayout(activity.get()).apply { id = 11 }
+    val background = View(activity.get()).apply { id = 12 }
     val host =
       FrameLayout(activity.get()).apply {
         id = 13
@@ -127,12 +169,22 @@ class FabricPortalNativePathTest {
       }
     val wrapper = FrameLayout(activity.get())
     val sheet = View(activity.get()).apply { id = 14 }
-    val registry = mutableMapOf<Int, View>(2 to root, 11 to area, 13 to host, 14 to sheet)
-    val receipt = FabricPortalReceipt("source:1", 13, intArrayOf(11), intArrayOf(14, 13, 31, 11, 2))
+    val registry =
+      mutableMapOf<Int, View>(2 to root, 11 to area, 12 to background, 13 to host, 14 to sheet)
+    val receipt =
+      FabricPortalReceipt(
+        "source:1",
+        13,
+        intArrayOf(11),
+        intArrayOf(14, 13, 31, 11, 2),
+        intArrayOf(2, 11, 12, 13, 14, 31),
+        intArrayOf(2, 0, 11, 2, 12, 11, 13, 11, 14, 13),
+      )
 
     init {
       wrapper.addView(sheet)
       host.addView(wrapper)
+      area.addView(background)
       area.addView(host)
       root.addView(area)
       activity.get().setContentView(root)

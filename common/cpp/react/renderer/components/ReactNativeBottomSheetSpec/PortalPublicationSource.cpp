@@ -3,6 +3,7 @@
 #ifdef ANDROID
 #include "PortalContextGraph.h"
 #include "ShadowNodes.h"
+#include <react/renderer/mounting/Differentiator.h>
 #include <algorithm>
 #include <atomic>
 #include <stdexcept>
@@ -10,6 +11,12 @@
 namespace facebook::react::bottomsheet {
 namespace {
 std::atomic<uint64_t> nextSource{0};
+
+template <typename Mutation>
+Tag parentTag(const Mutation& mutation) {
+  if constexpr (requires { mutation.parentTag; }) return mutation.parentTag;
+  else return mutation.parentShadowView.tag; // RN 0.76 mounting representation.
+}
 }
 
 PortalPublicationSource::PortalPublicationSource(
@@ -175,12 +182,21 @@ std::optional<PortalSourceReceipt> PortalPublicationSource::receiptForState(
     ancestors.push_back(ancestor.getTag());
     if (isPortalModalHost(ancestor)) break;
   }
+  std::vector<Tag> logicalTags;
+  for (const auto& [nodeTag, node] : graph->nodes) logicalTags.push_back(nodeTag);
+  auto empty = root->ShadowNode::clone({.children = ShadowNode::emptySharedShadowNodeSharedList()});
+  std::map<Tag, Tag> nativeParents{{root->getTag(), 0}};
+  for (const auto& mutation : calculateShadowViewMutations(*empty, *root)) {
+    if (mutation.type == ShadowViewMutation::Insert && !mutation.mutatedViewIsVirtual()) {
+      nativeParents.emplace(mutation.newChildShadowView.tag, parentTag(mutation));
+    }
+  }
   const auto& concrete = static_cast<const BottomSheetViewShadowNode::ConcreteState&>(*state);
   return PortalSourceReceipt{
       concrete.getData().portalPublicationId, *host,
       graph->contextPathForNode(
           *graph->contexts.at(graph->hostContexts.at(*host)).boundary, *root),
-      std::move(ancestors)};
+      std::move(ancestors), std::move(logicalTags), std::move(nativeParents)};
 }
 
 } // namespace facebook::react::bottomsheet

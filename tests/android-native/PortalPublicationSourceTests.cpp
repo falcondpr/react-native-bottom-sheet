@@ -138,6 +138,11 @@ int main() {
            data(native).contentRegionInset == 24 &&
            root == tree.getCurrentRevision().rootShadowNode && root &&
            discoverPortalContexts(*root)->hostContexts.at(13) == 11);
+    auto receipt = f.source->receiptForState(1, 14, native);
+    expect("expected native structure includes background but preserves the flattened logical context",
+           receipt && receipt->logicalTags == std::vector<Tag>{1, 11, 12, 13, 14} &&
+           receipt->nativeParents == std::map<Tag, Tag>{{1, 0}, {12, 1}, {13, 1}, {14, 13}} &&
+           receipt->contexts == std::vector<Tag>{11});
   }
 
   {
