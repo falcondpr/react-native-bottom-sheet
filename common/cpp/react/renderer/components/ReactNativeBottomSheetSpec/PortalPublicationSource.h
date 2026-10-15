@@ -1,6 +1,7 @@
 #pragma once
 
 #ifdef ANDROID
+#include "PortalContextGraph.h"
 #include <react/renderer/uimanager/UIManager.h>
 #include <react/renderer/uimanager/UIManagerCommitHook.h>
 #include <deque>
@@ -49,6 +50,13 @@ class PortalPublicationSource final : private UIManagerCommitHook {
 
   std::optional<PortalSourceReceipt> receiptForState(
       SurfaceId surface, Tag tag, const State::Shared& state) const;
+
+  // Resolve retained tags only in the exact all-sheet source. The native
+  // adapter supplies validated membership; this does not establish attachment.
+  std::optional<PortalIsolationProjection> isolationForStates(
+      SurfaceId surface, const std::map<Tag, State::Shared>& states,
+      const PortalNativeMembers& members,
+      const std::map<Tag, std::vector<Tag>>& retainedByHost) const;
 
  private:
   void commitHookWasRegistered(const UIManager&) noexcept override {}

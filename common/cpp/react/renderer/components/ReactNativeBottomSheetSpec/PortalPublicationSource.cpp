@@ -199,5 +199,28 @@ std::optional<PortalSourceReceipt> PortalPublicationSource::receiptForState(
       std::move(ancestors), std::move(logicalTags), std::move(nativeParents)};
 }
 
+std::optional<PortalIsolationProjection> PortalPublicationSource::isolationForStates(
+    SurfaceId surface, const std::map<Tag, State::Shared>& states,
+    const PortalNativeMembers& members,
+    const std::map<Tag, std::vector<Tag>>& retainedByHost) const {
+  auto root = rootForStates(surface, states);
+  if (!root) return std::nullopt;
+  auto graph = discoverPortalContexts(*root);
+  if (!graph) return std::nullopt;
+  std::vector<PortalRetainedPaths> requests;
+  for (const auto& [hostTag, presentations] : retainedByHost) {
+    if (!graph->hostContexts.contains(hostTag)) return std::nullopt;
+    PortalRetainedPaths request{&graph->nodes.at(hostTag)->getFamily(), {}};
+    for (Tag tag : presentations) {
+      if (!states.contains(tag)) return std::nullopt;
+      const auto& family = graph->nodes.at(tag)->getFamily();
+      if (graph->hostForPresentation(family, *root) != hostTag) return std::nullopt;
+      request.presentations.push_back(&family);
+    }
+    requests.push_back(std::move(request));
+  }
+  return projectPortalIsolation(*graph, members, requests);
+}
+
 } // namespace facebook::react::bottomsheet
 #endif

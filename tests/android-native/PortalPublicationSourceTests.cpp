@@ -605,6 +605,63 @@ int main() {
     f.manager->unregisterCommitHook(later);
   }
 
+  {
+    Fixture f;
+    auto& tree = f.tree();
+    auto mount = f.commit(tree, {
+        f.make(11, false, "relative", {f.make(12, true, "relative"),
+            f.make(13, true, "absolute", {f.make(14, true, "relative", {}, true)}, false, true)}),
+        f.make(21, false, "relative", {f.make(22, true, "relative"),
+            f.make(23, true, "absolute", {f.make(24, true, "relative", {}, true)}, false, true)}),
+        f.make(99, true, "relative")});
+    PortalNativeMembers members{{1, 12, 13, 14, 22, 23, 24, 99},
+        {{1, 0}, {12, 1}, {13, 1}, {14, 13}, {22, 1}, {23, 1}, {24, 23}, {99, 1}}};
+    std::map<Tag, State::Shared> states{{14, delivered(mount, 14)}, {24, delivered(mount, 24)}};
+    auto projection = f.source->isolationForStates(1, states, members, {{13, {14}}, {23, {24}}});
+    expect("exact delivered source projects two flattened local contexts without excluding the outside toolbar",
+           projection && projection->hiddenBranches == std::set<Tag>{12, 22} &&
+           projection->retainedChildren == std::map<Tag, std::set<Tag>>{
+               {11, {13}}, {13, {14}}, {21, {23}}, {23, {24}}});
+    expect("source projection rejects nonhosts, nonsheets, crossed hosts and empty active retention",
+           !f.source->isolationForStates(1, states, members, {{99, {14}}}) &&
+           !f.source->isolationForStates(1, states, members, {{13, {99}}}) &&
+           !f.source->isolationForStates(1, states, members, {{13, {24}}}) &&
+           !f.source->isolationForStates(1, states, members, {{13, {}}}));
+    auto released = f.source->isolationForStates(1, states, members, {});
+    expect("an empty retained request releases a valid source without inventing an unavailable source",
+           released && released->hiddenBranches.empty() && released->retainedChildren.empty() &&
+           !f.source->isolationForStates(1, {}, members, {}));
+  }
+
+  {
+    Fixture f;
+    auto& tree = f.tree();
+    auto area = f.make(11, false, "relative", {f.make(12, true, "relative"),
+        f.make(31, false, "static", {f.make(32, true, "relative"),
+            f.make(13, true, "absolute", {f.make(14, true, "relative", {}, true)}, false, true)})});
+    LaterLayoutHook later(f.views, *f.context);
+    f.manager->registerCommitHook(later);
+    auto first = f.commit(tree, {area, f.make(34, true, "relative", {}, true)});
+    auto firstRoot = tree.getCurrentRevision().rootShadowNode;
+    later.relative = true;
+    auto second = f.commit(tree, firstRoot->getChildren());
+    PortalNativeMembers members{{1, 12, 13, 14, 32, 34},
+        {{1, 0}, {12, 1}, {13, 1}, {14, 13}, {32, 1}, {34, 1}}};
+    std::map<Tag, State::Shared> oldStates{{14, delivered(first, 14)}, {34, delivered(first, 34)}};
+    std::map<Tag, State::Shared> newStates{{14, delivered(second, 14)}, {34, delivered(second, 34)}};
+    auto delayed = f.source->isolationForStates(1, oldStates, members, {{13, {14}}});
+    auto current = f.source->isolationForStates(1, newStates, members, {{13, {14}}});
+    expect("projection keeps the delivered containing block while a newer source has a narrower boundary",
+           delayed && delayed->hiddenBranches == std::set<Tag>{12, 32} &&
+           current && current->hiddenBranches == std::set<Tag>{32});
+    expect("projection requires exact complete States including nonportal sheets before resolving retained tags",
+           !f.source->isolationForStates(1, {{14, newStates.at(14)}}, members, {{13, {14}}}) &&
+           !f.source->isolationForStates(1, {{14, newStates.at(14)}, {34, oldStates.at(34)}}, members, {{13, {14}}}) &&
+           !f.source->isolationForStates(2, newStates, members, {{13, {14}}}) &&
+           !f.source->isolationForStates(1, newStates, members, {{13, {34}}}));
+    f.manager->unregisterCommitHook(later);
+  }
+
   std::cout << "STATE RESULT tests=" << tests << " failures=" << failures << '\n';
   return failures ? 1 : 0;
 }
