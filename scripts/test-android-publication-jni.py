@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Build/run the non-UI JNI test in the existing library instrumentation APK.
+"""Build/run non-UI JNI tests in the existing library instrumentation APK.
 
-Reuse the example's SDK/CMake flags and production objects in a separate test
-library. Only the JNI object is replaced by a fixture that includes that same
-production translation unit. No production files or libraries are modified.
+Fixture mode reuses SDK/CMake flags and production objects with a test-only
+native factory. Installation mode loads the actual production library through
+a live ReactHost, in a separate test process. Production files stay unchanged.
 """
 import argparse
 import json
@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -19,6 +20,7 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / 'android/build/publication-jni'
 TEST_CLASS = 'com.swmansion.reactnativebottomsheet.accessibility.FabricPortalPublicationJniTest'
+INSTALL_TEST_CLASS = 'com.swmansion.reactnativebottomsheet.accessibility.FabricPortalPublicationInstallJniTest'
 ABIS = ('arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64')
 
 
@@ -50,7 +52,7 @@ def physical_device():
     os.environ['ANDROID_SERIAL'] = selected
 
 
-def build_native(abi):
+def build_native(abi, installation=False):
     databases = sorted((ROOT / 'example/android/app/.cxx/Debug').glob(
         f'*/{abi}/compile_commands.json'), key=lambda path: path.stat().st_mtime, reverse=True)
     item = None
@@ -62,6 +64,17 @@ def build_native(abi):
     if not item:
         sys.exit(f'Missing production CMake compilation database for {abi}.')
     directory = Path(item['directory'])
+    cache = (directory / 'CMakeCache.txt').read_text()
+    ninja = re.search(r'^CMAKE_MAKE_PROGRAM:[^=]+=(.+)$', cache, re.MULTILINE)[1]
+    target = re.search(r'^build (.+): CXX_SHARED_LIBRARY_LINKER__react_codegen_ReactNativeBottomSheetSpec_',
+                       (directory / 'build.ninja').read_text(), re.MULTILINE)[1]
+    if installation:
+        # This process loads the production JNI library, never the fixture's copy.
+        library = OUTPUT / 'production-libs' / abi / Path(target).name
+        library.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(target, library)
+        print(f'Production JNI packaged: {abi}', flush=True)
+        return
     command = shlex.split(item['command'])
     original_object = command[command.index('-o') + 1]
     object_file = OUTPUT / 'objects' / f'{abi}.o'
@@ -70,10 +83,6 @@ def build_native(abi):
     command[command.index('-c') + 1] = str(ROOT / 'tests/android-native/FabricPublicationJniFixture.cpp')
     run(command, cwd=directory)
 
-    cache = (directory / 'CMakeCache.txt').read_text()
-    ninja = re.search(r'^CMAKE_MAKE_PROGRAM:[^=]+=(.+)$', cache, re.MULTILINE)[1]
-    target = re.search(r'^build (.+): CXX_SHARED_LIBRARY_LINKER__react_codegen_ReactNativeBottomSheetSpec_',
-                       (directory / 'build.ninja').read_text(), re.MULTILINE)[1]
     link = shlex.split(run([ninja, '-t', 'commands', target], cwd=directory, capture=True).splitlines()[-1])
     # CMake wraps its actual linker invocation in two shell no-ops.
     if link[:2] == [':', '&&']:
@@ -97,18 +106,25 @@ def build_native(abi):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--assemble', action='store_true', help='Build only; no device is needed.')
+    parser.add_argument('--installation', action='store_true',
+                        help='Test acquisition through a live ReactHost in a separate process.')
     args = parser.parse_args()
+    test_class = INSTALL_TEST_CLASS if args.installation else TEST_CLASS
+    expected_tests = 1 if args.installation else 2
     if not args.assemble:
         physical_device()
     gradle = [str(ROOT / 'example/android/gradlew'), '--project-dir', str(ROOT / 'example/android'),
               '--no-daemon', '--console=plain', '-PreactNativeArchitectures=' + ','.join(ABIS)]
     run(gradle + [':app:assembleDebug'])
     for abi in ABIS:
-        build_native(abi)
+        build_native(abi, args.installation)
     task = 'assembleDebugAndroidTest' if args.assemble else 'connectedDebugAndroidTest'
     started = time.time()
+    if args.installation:
+        gradle += ['-PbottomSheetPublicationInstallJni=true',
+                   '-Pandroid.testInstrumentationRunnerArguments.bottomSheetPublicationInstallJni=true']
     run(gradle + ['--init-script', str(ROOT / 'tests/android-native/publication-jni.gradle'),
-                 '-Pandroid.testInstrumentationRunnerArguments.class=' + TEST_CLASS,
+                 '-Pandroid.testInstrumentationRunnerArguments.class=' + test_class,
                  '-Pandroid.testInstrumentationRunnerArguments.bottomSheetPublicationJni=true',
                  ':swmansion_react-native-bottom-sheet:' + task])
     if not args.assemble:
@@ -116,10 +132,10 @@ def main():
         for report in (ROOT / 'android/build/outputs/androidTest-results/connected/debug').rglob('TEST-*.xml'):
             if report.stat().st_mtime >= started:
                 cases.extend(ET.parse(report).getroot().iter('testcase'))
-        if len(cases) != 2 or any(case.get('classname') != TEST_CLASS or
+        if len(cases) != expected_tests or any(case.get('classname') != test_class or
                                  any(case.find(tag) is not None for tag in ('skipped', 'failure', 'error'))
                                  for case in cases):
-            sys.exit('Expected exactly two freshly executed JNI tests without skips/failures; inspect the report.')
+            sys.exit(f'Expected exactly {expected_tests} freshly executed JNI tests without skips/failures; inspect the report.')
     print('JNI test APK assembled; Android runtime is pending.' if args.assemble else
           'JNI instrumentation finished; see android/build/reports/androidTests/connected/debug.')
 

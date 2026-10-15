@@ -2,8 +2,10 @@
 gradle.beforeProject { project ->
   if (project.path == ':swmansion_react-native-bottom-sheet') {
     project.pluginManager.withPlugin('com.android.library') {
+      def nativeFolder = project.findProperty('bottomSheetPublicationInstallJni') == 'true'
+          ? 'production-libs' : 'libs'
       project.android.sourceSets.androidTest.jniLibs.srcDir(
-          new File(project.projectDir, 'build/publication-jni/libs'))
+          new File(project.projectDir, 'build/publication-jni/' + nativeFolder))
     }
   }
 }

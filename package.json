@@ -47,6 +47,7 @@
     "test:android:state-host": "python3 scripts/test-android-native-state.py",
     "test:android:jni:assemble": "python3 scripts/test-android-publication-jni.py --assemble",
     "test:android:jni": "python3 scripts/test-android-publication-jni.py",
+    "test:android:jni:installation": "python3 scripts/test-android-publication-jni.py --installation",
     "test:ios:native": "./scripts/test-ios-native.sh",
     "typecheck": "tsc",
     "lint": "eslint \"**/*.{js,ts,tsx}\""
