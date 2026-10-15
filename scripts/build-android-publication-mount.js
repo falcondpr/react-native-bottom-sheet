@@ -12,11 +12,22 @@ async function main() {
   config.maxWorkers = 2;
   config.resolver.useWatchman = false;
   await Metro.runBuild(config, {
-    entry: path.join(root, 'tests/android-native/publication-mount-entry.js'),
+    entry: path.join(
+      root,
+      'tests/android-native',
+      process.argv.includes('--completion')
+        ? 'publication-completion-entry.js'
+        : 'publication-mount-entry.js'
+    ),
     platform: 'android',
     dev: false,
     minify: false,
-    bundleOut: path.join(output, 'publication-mount.bundle'),
+    bundleOut: path.join(
+      output,
+      process.argv.includes('--completion')
+        ? 'completion-mount.bundle'
+        : 'publication-mount.bundle'
+    ),
   });
 }
 

@@ -258,13 +258,6 @@ class FabricPortalPublicationMountJniTest {
           descendants(root).filterIsInstance<BottomSheetView>().single {
             it.tag == "inactive-nonportal-sheet"
           }
-        val state = requireNotNull(inactive.stateWrapper)
-        inactive.stateWrapper = null
-        try {
-          assertNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
-        } finally {
-          inactive.stateWrapper = state
-        }
         val parent = inactive.parent as ViewGroup
         val index = parent.indexOfChild(inactive)
         parent.removeView(inactive)
@@ -275,6 +268,15 @@ class FabricPortalPublicationMountJniTest {
           parent.addView(inactive, index)
         }
         assertNotNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
+        val state = requireNotNull(inactive.stateWrapper)
+        inactive.stateWrapper = null
+        try {
+          assertNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
+        } finally {
+          inactive.stateWrapper = state
+        }
+        // Restoring a pointer outside execution cannot borrow its previous completion.
+        assertNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
       }
       var stoppedStates = emptyMap<Int, StateWrapper?>()
       onMain {

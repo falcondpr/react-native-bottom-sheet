@@ -29,6 +29,8 @@ import com.facebook.react.uimanager.ThemedReactContext
 import com.facebook.react.uimanager.UIManagerHelper
 import com.facebook.react.uimanager.events.EventDispatcher
 import com.facebook.react.views.view.ReactViewGroup
+import com.swmansion.reactnativebottomsheet.accessibility.FabricStateMountCompletion
+import com.swmansion.reactnativebottomsheet.accessibility.FabricStateMountObserver
 import com.swmansion.reactnativebottomsheet.accessibility.PortalAccessibilityIsolationCoordinator
 import com.swmansion.reactnativebottomsheet.accessibility.PortalNativeContainer
 import com.swmansion.reactnativebottomsheet.closerequest.CloseRequestInputState
@@ -110,8 +112,14 @@ class BottomSheetView(context: Context) : ReactViewGroup(context), LifecycleEven
   var stateWrapper: StateWrapper?
     get() = host.stateWrapper
     set(value) {
+      stateMountCompletion = FabricStateMountObserver.capture(value)
       host.stateWrapper = value
     }
+
+  private var stateMountCompletion: FabricStateMountCompletion.Delivery? = null
+
+  internal fun isMountCompleteFor(state: StateWrapper?): Boolean =
+    stateMountCompletion?.accepts(state) == true
 
   var eventDispatcher: EventDispatcher? = null
     set(value) {
