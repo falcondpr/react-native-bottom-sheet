@@ -21,6 +21,20 @@ internal fun FabricPublicationLease.receiptFromRegistry(
   surfaceId: Int,
   presentation: BottomSheetView,
 ): FabricPortalReceipt? {
+  val states = deliveredStatesFromRegistry(manager, surfaceId, presentation) ?: return null
+  val receipt = receipt(surfaceId, presentation.id, states) ?: return null
+  return receipt.takeIf {
+    it.nativeMembers(manager::resolveView) != null &&
+      it.nativePath(manager::resolveView, presentation) != null
+  }
+}
+
+@UiThread
+private fun FabricPublicationLease.deliveredStatesFromRegistry(
+  manager: UIManager,
+  surfaceId: Int,
+  presentation: BottomSheetView,
+): Map<Int, StateWrapper?>? {
   val tags = sheetTags(surfaceId, presentation.id, presentation.stateWrapper) ?: return null
   val states = mutableMapOf<Int, StateWrapper?>()
   for (tag in tags) {
@@ -35,11 +49,7 @@ internal fun FabricPublicationLease.receiptFromRegistry(
     val state = view.stateWrapper
     states[tag] = state
   }
-  val receipt = receipt(surfaceId, presentation.id, states) ?: return null
-  return receipt.takeIf {
-    it.nativeMembers(manager::resolveView) != null &&
-      it.nativePath(manager::resolveView, presentation) != null
-  }
+  return states
 }
 
 /**
@@ -63,6 +73,42 @@ internal fun FabricPublicationLease.attachedReceiptsFromRegistry(
     receipts[presentation] = receipt
   }
   return receipts
+}
+
+/**
+ * Reads source projections after validating every supplied owner's source structure and window.
+ * Retained paths are caller-owned. Results are consumed in the current UI work, not cached as
+ * accepted native cuts; native-only sibling composition and final mask validation remain separate.
+ */
+@UiThread
+internal fun FabricPublicationLease.attachedIsolationFromRegistry(
+  manager: UIManager,
+  presentations: Collection<BottomSheetView>,
+  retainedPresentations: Collection<BottomSheetView>,
+  windowRoot: View,
+): Map<Int, FabricPortalIsolationProjection>? {
+  if (!presentations.toSet().containsAll(retainedPresentations)) return null
+  val projections = mutableMapOf<Int, FabricPortalIsolationProjection>()
+  for ((surface, owners) in presentations.groupBy(UIManagerHelper::getSurfaceId)) {
+    if (surface <= 0) return null
+    val states = deliveredStatesFromRegistry(manager, surface, owners.first()) ?: return null
+    val receipts = mutableMapOf<BottomSheetView, FabricPortalReceipt>()
+    for (owner in owners) {
+      val receipt = receipt(surface, owner.id, states) ?: return null
+      if (receipt.attachedNativePath(manager::resolveView, owner, windowRoot) == null) return null
+      receipts[owner] = receipt
+    }
+    val source = receipts.getValue(owners.first())
+    if (source.nativeMembers(manager::resolveView) == null) return null
+    val retainedByHost =
+      retainedPresentations
+        .filter(receipts::containsKey)
+        .groupBy { receipts.getValue(it).hostTag }
+        .mapValues { (_, retained) -> retained.map { it.id } }
+    projections[surface] =
+      isolation(surface, states, source.nativeParents, retainedByHost) ?: return null
+  }
+  return projections
 }
 
 /** Reads every supplied owner across this manager's surfaces, or rejects the complete group. */

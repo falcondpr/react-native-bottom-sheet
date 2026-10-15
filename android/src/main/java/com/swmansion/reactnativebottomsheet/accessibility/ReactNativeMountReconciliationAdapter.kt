@@ -51,6 +51,13 @@ internal class ReactNativeMountReconciliationAdapter(
       presentations: Collection<BottomSheetView>,
     ): Map<BottomSheetView, FabricPortalReceipt>?
 
+    /** Source projections for current supplied owners; callers consume them in the same UI work. */
+    fun readPortalIsolation(
+      windowRoot: View,
+      presentations: Collection<BottomSheetView>,
+      retainedPresentations: Collection<BottomSheetView>,
+    ): Map<Int, FabricPortalIsolationProjection>?
+
     fun remove()
   }
 
@@ -137,6 +144,24 @@ internal class ReactNativeMountReconciliationAdapter(
         val source = state.publicationSource ?: return null
         val manager = state.boundary.identity as? UIManager ?: return null
         return source.attachedReceiptsFromRegistry(manager, presentations, windowRoot)
+      }
+
+      override fun readPortalIsolation(
+        windowRoot: View,
+        presentations: Collection<BottomSheetView>,
+        retainedPresentations: Collection<BottomSheetView>,
+      ): Map<Int, FabricPortalIsolationProjection>? {
+        if (!active || !state.active) return null
+        if (presentations.isEmpty())
+          return if (retainedPresentations.isEmpty()) emptyMap() else null
+        val source = state.publicationSource ?: return null
+        val manager = state.boundary.identity as? UIManager ?: return null
+        return source.attachedIsolationFromRegistry(
+          manager,
+          presentations,
+          retainedPresentations,
+          windowRoot,
+        )
       }
 
       override fun remove() {
