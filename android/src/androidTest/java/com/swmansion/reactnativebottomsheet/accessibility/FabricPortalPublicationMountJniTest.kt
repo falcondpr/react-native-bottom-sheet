@@ -21,7 +21,9 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -34,9 +36,11 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class FabricPortalPublicationMountJniTest {
   @Test
-  fun mountedSheetStateResolvesUntilItsSurfaceStops() {
+  fun reobservingMountedSheetBootstrapsNewPublicationUntilItsSurfaceStops() {
     val context = InstrumentationRegistry.getInstrumentation().context
     val mounted = CountDownLatch(1)
+    val refreshed = CountDownLatch(1)
+    var awaitedPublication = mounted
     val failure = AtomicReference<Throwable?>()
     val host =
       DefaultReactHost.getDefaultReactHost(
@@ -47,6 +51,7 @@ class FabricPortalPublicationMountJniTest {
         exceptionHandler = {
           failure.set(it)
           mounted.countDown()
+          refreshed.countDown()
         },
       )
     val surface = host.createSurface(context, "MountedPublication", null)
@@ -59,6 +64,9 @@ class FabricPortalPublicationMountJniTest {
     var observation: ReactNativeMountReconciliationAdapter.Observation? = null
     var deliveredState: StateWrapper? = null
     var sheetTag = View.NO_ID
+    var mountedSheet: BottomSheetView? = null
+    var publicationId: String? = null
+    lateinit var verifyMountedState: () -> Unit
     var started = false
     try {
       await(host.start())
@@ -68,35 +76,37 @@ class FabricPortalPublicationMountJniTest {
         root.layout(0, 0, 640, 640)
         val boundary = requireNotNull(ReactNativeMountReconciliationAdapter.resolve(root))
         val manager = boundary.identity as FabricUIManager
-        observation =
-          adapter.observe(boundary) {
-            if (mounted.count == 0L) return@observe
-            try {
-              val views = descendants(root)
-              val sheet = views.filterIsInstance<BottomSheetView>().singleOrNull() ?: return@observe
-              val area = views.single { it.tag == "local-area" }
-              val portalHost = views.single {
-                it.getTag(com.facebook.react.R.id.view_tag_native_id) ==
-                  "__react_native_bottom_sheet_portal_host"
-              }
-              assertSame(sheet, manager.resolveView(sheet.id))
-              assertFalse(root.isAttachedToWindow)
-              assertFalse(sheet.isAttachedToWindow)
-              deliveredState = requireNotNull(sheet.stateWrapper)
-              sheetTag = sheet.id
-              val receipt =
-                requireNotNull(
-                  requireNotNull(lease).receipt(surface.surfaceID, sheetTag, deliveredState)
-                )
-              assertTrue(receipt.publicationId.isNotEmpty())
-              assertEquals(portalHost.id, receipt.hostTag)
-              assertEquals(listOf(area.id), receipt.contexts)
-              mounted.countDown()
-            } catch (caught: Throwable) {
-              failure.set(caught)
-              mounted.countDown()
+        verifyMountedState = verify@{
+          if (awaitedPublication.count == 0L) return@verify
+          try {
+            val views = descendants(root)
+            val sheet = views.filterIsInstance<BottomSheetView>().singleOrNull() ?: return@verify
+            val area = views.single { it.tag == "local-area" }
+            val portalHost = views.single {
+              it.getTag(com.facebook.react.R.id.view_tag_native_id) ==
+                "__react_native_bottom_sheet_portal_host"
             }
+            assertSame(sheet, manager.resolveView(sheet.id))
+            assertFalse(root.isAttachedToWindow)
+            assertFalse(sheet.isAttachedToWindow)
+            if (mountedSheet != null) assertSame(mountedSheet, sheet)
+            mountedSheet = sheet
+            deliveredState = requireNotNull(sheet.stateWrapper)
+            sheetTag = sheet.id
+            val receipt =
+              requireNotNull(lease).receipt(surface.surfaceID, sheetTag, deliveredState)
+                ?: return@verify
+            assertTrue(receipt.publicationId.isNotEmpty())
+            assertEquals(portalHost.id, receipt.hostTag)
+            assertEquals(listOf(area.id), receipt.contexts)
+            publicationId = receipt.publicationId
+            awaitedPublication.countDown()
+          } catch (caught: Throwable) {
+            failure.set(caught)
+            awaitedPublication.countDown()
           }
+        }
+        observation = adapter.observe(boundary, verifyMountedState)
         host.onHostResume(null)
       }
       // Drain acquisition/bootstrap before React starts its first render.
@@ -105,6 +115,33 @@ class FabricPortalPublicationMountJniTest {
       started = true
       assertTrue("Production State delivery timed out", mounted.await(20, TimeUnit.SECONDS))
       failure.get()?.let { throw it }
+      val firstPublicationId = requireNotNull(publicationId)
+      val firstState = requireNotNull(deliveredState)
+      val firstSource = requireNotNull(lease)
+      onMain {
+        observation?.remove()
+        observation = null
+      }
+      onMain {
+        // The queued release ran first. Keep the mounted surface and its JS tree unchanged.
+        assertNull(firstSource.receipt(surface.surfaceID, sheetTag, firstState))
+        awaitedPublication = refreshed
+        observation =
+          adapter.observe(
+            requireNotNull(ReactNativeMountReconciliationAdapter.resolve(root)),
+            verifyMountedState,
+          )
+      }
+      onMain {
+        assertNotSame(firstSource, lease)
+        assertNull(requireNotNull(lease).receipt(surface.surfaceID, sheetTag, firstState))
+      }
+      assertTrue(
+        "Reobserved mounted State delivery timed out",
+        refreshed.await(20, TimeUnit.SECONDS),
+      )
+      failure.get()?.let { throw it }
+      assertNotEquals(firstPublicationId, publicationId)
       await(surface.stop())
       started = false
       onMain {
