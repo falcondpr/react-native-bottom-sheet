@@ -1,9 +1,12 @@
-import React from 'react';
-import { AppRegistry, View } from 'react-native';
+import React, { useLayoutEffect } from 'react';
+import { AppRegistry, NativeModules, View } from 'react-native';
 import NativeSheet from '../../src/BottomSheetNativeComponent';
 import { renderPortalHost } from '../../src/PortalHost';
 
-function MountedPublication() {
+function MountedPublication({ generation = 0, contextInWrapper = false }) {
+  useLayoutEffect(() => {
+    NativeModules.PublicationMountProbe.didCommit(generation);
+  }, [generation]);
   const sheetProps = {
     style: { flex: 1 },
     detents: [
@@ -33,11 +36,12 @@ function MountedPublication() {
       },
       React.createElement(View, {
         testID: 'local-background',
+        accessibilityLabel: `Background generation ${generation}`,
         style: { position: 'absolute', width: 20, height: 20 },
       }),
       React.createElement(
         View,
-        { style: { position: 'static' } },
+        { style: { position: contextInWrapper ? 'relative' : 'static' } },
         renderPortalHost([['one', sheet]])
       )
     ),

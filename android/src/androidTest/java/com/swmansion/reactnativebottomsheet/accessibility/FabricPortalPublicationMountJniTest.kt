@@ -2,18 +2,26 @@
 
 package com.swmansion.reactnativebottomsheet.accessibility
 
+import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.facebook.react.ReactPackage
+import com.facebook.react.bridge.NativeModule
+import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.bridge.ReactContextBaseJavaModule
+import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint
 import com.facebook.react.defaults.DefaultReactHost
 import com.facebook.react.fabric.FabricUIManager
 import com.facebook.react.interfaces.TaskInterface
+import com.facebook.react.runtime.ReactSurfaceImpl
 import com.facebook.react.shell.MainReactPackage
 import com.facebook.react.soloader.OpenSourceMergedSoMapping
 import com.facebook.react.uimanager.IllegalViewOperationException
 import com.facebook.react.uimanager.StateWrapper
+import com.facebook.react.uimanager.ViewManager
 import com.facebook.soloader.SoLoader
 import com.swmansion.reactnativebottomsheet.BottomSheetPackage
 import com.swmansion.reactnativebottomsheet.BottomSheetView
@@ -41,18 +49,27 @@ class FabricPortalPublicationMountJniTest {
     val context = InstrumentationRegistry.getInstrumentation().context
     val mounted = CountDownLatch(1)
     val refreshed = CountDownLatch(1)
+    val updated = CountDownLatch(1)
+    val committed = mapOf(1 to CountDownLatch(1), 2 to CountDownLatch(1))
     var awaitedPublication = mounted
     val failure = AtomicReference<Throwable?>()
     val host =
       DefaultReactHost.getDefaultReactHost(
         context,
-        listOf(MainReactPackage(), BottomSheetPackage()),
+        listOf(
+          MainReactPackage(),
+          BottomSheetPackage(),
+          PublicationMountProbePackage {
+            committed[it]?.countDown()
+          },
+        ),
         jsBundleAssetPath = "publication-mount.bundle",
         useDevSupport = false,
         exceptionHandler = {
           failure.set(it)
           mounted.countDown()
           refreshed.countDown()
+          updated.countDown()
         },
       )
     val surface = host.createSurface(context, "MountedPublication", null)
@@ -67,6 +84,7 @@ class FabricPortalPublicationMountJniTest {
     var sheetTag = View.NO_ID
     var mountedSheet: BottomSheetView? = null
     var publicationId: String? = null
+    var expectedWrapperContext = false
     lateinit var verifyMountedState: () -> Unit
     var started = false
     try {
@@ -101,7 +119,17 @@ class FabricPortalPublicationMountJniTest {
                 ?: return@verify
             assertTrue(receipt.publicationId.isNotEmpty())
             assertEquals(portalHost.id, receipt.hostTag)
-            assertEquals(listOf(area.id), receipt.contexts)
+            if (expectedWrapperContext) {
+              assertEquals(1, receipt.contexts.size)
+              assertNotEquals(area.id, receipt.contexts.single())
+              assertTrue(receipt.contexts.single() in receipt.ancestors)
+              assertEquals(
+                "Background generation 2",
+                views.single { it.tag == "local-background" }.contentDescription?.toString(),
+              )
+            } else {
+              assertEquals(listOf(area.id), receipt.contexts)
+            }
             assertTrue(
               "The fixture must retain a logical ancestor with no native registry view",
               receipt.ancestors.any {
@@ -156,6 +184,39 @@ class FabricPortalPublicationMountJniTest {
       )
       failure.get()?.let { throw it }
       assertNotEquals(firstPublicationId, publicationId)
+      val beforeQueuedUpdates = requireNotNull(publicationId)
+      InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+      onMain {
+        val manager =
+          requireNotNull(ReactNativeMountReconciliationAdapter.resolve(root)).identity
+            as FabricUIManager
+        val sheet = requireNotNull(mountedSheet)
+        val previousState = requireNotNull(sheet.stateWrapper)
+        // The fixture reports each generation from its React layout effect, after completeRoot.
+        // The UI thread stays occupied here, so neither native batch can execute yet.
+        for (generation in 1..2) {
+          (surface as ReactSurfaceImpl).updateInitProps(
+            Bundle().apply {
+              putInt("generation", generation)
+              putBoolean("contextInWrapper", generation == 2)
+            }
+          )
+          assertTrue(
+            "React did not commit queued generation $generation",
+            committed.getValue(generation).await(5, TimeUnit.SECONDS),
+          )
+        }
+        assertSame(previousState, sheet.stateWrapper)
+        val stillMounted =
+          requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet)
+        assertNotNull(stillMounted)
+        assertEquals(beforeQueuedUpdates, stillMounted?.publicationId)
+        expectedWrapperContext = true
+        awaitedPublication = updated
+      }
+      assertTrue("Queued production State delivery timed out", updated.await(20, TimeUnit.SECONDS))
+      failure.get()?.let { throw it }
+      assertNotEquals(beforeQueuedUpdates, publicationId)
       onMain {
         val manager =
           requireNotNull(ReactNativeMountReconciliationAdapter.resolve(root)).identity
@@ -268,4 +329,22 @@ class FabricPortalPublicationMountJniTest {
       DefaultNewArchitectureEntryPoint.load()
     }
   }
+}
+
+private class PublicationMountProbePackage(private val onCommit: (Int) -> Unit) : ReactPackage {
+  @Suppress("OVERRIDE_DEPRECATION")
+  override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> =
+    listOf(PublicationMountProbeModule(reactContext, onCommit))
+
+  override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> =
+    emptyList()
+}
+
+class PublicationMountProbeModule(
+  context: ReactApplicationContext,
+  private val onCommit: (Int) -> Unit,
+) : ReactContextBaseJavaModule(context) {
+  override fun getName() = "PublicationMountProbe"
+
+  @ReactMethod fun didCommit(generation: Int) = onCommit(generation)
 }

@@ -53,12 +53,17 @@ struct Fixture {
     return result;
   }
 
-  MountingTransaction commit(ShadowTree& tree, Children children) {
+  RootShadowNode::Shared enqueue(ShadowTree& tree, Children children) {
     auto status = tree.commit([&](const RootShadowNode& root) {
       return std::static_pointer_cast<RootShadowNode>(root.ShadowNode::clone(
           {.children = std::make_shared<const Children>(std::move(children))}));
     }, {});
     if (status != ShadowTreeCommitStatus::Succeeded) std::abort();
+    return tree.getCurrentRevision().rootShadowNode;
+  }
+
+  MountingTransaction commit(ShadowTree& tree, Children children) {
+    enqueue(tree, std::move(children));
     auto transaction = tree.getMountingCoordinator()->pullTransaction(true);
     if (!transaction) std::abort();
     return std::move(*transaction);
@@ -508,6 +513,96 @@ int main() {
            graph->hostContexts.at(13) == 24 && !graph->contexts.at(24).parent &&
            receipt && receipt->contexts == std::vector<Tag>{24} &&
            receipt->ancestors == std::vector<Tag>{14, 13, 24});
+  }
+
+  {
+    Fixture f;
+    auto& tree = f.tree();
+    auto area = f.make(11, false, "relative", {f.make(31, false, "static", {
+        f.make(13, true, "absolute", {f.make(14, true, "relative", {}, true)}, false, true)})});
+    LaterLayoutHook later(f.views, *f.context);
+    f.manager->registerCommitHook(later);
+    auto initial = delivered(f.commit(tree, {area}), 14);
+    auto initialRoot = tree.getCurrentRevision().rootShadowNode;
+    auto skippedRoot = f.enqueue(tree, initialRoot->getChildren());
+    auto skippedState = indexPortalShadowNodes(*skippedRoot)->at(14)->getState();
+    later.relative = true;
+    auto finalRoot = f.enqueue(tree, skippedRoot->getChildren());
+    auto coordinator = tree.getMountingCoordinator();
+    auto baseBeforePull = coordinator->getBaseRevision().rootShadowNode;
+    auto merged = coordinator->pullTransaction(true);
+    auto mergedState = merged ? delivered(*merged, 14) : nullptr;
+    auto receipt = f.source->receiptForState(1, 14, mergedState);
+    expect("coalesced commits deliver the final source context without substituting a skipped revision",
+           baseBeforePull == initialRoot && skippedRoot != finalRoot &&
+           mergedState && mergedState != initial && mergedState != skippedState &&
+           mergedState == indexPortalShadowNodes(*finalRoot)->at(14)->getState() &&
+           f.source->rootForStates(1, {{14, mergedState}}) == finalRoot &&
+           receipt && receipt->contexts == std::vector<Tag>{31} &&
+           !coordinator->pullTransaction(true));
+    f.manager->unregisterCommitHook(later);
+  }
+
+  {
+    Fixture f;
+    auto& tree = f.tree();
+    auto area = f.make(11, false, "relative", {f.make(31, false, "static", {
+        f.make(13, true, "absolute", {f.make(14, true, "relative", {}, true)}, false, true)})});
+    LaterLayoutHook later(f.views, *f.context);
+    f.manager->registerCommitHook(later);
+    auto first = delivered(f.commit(tree, {area}), 14);
+    auto firstRoot = tree.getCurrentRevision().rootShadowNode;
+    later.relative = true;
+    auto second = delivered(f.commit(tree, firstRoot->getChildren()), 14);
+    auto secondRoot = tree.getCurrentRevision().rootShadowNode;
+    auto thirdRoot = f.enqueue(tree, secondRoot->getChildren());
+    auto coordinator = tree.getMountingCoordinator();
+    auto firstReceipt = f.source->receiptForState(1, 14, first);
+    auto secondReceipt = f.source->receiptForState(1, 14, second);
+    expect("asynchronously pulled batches retain their exact source while both base and current revisions advance",
+           first && second && first != second &&
+           coordinator->getBaseRevision().rootShadowNode == secondRoot &&
+           tree.getCurrentRevision().rootShadowNode == thirdRoot &&
+           coordinator->hasPendingTransactions() &&
+           f.source->rootForStates(1, {{14, first}}) == firstRoot &&
+           f.source->rootForStates(1, {{14, second}}) == secondRoot &&
+           firstReceipt && firstReceipt->contexts == std::vector<Tag>{11} &&
+           secondReceipt && secondReceipt->contexts == std::vector<Tag>{31});
+    f.manager->unregisterCommitHook(later);
+  }
+
+  {
+    Fixture f;
+    auto& tree = f.tree();
+    auto area = f.make(11, false, "relative", {f.make(31, false, "static", {
+        f.make(13, true, "absolute", {f.make(14, true, "relative", {}, true)}, false, true)})});
+    LaterLayoutHook later(f.views, *f.context);
+    f.manager->registerCommitHook(later);
+    auto initial = delivered(f.commit(tree, {area}), 14);
+    auto initialRoot = tree.getCurrentRevision().rootShadowNode;
+    auto coordinator = tree.getMountingCoordinator();
+    coordinator->didPerformAsyncTransactions();
+    tree.setCommitMode(ShadowTree::CommitMode::Suspended);
+    later.relative = true;
+    f.enqueue(tree, initialRoot->getChildren());
+    auto finalRoot = f.enqueue(tree, tree.getCurrentRevision().rootShadowNode->getChildren());
+    auto oldReceipt = f.source->receiptForState(1, 14, initial);
+    bool suspended = !coordinator->hasPendingTransactions() &&
+        !coordinator->pullTransaction(true) &&
+        coordinator->getBaseRevision().rootShadowNode == initialRoot &&
+        finalRoot != initialRoot &&
+        f.source->rootForStates(1, {{14, initial}}) == initialRoot &&
+        oldReceipt && oldReceipt->contexts == std::vector<Tag>{11};
+    tree.setCommitMode(ShadowTree::CommitMode::Normal);
+    auto resumed = coordinator->pullTransaction(true);
+    auto resumedState = resumed ? delivered(*resumed, 14) : nullptr;
+    auto receipt = f.source->receiptForState(1, 14, resumedState);
+    expect("suspended mounting keeps the delivered context until resumption supplies the final merged State",
+           suspended && resumedState && resumedState != initial &&
+           resumedState == indexPortalShadowNodes(*finalRoot)->at(14)->getState() &&
+           f.source->rootForStates(1, {{14, resumedState}}) == finalRoot &&
+           receipt && receipt->contexts == std::vector<Tag>{31});
+    f.manager->unregisterCommitHook(later);
   }
 
   std::cout << "STATE RESULT tests=" << tests << " failures=" << failures << '\n';
