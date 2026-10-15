@@ -16,6 +16,8 @@ struct PortalSourceReceipt {
   std::string publicationId;
   Tag host;
   std::vector<Tag> contexts;
+  // Presentation first; ends at its nearest ModalHostView or the source root.
+  std::vector<Tag> ancestors;
 };
 
 /**

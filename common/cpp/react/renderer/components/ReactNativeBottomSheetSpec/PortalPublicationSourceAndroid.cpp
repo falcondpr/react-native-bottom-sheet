@@ -21,8 +21,10 @@ struct JFabricPortalReceipt : jni::JavaClass<JFabricPortalReceipt> {
   static jni::local_ref<JFabricPortalReceipt> create(const PortalSourceReceipt& receipt) {
     auto contexts = jni::JArrayInt::newArray(receipt.contexts.size());
     contexts->setRegion(0, receipt.contexts.size(), receipt.contexts.data());
+    auto ancestors = jni::JArrayInt::newArray(receipt.ancestors.size());
+    ancestors->setRegion(0, receipt.ancestors.size(), receipt.ancestors.data());
     return newInstance(
-        jni::make_jstring(receipt.publicationId), static_cast<jint>(receipt.host), contexts);
+        jni::make_jstring(receipt.publicationId), static_cast<jint>(receipt.host), contexts, ancestors);
   }
 };
 

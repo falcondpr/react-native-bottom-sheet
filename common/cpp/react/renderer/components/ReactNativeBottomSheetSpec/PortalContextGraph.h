@@ -13,6 +13,9 @@ inline constexpr char PortalHostNativeID[] =
 
 using PortalShadowNodeIndex = std::map<Tag, const ShadowNode*>;
 
+/** A native Modal ends source ancestry and local context inheritance. */
+bool isPortalModalHost(const ShadowNode& node);
+
 /** Index family bindings even when a host's layout cannot define a context. */
 std::optional<PortalShadowNodeIndex> indexPortalShadowNodes(const ShadowNode& root);
 

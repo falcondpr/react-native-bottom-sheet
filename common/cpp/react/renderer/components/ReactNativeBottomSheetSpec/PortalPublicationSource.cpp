@@ -168,11 +168,19 @@ std::optional<PortalSourceReceipt> PortalPublicationSource::receiptForState(
   const auto& node = *graph->nodes.at(tag);
   auto host = graph->hostForPresentation(node.getFamily(), *root);
   if (!host) return std::nullopt;
+  std::vector<Tag> ancestors{tag};
+  auto path = node.getFamily().getAncestors(*root);
+  for (auto it = path.rbegin(); it != path.rend(); ++it) {
+    const auto& ancestor = it->first.get();
+    ancestors.push_back(ancestor.getTag());
+    if (isPortalModalHost(ancestor)) break;
+  }
   const auto& concrete = static_cast<const BottomSheetViewShadowNode::ConcreteState&>(*state);
   return PortalSourceReceipt{
       concrete.getData().portalPublicationId, *host,
       graph->contextPathForNode(
-          *graph->contexts.at(graph->hostContexts.at(*host)).boundary, *root)};
+          *graph->contexts.at(graph->hostContexts.at(*host)).boundary, *root),
+      std::move(ancestors)};
 }
 
 } // namespace facebook::react::bottomsheet

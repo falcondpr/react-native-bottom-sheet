@@ -2,6 +2,7 @@
 #include <react/renderer/components/ReactNativeBottomSheetSpec/PortalPublicationSource.h>
 #include <react/renderer/components/ReactNativeBottomSheetSpec/PortalContextGraph.h>
 #include <react/renderer/components/view/ViewComponentDescriptor.h>
+#include <react/renderer/components/modal/ModalHostViewShadowNode.h>
 #include <iostream>
 
 using namespace facebook::react;
@@ -14,6 +15,10 @@ struct Fixture {
   std::shared_ptr<UIManager> manager = std::make_shared<UIManager>(RuntimeExecutor{}, context);
   ViewComponentDescriptor views{{.eventDispatcher = {}, .contextContainer = context, .flavor = nullptr}};
   BottomSheetViewComponentDescriptor sheets{{.eventDispatcher = {}, .contextContainer = context, .flavor = nullptr}};
+  // The Android descriptor's screen-size factory needs JNI. This pure host
+  // fixture uses the SDK Modal node with explicit State instead.
+  ConcreteComponentDescriptor<ModalHostViewShadowNode> modals{
+      {.eventDispatcher = {}, .contextContainer = context, .flavor = nullptr}};
   std::unique_ptr<PortalPublicationSource> source = std::make_unique<PortalPublicationSource>(manager);
   std::vector<SurfaceId> surfaces;
 
@@ -315,7 +320,9 @@ int main() {
     expect("receipts preserve one publication identity and separate local host context paths",
            a && b && !a->publicationId.empty() && a->publicationId == b->publicationId &&
            a->host == 13 && a->contexts == std::vector<Tag>{11} &&
-           b->host == 23 && b->contexts == std::vector<Tag>{21});
+           a->ancestors == std::vector<Tag>{14, 13, 11, 1} &&
+           b->host == 23 && b->contexts == std::vector<Tag>{21} &&
+           b->ancestors == std::vector<Tag>{24, 23, 21, 1});
   }
 
   {
@@ -348,7 +355,9 @@ int main() {
     auto current = f.source->receiptForState(1, 14, second);
     expect("reading a delayed receipt never substitutes the newer containing block",
            delayed && current && delayed->publicationId != current->publicationId &&
-           delayed->contexts == std::vector<Tag>{11} && current->contexts == std::vector<Tag>{31});
+           delayed->contexts == std::vector<Tag>{11} && current->contexts == std::vector<Tag>{31} &&
+           delayed->ancestors == std::vector<Tag>{14, 13, 31, 11, 1} &&
+           current->ancestors == delayed->ancestors);
     f.manager->unregisterCommitHook(later);
   }
 
@@ -425,6 +434,23 @@ int main() {
            !f.source->rootForStates(1, {{14, a}, {24, b}}) &&
            !f.source->rootForStates(1, {{24, b}, {34, nonportal}}) &&
            !f.source->rootForStates(1, {{14, a}, {24, b}, {34, nonportal}, {99, nonportal}}));
+  }
+
+  {
+    Fixture f;
+    auto& tree = f.tree();
+    auto family = f.modals.createFamily({.tag = 30, .surfaceId = 1, .instanceHandle = nullptr});
+    auto state = std::make_shared<const ModalHostViewShadowNode::ConcreteState>(
+        std::make_shared<const ModalHostViewState>(facebook::react::Size{800, 600}), family);
+    auto area = f.make(11, false, "relative", {
+        f.make(13, true, "absolute", {f.make(14, true, "relative", {}, true)}, false, true)});
+    auto modal = f.modals.createShadowNode({.props = std::make_shared<ModalHostViewProps>(),
+        .children = std::make_shared<const Children>(Children{area}), .state = state}, family);
+    auto mount = f.commit(tree, {f.make(21, false, "relative", {modal})});
+    auto receipt = f.source->receiptForState(1, 14, delivered(mount, 14));
+    expect("source ancestry ends at the native Modal owner without inheriting its JSX parent",
+           receipt && receipt->contexts == std::vector<Tag>{11} &&
+           receipt->ancestors == std::vector<Tag>{14, 13, 11, 30});
   }
 
   std::cout << "STATE RESULT tests=" << tests << " failures=" << failures << '\n';

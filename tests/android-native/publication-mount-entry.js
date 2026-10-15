@@ -31,7 +31,11 @@ function MountedPublication() {
         collapsable: false,
         style: { width: 320, height: 640, position: 'relative' },
       },
-      renderPortalHost([['one', sheet]])
+      React.createElement(
+        View,
+        { style: { position: 'static' } },
+        renderPortalHost([['one', sheet]])
+      )
     ),
     React.createElement(NativeSheet, {
       ...sheetProps,

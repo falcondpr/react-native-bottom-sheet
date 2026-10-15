@@ -12,6 +12,7 @@ import com.facebook.react.fabric.FabricUIManager
 import com.facebook.react.interfaces.TaskInterface
 import com.facebook.react.shell.MainReactPackage
 import com.facebook.react.soloader.OpenSourceMergedSoMapping
+import com.facebook.react.uimanager.IllegalViewOperationException
 import com.facebook.react.uimanager.StateWrapper
 import com.facebook.soloader.SoLoader
 import com.swmansion.reactnativebottomsheet.BottomSheetPackage
@@ -101,6 +102,17 @@ class FabricPortalPublicationMountJniTest {
             assertTrue(receipt.publicationId.isNotEmpty())
             assertEquals(portalHost.id, receipt.hostTag)
             assertEquals(listOf(area.id), receipt.contexts)
+            assertTrue(
+              "The fixture must retain a logical ancestor with no native registry view",
+              receipt.ancestors.any {
+                try {
+                  manager.resolveView(it) == null
+                } catch (_: IllegalViewOperationException) {
+                  true
+                }
+              },
+            )
+            assertNull(receipt.attachedNativePath(manager::resolveView, sheet, root.rootView))
             publicationId = receipt.publicationId
             awaitedPublication.countDown()
           } catch (caught: Throwable) {
@@ -149,6 +161,17 @@ class FabricPortalPublicationMountJniTest {
           requireNotNull(ReactNativeMountReconciliationAdapter.resolve(root)).identity
             as FabricUIManager
         val sheet = requireNotNull(mountedSheet)
+        val sourceParent = sheet.parent as ViewGroup
+        val sourceIndex = sourceParent.indexOfChild(sheet)
+        sourceParent.removeView(sheet)
+        root.addView(sheet)
+        try {
+          assertNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
+        } finally {
+          root.removeView(sheet)
+          sourceParent.addView(sheet, sourceIndex)
+        }
+        assertNotNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
         val inactive =
           descendants(root).filterIsInstance<BottomSheetView>().single {
             it.tag == "inactive-nonportal-sheet"

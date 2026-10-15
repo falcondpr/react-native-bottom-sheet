@@ -6,6 +6,12 @@ import com.facebook.proguard.annotations.DoNotStrip
 @DoNotStrip
 internal class FabricPortalReceipt
 @DoNotStrip
-constructor(val publicationId: String, val hostTag: Int, contextPath: IntArray) {
+constructor(
+  val publicationId: String,
+  val hostTag: Int,
+  contextPath: IntArray,
+  ancestorPath: IntArray,
+) {
   val contexts: List<Int> = contextPath.toList()
+  val ancestors: List<Int> = ancestorPath.toList()
 }
