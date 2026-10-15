@@ -34,16 +34,38 @@ class FabricPortalPublicationJniTest {
           assertEquals(listOf(14, 13, 31, 11, 1), receipt.ancestors)
           assertEquals(listOf(1, 11, 13, 14, 31), receipt.logicalTags)
           assertEquals(mapOf(1 to 0, 13 to 1, 14 to 13), receipt.nativeParents)
+          // Synthetic source membership tests transport, not native attachment acceptance.
+          val projection =
+            requireNotNull(
+              lease.isolation(1, mapOf(14 to state), receipt.nativeParents, mapOf(13 to listOf(14)))
+            )
+          assertEquals(emptySet<Int>(), projection.hiddenBranches)
+          assertEquals(
+            mapOf(11 to setOf(31), 31 to setOf(13), 13 to setOf(14)),
+            projection.retainedChildren,
+          )
+          val released =
+            requireNotNull(
+              lease.isolation(1, mapOf(14 to state), receipt.nativeParents, emptyMap())
+            )
+          assertEquals(emptyMap<Int, Set<Int>>(), released.retainedChildren)
+          assertNull(
+            lease.isolation(1, mapOf(14 to state), receipt.nativeParents, mapOf(13 to emptyList()))
+          )
           assertNull(lease.receipt(2, 14, mapOf(14 to state)))
           assertNull(lease.receipt(1, 99, mapOf(14 to state)))
           state.destroyState()
           assertNull(lease.receipt(1, 14, mapOf(14 to state)))
+          assertNull(
+            lease.isolation(1, mapOf(14 to state), receipt.nativeParents, mapOf(13 to listOf(14)))
+          )
           lease.release()
           lease.release()
           lease.bootstrap()
           fixture.makeWrapperContainingBlock()
           assertNull(fixture.takeDeliveredPublicationState())
           assertNull(lease.receipt(1, 14, mapOf(14 to state)))
+          assertNull(lease.isolation(1, emptyMap(), emptyMap(), emptyMap()))
         } finally {
           state.destroyState()
         }
@@ -73,6 +95,29 @@ class FabricPortalPublicationJniTest {
         assertEquals(listOf(11), oldReceipt.contexts)
         assertEquals(listOf(31), newReceipt.contexts)
         assertNotEquals(oldReceipt.publicationId, newReceipt.publicationId)
+        val oldProjection =
+          requireNotNull(
+            lease.isolation(
+              1,
+              mapOf(14 to delayed),
+              oldReceipt.nativeParents,
+              mapOf(13 to listOf(14)),
+            )
+          )
+        val newProjection =
+          requireNotNull(
+            lease.isolation(
+              1,
+              mapOf(14 to current),
+              newReceipt.nativeParents,
+              mapOf(13 to listOf(14)),
+            )
+          )
+        assertEquals(
+          mapOf(11 to setOf(31), 31 to setOf(13), 13 to setOf(14)),
+          oldProjection.retainedChildren,
+        )
+        assertEquals(mapOf(31 to setOf(13), 13 to setOf(14)), newProjection.retainedChildren)
         lease.release()
         assertNull(lease.receipt(1, 14, mapOf(14 to current)))
       } finally {
@@ -114,6 +159,17 @@ class FabricPortalPublicationJniTest {
         assertEquals(listOf(11), first.contexts)
         assertEquals(13, second.hostTag)
         assertEquals(listOf(11), second.contexts)
+        assertNull(
+          lease.isolation(1, mapOf(14 to states[0]), first.nativeParents, mapOf(13 to listOf(14)))
+        )
+        val both =
+          requireNotNull(
+            lease.isolation(1, complete, first.nativeParents, mapOf(13 to listOf(14, 15)))
+          )
+        assertEquals(setOf(14, 15), both.retainedChildren[13])
+        val one =
+          requireNotNull(lease.isolation(1, complete, first.nativeParents, mapOf(13 to listOf(14))))
+        assertEquals(setOf(15), one.hiddenBranches)
       } finally {
         states.forEach { it.destroyState() }
         lease.release()

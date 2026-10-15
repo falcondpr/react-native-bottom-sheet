@@ -45,6 +45,25 @@ private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
     mHybridData.resetNative()
   }
 
+  override fun isolation(
+    surfaceId: Int,
+    states: Map<Int, StateWrapper?>,
+    nativeParents: Map<Int, Int>,
+    retainedByHost: Map<Int, List<Int>>,
+  ): FabricPortalIsolationProjection? {
+    if (!active) return null
+    val delivered = states.toList()
+    return isolationNative(
+      surfaceId,
+      delivered.map { it.first }.toIntArray(),
+      delivered.map { it.second }.toTypedArray(),
+      nativeParents.flatMap { (child, parent) -> listOf(child, parent) }.toIntArray(),
+      retainedByHost
+        .map { (host, presentations) -> intArrayOf(host, *presentations.toIntArray()) }
+        .toTypedArray(),
+    )
+  }
+
   @DoNotStrip private external fun bootstrapNative()
 
   @DoNotStrip
@@ -57,6 +76,15 @@ private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
     tags: IntArray,
     states: Array<StateWrapper?>,
   ): FabricPortalReceipt?
+
+  @DoNotStrip
+  private external fun isolationNative(
+    surfaceId: Int,
+    tags: IntArray,
+    states: Array<StateWrapper?>,
+    nativeParents: IntArray,
+    retainedGroups: Array<IntArray>,
+  ): FabricPortalIsolationProjection?
 
   companion object {
     fun acquire(identity: Any): FabricPublicationLease? {

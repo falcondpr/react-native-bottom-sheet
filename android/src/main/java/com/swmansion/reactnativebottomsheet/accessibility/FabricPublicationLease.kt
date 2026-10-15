@@ -12,5 +12,13 @@ internal interface FabricPublicationLease {
   /** Requires every sheet's delivered State from one source revision, including inactive sheets. */
   fun receipt(surfaceId: Int, tag: Int, states: Map<Int, StateWrapper?>): FabricPortalReceipt?
 
+  /** Projection only; the caller validates native membership before supplying its parent map. */
+  fun isolation(
+    surfaceId: Int,
+    states: Map<Int, StateWrapper?>,
+    nativeParents: Map<Int, Int>,
+    retainedByHost: Map<Int, List<Int>>,
+  ): FabricPortalIsolationProjection?
+
   fun release()
 }

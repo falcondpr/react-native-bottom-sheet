@@ -197,6 +197,13 @@ class FabricPortalRegistryTest {
 
           override fun release() = Unit
 
+          override fun isolation(
+            surfaceId: Int,
+            states: Map<Int, StateWrapper?>,
+            nativeParents: Map<Int, Int>,
+            retainedByHost: Map<Int, List<Int>>,
+          ): FabricPortalIsolationProjection? = null
+
           override fun sheetTags(surfaceId: Int, tag: Int, state: StateWrapper?) =
             surfaces
               .singleOrNull { it.root.id == surfaceId }
@@ -342,6 +349,13 @@ class FabricPortalRegistryTest {
         override fun bootstrap() = Unit
 
         override fun release() = Unit
+
+        override fun isolation(
+          surfaceId: Int,
+          states: Map<Int, StateWrapper?>,
+          nativeParents: Map<Int, Int>,
+          retainedByHost: Map<Int, List<Int>>,
+        ): FabricPortalIsolationProjection? = null
 
         override fun sheetTags(surfaceId: Int, tag: Int, state: StateWrapper?) = intArrayOf(14, 24)
 

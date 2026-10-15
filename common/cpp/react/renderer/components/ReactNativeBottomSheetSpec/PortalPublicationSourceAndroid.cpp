@@ -38,6 +38,27 @@ struct JFabricPortalReceipt : jni::JavaClass<JFabricPortalReceipt> {
   }
 };
 
+struct JFabricPortalIsolationProjection : jni::JavaClass<JFabricPortalIsolationProjection> {
+  static constexpr auto kJavaDescriptor =
+      "Lcom/swmansion/reactnativebottomsheet/accessibility/FabricPortalIsolationProjection;";
+
+  static jni::local_ref<JFabricPortalIsolationProjection> create(const PortalIsolationProjection& projection) {
+    std::vector<jint> hidden(projection.hiddenBranches.begin(), projection.hiddenBranches.end());
+    auto branches = jni::JArrayInt::newArray(hidden.size());
+    branches->setRegion(0, hidden.size(), hidden.data());
+    std::vector<jint> edges;
+    for (const auto& [parent, children] : projection.retainedChildren) {
+      for (Tag child : children) {
+        edges.push_back(parent);
+        edges.push_back(child);
+      }
+    }
+    auto retained = jni::JArrayInt::newArray(edges.size());
+    retained->setRegion(0, edges.size(), edges.data());
+    return newInstance(branches, retained);
+  }
+};
+
 class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublication> {
  public:
   static constexpr auto kJavaDescriptor =
@@ -52,6 +73,7 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
         makeNativeMethod("bootstrapNative", FabricPortalPublication::bootstrapNative),
         makeNativeMethod("sheetTagsNative", FabricPortalPublication::sheetTagsNative),
         makeNativeMethod("receiptNative", FabricPortalPublication::receiptNative),
+        makeNativeMethod("isolationNative", FabricPortalPublication::isolationNative),
     });
   }
 
@@ -85,6 +107,20 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
     return wrapper->getState();
   }
 
+  static std::optional<std::map<Tag, State::Shared>> deliveredStates(
+      jni::alias_ref<jintArray> tags,
+      jni::alias_ref<jni::JArrayClass<StateWrapper::javaobject>::javaobject> objects) {
+    if (!tags || !objects || tags->size() == 0 || tags->size() != objects->size()) return std::nullopt;
+    std::vector<jint> values(tags->size());
+    tags->getRegion(0, values.size(), values.data());
+    std::map<Tag, State::Shared> states;
+    for (size_t index = 0; index < values.size(); ++index) {
+      auto state = deliveredState(objects->getElement(index));
+      if (!state || !states.emplace(values[index], std::move(state)).second) return std::nullopt;
+    }
+    return states;
+  }
+
   jni::local_ref<jintArray> sheetTagsNative(
       jint surface, jint tag, jni::alias_ref<StateWrapper::javaobject> object) {
     auto tags = source_.sheetTagsForState(surface, tag, deliveredState(object));
@@ -97,19 +133,39 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
   jni::local_ref<JFabricPortalReceipt> receiptNative(
       jint surface, jint tag, jni::alias_ref<jintArray> tags,
       jni::alias_ref<jni::JArrayClass<StateWrapper::javaobject>::javaobject> objects) {
-    if (!tags || !objects || tags->size() == 0 || tags->size() != objects->size()) return nullptr;
-    std::vector<jint> values(tags->size());
-    tags->getRegion(0, values.size(), values.data());
-    std::map<Tag, State::Shared> states;
-    for (size_t index = 0; index < values.size(); ++index) {
-      auto state = deliveredState(objects->getElement(index));
-      if (!state || !states.emplace(values[index], std::move(state)).second) return nullptr;
-    }
-    auto selected = states.find(tag);
-    if (selected == states.end() || !source_.rootForStates(surface, states)) return nullptr;
+    auto states = deliveredStates(tags, objects);
+    if (!states) return nullptr;
+    auto selected = states->find(tag);
+    if (selected == states->end() || !source_.rootForStates(surface, *states)) return nullptr;
     auto receipt = source_.receiptForState(surface, tag, selected->second);
     if (!receipt) return nullptr;
     return JFabricPortalReceipt::create(*receipt);
+  }
+
+  jni::local_ref<JFabricPortalIsolationProjection> isolationNative(
+      jint surface, jni::alias_ref<jintArray> tags,
+      jni::alias_ref<jni::JArrayClass<StateWrapper::javaobject>::javaobject> objects,
+      jni::alias_ref<jintArray> parentPairs,
+      jni::alias_ref<jni::JArrayClass<jintArray>::javaobject> retainedGroups) {
+    auto states = deliveredStates(tags, objects);
+    if (!states || !parentPairs || parentPairs->size() % 2 != 0 || !retainedGroups) return nullptr;
+    std::vector<jint> parents(parentPairs->size());
+    parentPairs->getRegion(0, parents.size(), parents.data());
+    PortalNativeMembers members;
+    for (size_t index = 0; index < parents.size(); index += 2) {
+      if (!members.parents.emplace(parents[index], parents[index + 1]).second) return nullptr;
+      members.alive.insert(parents[index]);
+    }
+    std::map<Tag, std::vector<Tag>> retained;
+    for (size_t index = 0; index < retainedGroups->size(); ++index) {
+      auto group = retainedGroups->getElement(index);
+      if (!group || group->size() == 0) return nullptr;
+      std::vector<jint> row(group->size());
+      group->getRegion(0, row.size(), row.data());
+      if (!retained.emplace(row.front(), std::vector<Tag>(row.begin() + 1, row.end())).second) return nullptr;
+    }
+    auto projection = source_.isolationForStates(surface, *states, members, retained);
+    return projection ? JFabricPortalIsolationProjection::create(*projection) : nullptr;
   }
 
   PortalPublicationSource source_;
