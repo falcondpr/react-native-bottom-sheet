@@ -124,7 +124,7 @@ def main():
                       help='Test production State delivery through an unattached ReactSurface.')
     args = parser.parse_args()
     test_class = MOUNT_TEST_CLASS if args.mount else INSTALL_TEST_CLASS if args.installation else TEST_CLASS
-    expected_tests = 1 if args.installation or args.mount else 2
+    expected_tests = 1 if args.installation or args.mount else 3
     if not args.assemble:
         physical_device()
     if args.mount:

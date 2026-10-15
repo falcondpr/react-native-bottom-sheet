@@ -21,8 +21,20 @@ private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
     if (active) bootstrapNative()
   }
 
-  override fun receipt(surfaceId: Int, tag: Int, state: StateWrapper?): FabricPortalReceipt? =
-    if (active && state != null) receiptNative(surfaceId, tag, state) else null
+  override fun receipt(
+    surfaceId: Int,
+    tag: Int,
+    states: Map<Int, StateWrapper?>,
+  ): FabricPortalReceipt? {
+    if (!active || tag !in states) return null
+    val delivered = states.toList()
+    return receiptNative(
+      surfaceId,
+      tag,
+      delivered.map { it.first }.toIntArray(),
+      delivered.map { it.second }.toTypedArray(),
+    )
+  }
 
   override fun release() {
     if (!active) return
@@ -36,7 +48,8 @@ private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
   private external fun receiptNative(
     surfaceId: Int,
     tag: Int,
-    state: StateWrapper,
+    tags: IntArray,
+    states: Array<StateWrapper?>,
   ): FabricPortalReceipt?
 
   companion object {

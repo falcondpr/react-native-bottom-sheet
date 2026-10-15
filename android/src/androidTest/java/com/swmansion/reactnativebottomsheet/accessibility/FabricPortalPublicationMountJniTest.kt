@@ -94,7 +94,8 @@ class FabricPortalPublicationMountJniTest {
             deliveredState = requireNotNull(sheet.stateWrapper)
             sheetTag = sheet.id
             val receipt =
-              requireNotNull(lease).receipt(surface.surfaceID, sheetTag, deliveredState)
+              requireNotNull(lease)
+                .receipt(surface.surfaceID, sheetTag, mapOf(sheetTag to deliveredState))
                 ?: return@verify
             assertTrue(receipt.publicationId.isNotEmpty())
             assertEquals(portalHost.id, receipt.hostTag)
@@ -124,7 +125,7 @@ class FabricPortalPublicationMountJniTest {
       }
       onMain {
         // The queued release ran first. Keep the mounted surface and its JS tree unchanged.
-        assertNull(firstSource.receipt(surface.surfaceID, sheetTag, firstState))
+        assertNull(firstSource.receipt(surface.surfaceID, sheetTag, mapOf(sheetTag to firstState)))
         awaitedPublication = refreshed
         observation =
           adapter.observe(
@@ -134,7 +135,9 @@ class FabricPortalPublicationMountJniTest {
       }
       onMain {
         assertNotSame(firstSource, lease)
-        assertNull(requireNotNull(lease).receipt(surface.surfaceID, sheetTag, firstState))
+        assertNull(
+          requireNotNull(lease).receipt(surface.surfaceID, sheetTag, mapOf(sheetTag to firstState))
+        )
       }
       assertTrue(
         "Reobserved mounted State delivery timed out",
@@ -145,7 +148,10 @@ class FabricPortalPublicationMountJniTest {
       await(surface.stop())
       started = false
       onMain {
-        assertNull(requireNotNull(lease).receipt(surface.surfaceID, sheetTag, deliveredState))
+        assertNull(
+          requireNotNull(lease)
+            .receipt(surface.surfaceID, sheetTag, mapOf(sheetTag to deliveredState))
+        )
       }
     } finally {
       try {

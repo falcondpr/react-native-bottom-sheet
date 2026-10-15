@@ -6,7 +6,8 @@ import com.facebook.react.uimanager.StateWrapper
 internal interface FabricPublicationLease {
   fun bootstrap()
 
-  fun receipt(surfaceId: Int, tag: Int, state: StateWrapper?): FabricPortalReceipt?
+  /** Requires every sheet's delivered State from one source revision, including inactive sheets. */
+  fun receipt(surfaceId: Int, tag: Int, states: Map<Int, StateWrapper?>): FabricPortalReceipt?
 
   fun release()
 }

@@ -58,8 +58,7 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
     source_.bootstrap();
   }
 
-  jni::local_ref<JFabricPortalReceipt> receiptNative(
-      jint surface, jint tag, jni::alias_ref<StateWrapper::javaobject> object) {
+  static State::Shared deliveredState(jni::alias_ref<StateWrapper::javaobject> object) {
     if (!object || !object->isInstanceOf(StateWrapperImpl::javaClassStatic())) return nullptr;
     StateWrapperImpl* wrapper;
     try {
@@ -70,7 +69,23 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
       return nullptr;
     }
     // The delivered State must not be replaced by the family's newest State.
-    auto receipt = source_.receiptForState(surface, tag, wrapper->getState());
+    return wrapper->getState();
+  }
+
+  jni::local_ref<JFabricPortalReceipt> receiptNative(
+      jint surface, jint tag, jni::alias_ref<jintArray> tags,
+      jni::alias_ref<jni::JArrayClass<StateWrapper::javaobject>::javaobject> objects) {
+    if (!tags || !objects || tags->size() == 0 || tags->size() != objects->size()) return nullptr;
+    std::vector<jint> values(tags->size());
+    tags->getRegion(0, values.size(), values.data());
+    std::map<Tag, State::Shared> states;
+    for (size_t index = 0; index < values.size(); ++index) {
+      auto state = deliveredState(objects->getElement(index));
+      if (!state || !states.emplace(values[index], std::move(state)).second) return nullptr;
+    }
+    auto selected = states.find(tag);
+    if (selected == states.end() || !source_.rootForStates(surface, states)) return nullptr;
+    auto receipt = source_.receiptForState(surface, tag, selected->second);
     if (!receipt) return nullptr;
     return JFabricPortalReceipt::create(*receipt);
   }

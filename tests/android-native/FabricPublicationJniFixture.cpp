@@ -43,6 +43,8 @@ class FabricPublicationJniFixture final : public jni::HybridClass<FabricPublicat
             "makeWrapperContainingBlock", FabricPublicationJniFixture::makeWrapperContainingBlock),
         makeNativeMethod(
             "hasNewerStateInSameFamily", FabricPublicationJniFixture::hasNewerStateInSameFamily),
+        makeNativeMethod(
+            "addSecondSheetAndTakeDeliveredStates", FabricPublicationJniFixture::addSecondSheetAndTakeDeliveredStates),
     });
   }
 
@@ -97,6 +99,39 @@ class FabricPublicationJniFixture final : public jni::HybridClass<FabricPublicat
       return std::static_pointer_cast<RootShadowNode>(root.cloneTree(wrapper.getFamily(),
           [&](const ShadowNode& node) { return node.clone({.props = props}); }));
     });
+  }
+
+  jni::local_ref<jni::JArrayClass<StateWrapper::javaobject>::javaobject>
+  addSecondSheetAndTakeDeliveredStates() {
+    auto second = make(15, "relative", {}, true);
+    commit([&](const RootShadowNode& root) {
+      const auto& host = *bottomsheet::indexPortalShadowNodes(root)->at(13);
+      auto children = host.getChildren();
+      children.push_back(second);
+      return std::static_pointer_cast<RootShadowNode>(root.cloneTree(host.getFamily(),
+          [&](const ShadowNode& node) {
+            return node.clone({.children = std::make_shared<const Children>(children)});
+          }));
+    });
+    auto transaction = tree_->getMountingCoordinator()->pullTransaction(true);
+    std::map<Tag, State::Shared> states;
+    if (transaction) {
+      for (const auto& mutation : transaction->getMutations()) {
+        const auto& child = mutation.newChildShadowView;
+        if ((child.tag == 14 || child.tag == 15) && child.state) {
+          states.insert_or_assign(child.tag, child.state);
+        }
+      }
+    }
+    if (states.size() != 2) throw std::runtime_error("Missing two delivered sheet States");
+    auto result = jni::JArrayClass<StateWrapper::javaobject>::newArray(states.size());
+    size_t index = 0;
+    for (const auto& [tag, state] : states) {
+      auto wrapper = StateWrapperImpl::newObjectJavaArgs();
+      wrapper->cthis()->setState(state);
+      result->setElement(index++, jni::static_ref_cast<StateWrapper::jhybridobject>(wrapper).get());
+    }
+    return result;
   }
 
   jboolean hasNewerStateInSameFamily(

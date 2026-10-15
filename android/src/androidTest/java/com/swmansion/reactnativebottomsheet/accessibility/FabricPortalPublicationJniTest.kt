@@ -27,20 +27,20 @@ class FabricPortalPublicationJniTest {
         lease.bootstrap()
         val state = requireNotNull(fixture.takeDeliveredPublicationState())
         try {
-          val receipt = requireNotNull(lease.receipt(1, 14, state))
+          val receipt = requireNotNull(lease.receipt(1, 14, mapOf(14 to state)))
           assertTrue(receipt.publicationId.isNotEmpty())
           assertEquals(13, receipt.hostTag)
           assertEquals(listOf(11), receipt.contexts)
-          assertNull(lease.receipt(2, 14, state))
-          assertNull(lease.receipt(1, 99, state))
+          assertNull(lease.receipt(2, 14, mapOf(14 to state)))
+          assertNull(lease.receipt(1, 99, mapOf(14 to state)))
           state.destroyState()
-          assertNull(lease.receipt(1, 14, state))
+          assertNull(lease.receipt(1, 14, mapOf(14 to state)))
           lease.release()
           lease.release()
           lease.bootstrap()
           fixture.makeWrapperContainingBlock()
           assertNull(fixture.takeDeliveredPublicationState())
-          assertNull(lease.receipt(1, 14, state))
+          assertNull(lease.receipt(1, 14, mapOf(14 to state)))
         } finally {
           state.destroyState()
         }
@@ -65,13 +65,13 @@ class FabricPortalPublicationJniTest {
           "The delayed wrapper must have a newer State in the same family",
           fixture.hasNewerStateInSameFamily(delayed, current),
         )
-        val oldReceipt = requireNotNull(lease.receipt(1, 14, delayed))
-        val newReceipt = requireNotNull(lease.receipt(1, 14, current))
+        val oldReceipt = requireNotNull(lease.receipt(1, 14, mapOf(14 to delayed)))
+        val newReceipt = requireNotNull(lease.receipt(1, 14, mapOf(14 to current)))
         assertEquals(listOf(11), oldReceipt.contexts)
         assertEquals(listOf(31), newReceipt.contexts)
         assertNotEquals(oldReceipt.publicationId, newReceipt.publicationId)
         lease.release()
-        assertNull(lease.receipt(1, 14, current))
+        assertNull(lease.receipt(1, 14, mapOf(14 to current)))
       } finally {
         delayed?.destroyState()
         current?.destroyState()
@@ -90,6 +90,32 @@ class FabricPortalPublicationJniTest {
       }
     }
     failure?.let { throw it }
+  }
+
+  @Test
+  fun sourceAgreementRejectsAnIncompleteDeliveredSheetInventory() = onMain {
+    FabricPublicationJniFixture.create().use { fixture ->
+      val lease = fixture.lease()
+      var states = emptyArray<StateWrapper>()
+      try {
+        lease.bootstrap()
+        states = fixture.addSecondSheetAndTakeDeliveredStates()
+        assertEquals(2, states.size)
+        val complete = mapOf(14 to states[0], 15 to states[1])
+        assertNull(lease.receipt(1, 14, mapOf(14 to states[0])))
+        assertNull(lease.receipt(1, 14, mapOf(14 to states[0], 15 to null)))
+        val first = requireNotNull(lease.receipt(1, 14, complete))
+        val second = requireNotNull(lease.receipt(1, 15, complete))
+        assertEquals(first.publicationId, second.publicationId)
+        assertEquals(13, first.hostTag)
+        assertEquals(listOf(11), first.contexts)
+        assertEquals(13, second.hostTag)
+        assertEquals(listOf(11), second.contexts)
+      } finally {
+        states.forEach { it.destroyState() }
+        lease.release()
+      }
+    }
   }
 
   companion object {
@@ -115,6 +141,8 @@ private constructor(private val mHybridData: HybridData) : AutoCloseable {
   external fun makeWrapperContainingBlock()
 
   external fun hasNewerStateInSameFamily(delivered: StateWrapper, current: StateWrapper): Boolean
+
+  external fun addSecondSheetAndTakeDeliveredStates(): Array<StateWrapper>
 
   override fun close() = mHybridData.resetNative()
 
