@@ -150,6 +150,7 @@ class FabricPortalPublicationMountJniTest {
                   root.rootView,
                 )
             )
+            assertNull(requireNotNull(observation).readPortalReceipts(root.rootView, listOf(sheet)))
             publicationId = receipt.publicationId
             awaitedPublication.countDown()
           } catch (caught: Throwable) {

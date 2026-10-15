@@ -5,6 +5,7 @@ import androidx.annotation.UiThread
 import com.facebook.react.bridge.UIManager
 import com.facebook.react.uimanager.IllegalViewOperationException
 import com.facebook.react.uimanager.StateWrapper
+import com.facebook.react.uimanager.UIManagerHelper
 import com.swmansion.reactnativebottomsheet.BottomSheetView
 
 /**
@@ -60,6 +61,22 @@ internal fun FabricPublicationLease.attachedReceiptsFromRegistry(
     if (receipt.attachedNativePath(manager::resolveView, presentation, windowRoot) == null)
       return null
     receipts[presentation] = receipt
+  }
+  return receipts
+}
+
+/** Reads every supplied owner across this manager's surfaces, or rejects the complete group. */
+@UiThread
+internal fun FabricPublicationLease.attachedReceiptsFromRegistry(
+  manager: UIManager,
+  presentations: Collection<BottomSheetView>,
+  windowRoot: View,
+): Map<BottomSheetView, FabricPortalReceipt>? {
+  val receipts = mutableMapOf<BottomSheetView, FabricPortalReceipt>()
+  for ((surface, owners) in presentations.groupBy(UIManagerHelper::getSurfaceId)) {
+    if (surface <= 0) return null
+    val group = attachedReceiptsFromRegistry(manager, surface, owners, windowRoot) ?: return null
+    receipts.putAll(group)
   }
   return receipts
 }

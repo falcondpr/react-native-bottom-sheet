@@ -49,6 +49,7 @@ internal object PortalAccessibilityIsolationCoordinator {
         callback.observation =
           ReactNativeMountReconciliationAdapter.shared.observe(callbacks, callback)
         mountCallbacks[root] = callback
+        callback.observation?.requestReconciliation()
       }
       reconciler.reconcile(scopes, isCurrent)
     }

@@ -5,7 +5,9 @@ package com.swmansion.reactnativebottomsheet.accessibility
 
 import android.os.Handler
 import android.os.Looper
+import android.view.View
 import android.view.ViewGroup
+import androidx.annotation.UiThread
 import com.facebook.react.ReactRootView
 import com.facebook.react.bridge.UIManager
 import com.facebook.react.bridge.UIManagerListener
@@ -15,6 +17,7 @@ import com.facebook.react.uimanager.UIManagerHelper
 import com.facebook.react.uimanager.UIManagerModule
 import com.facebook.react.uimanager.common.UIManagerType
 import com.facebook.react.uimanager.common.ViewUtil
+import com.swmansion.reactnativebottomsheet.BottomSheetView
 import java.util.IdentityHashMap
 
 /** Small compatibility boundary around React Native's unstable UIManager listener surface. */
@@ -37,7 +40,17 @@ internal class ReactNativeMountReconciliationAdapter(
   private val acquirePublicationSource: (Any) -> FabricPublicationLease? =
     FabricPortalPublication::acquire,
 ) {
+  @UiThread
   internal interface Observation {
+    /** Presentation lifecycle changes use the same coalesced queue as mount events. */
+    fun requestReconciliation()
+
+    /** Read current supplied owners from queued reconciliation, using this manager's source. */
+    fun readPortalReceipts(
+      windowRoot: View,
+      presentations: Collection<BottomSheetView>,
+    ): Map<BottomSheetView, FabricPortalReceipt>?
+
     fun remove()
   }
 
@@ -110,6 +123,21 @@ internal class ReactNativeMountReconciliationAdapter(
     if (boundary.isFabric) state.scheduleWork()
     return object : Observation {
       private var active = true
+
+      override fun requestReconciliation() {
+        if (active) state.scheduleReconciliation()
+      }
+
+      override fun readPortalReceipts(
+        windowRoot: View,
+        presentations: Collection<BottomSheetView>,
+      ): Map<BottomSheetView, FabricPortalReceipt>? {
+        if (!active || !state.active) return null
+        if (presentations.isEmpty()) return emptyMap()
+        val source = state.publicationSource ?: return null
+        val manager = state.boundary.identity as? UIManager ?: return null
+        return source.attachedReceiptsFromRegistry(manager, presentations, windowRoot)
+      }
 
       override fun remove() {
         if (!active) return

@@ -92,6 +92,150 @@ class FabricPortalRegistryTest {
   }
 
   @Test
+  fun `queued observation reads all supplied owners from its own current source`() {
+    Fixture().use { f ->
+      val window = f.a.rootView
+      var result: Map<BottomSheetView, FabricPortalReceipt>? = null
+      lateinit var observation: ReactNativeMountReconciliationAdapter.Observation
+      observation =
+        f.adapter.observe(f.boundary) {
+          result = observation.readPortalReceipts(window, listOf(f.a, f.b))
+        }
+      try {
+        f.mountListener?.didMountItems(f.manager)
+        assertNull(result)
+        f.posted.removeAt(0).run()
+        assertEquals(setOf(f.a, f.b), result?.keys)
+        assertEquals(listOf(11), result?.get(f.a)?.contexts)
+        assertEquals(listOf(21), result?.get(f.b)?.contexts)
+      } finally {
+        observation.remove()
+      }
+    }
+  }
+
+  @Test
+  fun `lifecycle requests read the current owner group once and stop with the observation`() {
+    Fixture().use { f ->
+      val window = f.a.rootView
+      var owners = listOf(f.a)
+      var result: Map<BottomSheetView, FabricPortalReceipt>? = null
+      lateinit var observation: ReactNativeMountReconciliationAdapter.Observation
+      observation =
+        f.adapter.observe(f.boundary) {
+          result = observation.readPortalReceipts(window, owners)
+        }
+      observation.requestReconciliation()
+      owners = listOf(f.a, f.b)
+      observation.requestReconciliation()
+      assertNull(result)
+      while (f.posted.isNotEmpty()) f.posted.removeAt(0).run()
+      assertEquals(setOf(f.a, f.b), result?.keys)
+
+      result = null
+      observation.requestReconciliation()
+      observation.remove()
+      while (f.posted.isNotEmpty()) f.posted.removeAt(0).run()
+      assertNull(result)
+      assertNull(observation.readPortalReceipts(window, emptyList()))
+      observation.requestReconciliation()
+      assertEquals(0, f.posted.size)
+    }
+  }
+
+  @Test
+  fun `an observation cannot read before acquisition or after it is removed`() {
+    Fixture().use { f ->
+      val window = f.a.rootView
+      f.observation.remove()
+      val replacement = f.adapter.observe(f.boundary) {}
+      try {
+        assertNull(replacement.readPortalReceipts(window, listOf(f.a, f.b)))
+        while (f.posted.isNotEmpty()) f.posted.removeAt(0).run()
+        assertEquals(
+          setOf(f.a, f.b),
+          replacement.readPortalReceipts(window, listOf(f.a, f.b))?.keys,
+        )
+        assertEquals(
+          emptyMap<BottomSheetView, FabricPortalReceipt>(),
+          replacement.readPortalReceipts(window, emptyList()),
+        )
+        assertNull(f.observation.readPortalReceipts(window, listOf(f.a)))
+      } finally {
+        replacement.remove()
+      }
+      assertNull(replacement.readPortalReceipts(window, listOf(f.a, f.b)))
+      assertNull(replacement.readPortalReceipts(window, emptyList()))
+    }
+  }
+
+  @Test
+  fun `all surfaces in one manager must agree before a window group is returned`() {
+    val activity = Robolectric.buildActivity(Activity::class.java).setup()
+    val reactContext = BridgeReactContext(activity.get().applicationContext)
+    val window = FrameLayout(activity.get())
+    val surfaces =
+      listOf(
+        Surface(activity.get(), reactContext, 2, 10, 12, 14),
+        Surface(activity.get(), reactContext, 4, 20, 22, 24),
+      )
+    try {
+      surfaces.forEach { window.addView(it.root) }
+      activity.get().setContentView(window)
+      val registry = surfaces.flatMap { it.registry.entries }.associate { it.toPair() }
+      val manager =
+        Proxy.newProxyInstance(
+          UIManager::class.java.classLoader,
+          arrayOf(UIManager::class.java),
+        ) { _, method, args ->
+          if (method.name == "resolveView") registry[args!![0] as Int] else null
+        } as UIManager
+      val requestedSurfaces = mutableSetOf<Int>()
+      val source =
+        object : FabricPublicationLease {
+          override fun bootstrap() = Unit
+
+          override fun release() = Unit
+
+          override fun sheetTags(surfaceId: Int, tag: Int, state: StateWrapper?) =
+            surfaces
+              .singleOrNull { it.root.id == surfaceId }
+              ?.let {
+                intArrayOf(it.sheet.id)
+              }
+
+          override fun receipt(
+            surfaceId: Int,
+            tag: Int,
+            states: Map<Int, StateWrapper?>,
+          ): FabricPortalReceipt? {
+            val surface = surfaces.singleOrNull { it.root.id == surfaceId } ?: return null
+            if (states.keys != setOf(surface.sheet.id) || states.values.any { it == null })
+              return null
+            requestedSurfaces.add(surfaceId)
+            return surface.receipt
+          }
+        }
+      val owners = surfaces.map { it.sheet }
+      assertEquals(
+        setOf(owners[0], owners[1]),
+        source.attachedReceiptsFromRegistry(manager, owners, window.rootView)?.keys,
+      )
+      assertEquals(setOf(2, 4), requestedSurfaces)
+      window.removeView(surfaces[1].root)
+      assertNull(source.attachedReceiptsFromRegistry(manager, owners, window.rootView))
+      window.addView(surfaces[1].root)
+      assertEquals(
+        setOf(owners[0], owners[1]),
+        source.attachedReceiptsFromRegistry(manager, owners, window.rootView)?.keys,
+      )
+    } finally {
+      surfaces.forEach { it.sheet.destroy() }
+      activity.close()
+    }
+  }
+
+  @Test
   fun `queued reconciliation rejects the hierarchy as it exists when work executes`() {
     Fixture().use { f ->
       val window = f.a.rootView
@@ -111,6 +255,53 @@ class FabricPortalRegistryTest {
       } finally {
         observation.remove()
       }
+    }
+  }
+
+  private class Surface(
+    context: android.content.Context,
+    reactContext: BridgeReactContext,
+    surfaceId: Int,
+    areaTag: Int,
+    hostTag: Int,
+    sheetTag: Int,
+  ) {
+    val root = TestReactRoot(context).apply { id = surfaceId }
+    val area = FrameLayout(context).apply { id = areaTag }
+    val host =
+      FrameLayout(context).apply {
+        id = hostTag
+        setTag(
+          com.facebook.react.R.id.view_tag_native_id,
+          "__react_native_bottom_sheet_portal_host",
+        )
+      }
+    val sheet =
+      BottomSheetView(ThemedReactContext(reactContext, context, "test", surfaceId)).apply {
+        id = sheetTag
+        stateWrapper =
+          Proxy.newProxyInstance(
+            StateWrapper::class.java.classLoader,
+            arrayOf(StateWrapper::class.java),
+          ) { _, _, _ ->
+            null
+          } as StateWrapper
+      }
+    val registry = listOf(root, area, host, sheet).associateBy { it.id }
+    val receipt =
+      FabricPortalReceipt(
+        "source:$surfaceId",
+        hostTag,
+        intArrayOf(areaTag),
+        intArrayOf(sheetTag, hostTag, areaTag, surfaceId),
+        intArrayOf(surfaceId, areaTag, hostTag, sheetTag),
+        intArrayOf(surfaceId, 0, areaTag, surfaceId, hostTag, areaTag, sheetTag, hostTag),
+      )
+
+    init {
+      host.addView(sheet)
+      area.addView(host)
+      root.addView(area)
     }
   }
 
