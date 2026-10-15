@@ -1,5 +1,6 @@
 package com.swmansion.reactnativebottomsheet.accessibility
 
+import android.view.View
 import androidx.annotation.UiThread
 import com.facebook.react.bridge.UIManager
 import com.facebook.react.uimanager.IllegalViewOperationException
@@ -35,4 +36,27 @@ internal fun FabricPublicationLease.receiptFromRegistry(
     it.nativeMembers(manager::resolveView) != null &&
       it.nativePath(manager::resolveView, presentation) != null
   }
+}
+
+/**
+ * Requires every supplied owner in one surface/window or rejects the group. Ownership comes from
+ * the caller; source discovery still includes all sheets. Empty input returns an empty release
+ * result. This adds current owner attachment/window checks, not full applied-root/family
+ * acceptance.
+ */
+@UiThread
+internal fun FabricPublicationLease.attachedReceiptsFromRegistry(
+  manager: UIManager,
+  surfaceId: Int,
+  presentations: Collection<BottomSheetView>,
+  windowRoot: View,
+): Map<BottomSheetView, FabricPortalReceipt>? {
+  val receipts = mutableMapOf<BottomSheetView, FabricPortalReceipt>()
+  for (presentation in presentations) {
+    val receipt = receiptFromRegistry(manager, surfaceId, presentation) ?: return null
+    if (receipt.attachedNativePath(manager::resolveView, presentation, windowRoot) == null)
+      return null
+    receipts[presentation] = receipt
+  }
+  return receipts
 }

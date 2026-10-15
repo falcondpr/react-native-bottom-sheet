@@ -141,6 +141,15 @@ class FabricPortalPublicationMountJniTest {
               },
             )
             assertNull(receipt.attachedNativePath(manager::resolveView, sheet, root.rootView))
+            assertNull(
+              requireNotNull(lease)
+                .attachedReceiptsFromRegistry(
+                  manager,
+                  surface.surfaceID,
+                  listOf(sheet),
+                  root.rootView,
+                )
+            )
             publicationId = receipt.publicationId
             awaitedPublication.countDown()
           } catch (caught: Throwable) {
