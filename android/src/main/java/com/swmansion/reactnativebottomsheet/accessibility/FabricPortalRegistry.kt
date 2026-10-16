@@ -76,19 +76,19 @@ internal fun FabricPublicationLease.attachedReceiptsFromRegistry(
 }
 
 /**
- * Reads source projections after validating every supplied owner's source structure and window.
- * Retained paths are caller-owned. Results are consumed in the current UI work, not cached as
- * accepted native cuts; native-only sibling composition and final mask validation remain separate.
+ * Reads per-surface native branches after validating every supplied owner's source and window.
+ * Retained paths are caller-owned. Consume in the current UI work; cross-source composition and
+ * final mutation-time validation remain separate from this readonly proposal.
  */
 @UiThread
-internal fun FabricPublicationLease.attachedIsolationFromRegistry(
+internal fun FabricPublicationLease.attachedIsolationBranchesFromRegistry(
   manager: UIManager,
   presentations: Collection<BottomSheetView>,
   retainedPresentations: Collection<BottomSheetView>,
   windowRoot: View,
-): Map<Int, FabricPortalIsolationProjection>? {
+): Map<Int, Set<View>>? {
   if (!presentations.toSet().containsAll(retainedPresentations)) return null
-  val projections = mutableMapOf<Int, FabricPortalIsolationProjection>()
+  val branchesBySurface = mutableMapOf<Int, Set<View>>()
   for ((surface, owners) in presentations.groupBy(UIManagerHelper::getSurfaceId)) {
     if (surface <= 0) return null
     val states = deliveredStatesFromRegistry(manager, surface, owners.first()) ?: return null
@@ -105,10 +105,11 @@ internal fun FabricPublicationLease.attachedIsolationFromRegistry(
         .filter(receipts::containsKey)
         .groupBy { receipts.getValue(it).hostTag }
         .mapValues { (_, retained) -> retained.map { it.id } }
-    projections[surface] =
-      isolation(surface, states, source.nativeParents, retainedByHost) ?: return null
+    val projection = isolation(surface, states, source.nativeParents, retainedByHost) ?: return null
+    branchesBySurface[surface] =
+      source.nativeIsolationBranches(projection, manager::resolveView, windowRoot) ?: return null
   }
-  return projections
+  return branchesBySurface
 }
 
 /** Reads every supplied owner across this manager's surfaces, or rejects the complete group. */

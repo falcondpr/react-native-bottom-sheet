@@ -153,7 +153,7 @@ class FabricPortalPublicationMountJniTest {
             assertNull(requireNotNull(observation).readPortalReceipts(root.rootView, listOf(sheet)))
             assertNull(
               requireNotNull(observation)
-                .readPortalIsolation(
+                .readPortalIsolationBranches(
                   root.rootView,
                   listOf(sheet),
                   listOf(sheet),

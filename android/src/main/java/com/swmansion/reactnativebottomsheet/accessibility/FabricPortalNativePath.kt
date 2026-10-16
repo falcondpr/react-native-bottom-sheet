@@ -138,7 +138,12 @@ internal fun FabricPortalReceipt.attachedNativePath(
 ): List<View>? {
   val path = nativePath(resolveView, presentation) ?: return null
   val token = windowRoot.windowToken ?: return null
-  if (!windowRoot.isAttachedToWindow || windowRoot.rootView !== windowRoot) return null
+  if (
+    !windowRoot.isAttachedToWindow ||
+      windowRoot.rootView !== windowRoot ||
+      windowRoot.windowToken == null
+  )
+    return null
   if (
     path.any {
       !it.isAttachedToWindow || it.windowToken !== token || it.rootView !== windowRoot
@@ -146,4 +151,108 @@ internal fun FabricPortalReceipt.attachedNativePath(
   )
     return null
   return path
+}
+
+/** Maps a current source projection to native frontiers without mutating accessibility state. */
+@UiThread
+internal fun FabricPortalReceipt.nativeIsolationBranches(
+  projection: FabricPortalIsolationProjection,
+  resolveView: (Int) -> View?,
+  windowRoot: View,
+): Set<View>? {
+  if (!windowRoot.isAttachedToWindow || windowRoot.rootView !== windowRoot) return null
+  val members = nativeMembers(resolveView) ?: return null
+  val logical = logicalTags.toSet()
+  if (
+    projection.retainedChildren.any { (parent, children) ->
+      parent !in logical || children.any { it !in logical }
+    }
+  )
+    return null
+  val protected = nativeIdentitySet()
+  for (tag in projection.retainedChildren.values.flatten().toSet()) {
+    val view = members[tag] ?: continue // Flattened edges stay logical.
+    protected.addAll(view.currentWindowPath(windowRoot) ?: return null)
+  }
+  val branches = nativeIdentitySet()
+  for (tag in projection.hiddenBranches) branches.add(members[tag] ?: return null)
+  val childrenByParent = nativeParents.entries.groupBy({ it.value }, { it.key })
+  for (parent in projection.retainedChildren.keys) {
+    val view = members[parent] ?: continue // Never substitute a materialized ancestor.
+    val group = view as? ViewGroup ?: return null
+    val containers = Collections.newSetFromMap(IdentityHashMap<ViewGroup, Boolean>())
+    containers.add(group)
+    for (tag in childrenByParent[parent].orEmpty()) {
+      var child = members[tag] ?: return null
+      val seen = nativeIdentitySet()
+      while (true) {
+        val container = child.parent as? ViewGroup ?: return null
+        if (!seen.add(container)) return null
+        if (container === group) break
+        if (container.isManagedContainer(group, child)) {
+          containers.add(container)
+          break
+        }
+        child = container
+      }
+    }
+    val pending = ArrayDeque<View>()
+    for (container in containers) {
+      pending.addAll(container.currentNativeChildren() ?: return null)
+    }
+    while (pending.isNotEmpty()) {
+      val child = pending.removeLast()
+      if (members[child.id] === child) continue // Source frontiers were projected in C++.
+      if (child !in protected) {
+        branches.add(child)
+      } else {
+        val container = child as? ViewGroup ?: return null
+        pending.addAll(container.currentNativeChildren() ?: return null)
+      }
+    }
+  }
+  val result = nativeIdentitySet()
+  for (branch in branches) {
+    if (branch in protected) return null
+    val path = branch.currentWindowPath(windowRoot) ?: return null
+    if (path.drop(1).none { it in branches }) result.add(branch)
+  }
+  return result
+}
+
+private fun nativeIdentitySet(): MutableSet<View> =
+  Collections.newSetFromMap(IdentityHashMap<View, Boolean>())
+
+private fun View.currentWindowPath(windowRoot: View): List<View>? {
+  val token = windowRoot.windowToken ?: return null
+  val path = mutableListOf<View>()
+  var current = this
+  while (true) {
+    if (
+      path.any { it === current } ||
+        !current.isAttachedToWindow ||
+        current.windowToken !== token ||
+        current.rootView !== windowRoot
+    )
+      return null
+    path.add(current)
+    if (current === windowRoot) return path
+    val parent = current.parent as? ViewGroup ?: return null
+    val index = parent.indexOfChild(current)
+    if (index < 0 || parent.getChildAt(index) !== current) return null
+    current = parent
+  }
+}
+
+private fun ViewGroup.currentNativeChildren(): List<View>? {
+  val children = mutableListOf<View>()
+  for (index in 0 until childCount) {
+    val child = getChildAt(index) ?: return null
+    val parent = child.parent as? ViewGroup ?: return null
+    val actualIndex = parent.indexOfChild(child)
+    if (actualIndex < 0 || parent.getChildAt(actualIndex) !== child) return null
+    if (parent !== this && !parent.isManagedContainer(this, child)) return null
+    children.add(child)
+  }
+  return children
 }

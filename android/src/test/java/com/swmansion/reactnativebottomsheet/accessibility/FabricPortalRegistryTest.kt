@@ -147,11 +147,13 @@ class FabricPortalRegistryTest {
   fun `queued observation projects current supplied owners using validated source members`() {
     Fixture().use { f ->
       val window = f.a.rootView
-      var result: Map<Int, FabricPortalIsolationProjection>? = null
+      val chrome = View(f.activity.get()).also(f.areaA::addView)
+      var result: Map<Int, Set<View>>? = null
       lateinit var observation: ReactNativeMountReconciliationAdapter.Observation
       observation =
         f.adapter.observe(f.boundary) {
-          result = observation.readPortalIsolation(window, listOf(f.a, f.b), listOf(f.a, f.b))
+          result =
+            observation.readPortalIsolationBranches(window, listOf(f.a, f.b), listOf(f.a, f.b))
         }
       try {
         observation.requestReconciliation()
@@ -161,7 +163,7 @@ class FabricPortalRegistryTest {
         f.posted.removeAt(0).run()
 
         assertEquals(setOf(2), result?.keys)
-        assertSame(f.projectionResult, result?.get(2))
+        assertEquals(setOf(chrome), result?.get(2))
         assertSame(current, f.projectionStates?.get(14))
         assertSame(current, f.projectionStates?.get(24))
         assertEquals(mapOf(13 to listOf(14), 23 to listOf(24)), f.projectionRetained)
@@ -178,20 +180,20 @@ class FabricPortalRegistryTest {
     Fixture().use { f ->
       val window = f.a.rootView
       f.projectionResult = FabricPortalIsolationProjection(intArrayOf(), intArrayOf(11, 13, 13, 14))
-      assertSame(
-        f.projectionResult,
-        f.observation.readPortalIsolation(window, listOf(f.a), listOf(f.a))?.get(2),
+      assertEquals(
+        emptySet<View>(),
+        f.observation.readPortalIsolationBranches(window, listOf(f.a), listOf(f.a))?.get(2),
       )
       assertEquals(setOf(14, 24), f.projectionStates?.keys)
       assertEquals(mapOf(13 to listOf(14)), f.projectionRetained)
-      assertNull(f.observation.readPortalIsolation(window, listOf(f.a), listOf(f.b)))
+      assertNull(f.observation.readPortalIsolationBranches(window, listOf(f.a), listOf(f.b)))
 
       val state = f.b.stateWrapper
       f.b.stateWrapper = null
-      assertNull(f.observation.readPortalIsolation(window, listOf(f.a), listOf(f.a)))
+      assertNull(f.observation.readPortalIsolationBranches(window, listOf(f.a), listOf(f.a)))
       f.b.stateWrapper = state
       f.projectionResult = null
-      assertNull(f.observation.readPortalIsolation(window, listOf(f.a), listOf(f.a)))
+      assertNull(f.observation.readPortalIsolationBranches(window, listOf(f.a), listOf(f.a)))
     }
   }
 
@@ -199,16 +201,20 @@ class FabricPortalRegistryTest {
   fun `projection validates every supplied owner and the source edges of unretained sheets`() {
     Fixture().use { f ->
       val window = f.a.rootView
-      assertNotNull(f.observation.readPortalIsolation(window, listOf(f.a, f.b), listOf(f.a)))
-      assertNull(f.observation.readPortalIsolation(f.root, listOf(f.a), listOf(f.a)))
+      assertNotNull(
+        f.observation.readPortalIsolationBranches(window, listOf(f.a, f.b), listOf(f.a))
+      )
+      assertNull(f.observation.readPortalIsolationBranches(f.root, listOf(f.a), listOf(f.a)))
       f.root.removeView(f.modalContent)
-      assertNull(f.observation.readPortalIsolation(window, listOf(f.a, f.b), listOf(f.a)))
+      assertNull(f.observation.readPortalIsolationBranches(window, listOf(f.a, f.b), listOf(f.a)))
       f.root.addView(f.modalContent)
-      assertNotNull(f.observation.readPortalIsolation(window, listOf(f.a, f.b), listOf(f.a)))
+      assertNotNull(
+        f.observation.readPortalIsolationBranches(window, listOf(f.a, f.b), listOf(f.a))
+      )
 
       f.hostB.removeView(f.b)
       f.root.addView(f.b)
-      assertNull(f.observation.readPortalIsolation(window, listOf(f.a), listOf(f.a)))
+      assertNull(f.observation.readPortalIsolationBranches(window, listOf(f.a), listOf(f.a)))
     }
   }
 
@@ -220,7 +226,7 @@ class FabricPortalRegistryTest {
       val replacement = f.adapter.observe(f.boundary) {}
       try {
         assertNull(replacement.readPortalReceipts(window, listOf(f.a, f.b)))
-        assertNull(replacement.readPortalIsolation(window, listOf(f.a), listOf(f.a)))
+        assertNull(replacement.readPortalIsolationBranches(window, listOf(f.a), listOf(f.a)))
         while (f.posted.isNotEmpty()) f.posted.removeAt(0).run()
         assertEquals(
           setOf(f.a, f.b),
@@ -231,20 +237,20 @@ class FabricPortalRegistryTest {
           replacement.readPortalReceipts(window, emptyList()),
         )
         assertEquals(
-          emptyMap<Int, FabricPortalIsolationProjection>(),
-          replacement.readPortalIsolation(window, emptyList(), emptyList()),
+          emptyMap<Int, Set<View>>(),
+          replacement.readPortalIsolationBranches(window, emptyList(), emptyList()),
         )
-        assertNull(replacement.readPortalIsolation(window, emptyList(), listOf(f.a)))
-        assertNotNull(replacement.readPortalIsolation(window, listOf(f.a), listOf(f.a)))
+        assertNull(replacement.readPortalIsolationBranches(window, emptyList(), listOf(f.a)))
+        assertNotNull(replacement.readPortalIsolationBranches(window, listOf(f.a), listOf(f.a)))
         assertNull(f.observation.readPortalReceipts(window, listOf(f.a)))
-        assertNull(f.observation.readPortalIsolation(window, emptyList(), emptyList()))
+        assertNull(f.observation.readPortalIsolationBranches(window, emptyList(), emptyList()))
       } finally {
         replacement.remove()
       }
       assertNull(replacement.readPortalReceipts(window, listOf(f.a, f.b)))
       assertNull(replacement.readPortalReceipts(window, emptyList()))
-      assertNull(replacement.readPortalIsolation(window, listOf(f.a), listOf(f.a)))
-      assertNull(replacement.readPortalIsolation(window, emptyList(), emptyList()))
+      assertNull(replacement.readPortalIsolationBranches(window, listOf(f.a), listOf(f.a)))
+      assertNull(replacement.readPortalIsolationBranches(window, emptyList(), emptyList()))
     }
   }
 
@@ -258,6 +264,7 @@ class FabricPortalRegistryTest {
         Surface(activity.get(), reactContext, 2, 10, 12, 14),
         Surface(activity.get(), reactContext, 4, 20, 22, 24),
       )
+    val chrome = surfaces.map { View(activity.get()).also(it.area::addView) }
     try {
       surfaces.forEach { window.addView(it.root) }
       activity.get().setContentView(window)
@@ -315,13 +322,15 @@ class FabricPortalRegistryTest {
       )
       assertEquals(setOf(2, 4), requestedSurfaces)
       val projections =
-        source.attachedIsolationFromRegistry(manager, owners, owners, window.rootView)
+        source.attachedIsolationBranchesFromRegistry(manager, owners, owners, window.rootView)
       assertEquals(setOf(2, 4), projections?.keys)
-      assertEquals(mapOf(10 to setOf(12), 12 to setOf(14)), projections?.get(2)?.retainedChildren)
-      assertEquals(mapOf(20 to setOf(22), 22 to setOf(24)), projections?.get(4)?.retainedChildren)
+      assertEquals(setOf(chrome[0]), projections?.get(2))
+      assertEquals(setOf(chrome[1]), projections?.get(4))
       window.removeView(surfaces[1].root)
       assertNull(source.attachedReceiptsFromRegistry(manager, owners, window.rootView))
-      assertNull(source.attachedIsolationFromRegistry(manager, owners, owners, window.rootView))
+      assertNull(
+        source.attachedIsolationBranchesFromRegistry(manager, owners, owners, window.rootView)
+      )
       window.addView(surfaces[1].root)
       assertEquals(
         setOf(owners[0], owners[1]),
@@ -329,7 +338,9 @@ class FabricPortalRegistryTest {
       )
       assertEquals(
         setOf(2, 4),
-        source.attachedIsolationFromRegistry(manager, owners, owners, window.rootView)?.keys,
+        source
+          .attachedIsolationBranchesFromRegistry(manager, owners, owners, window.rootView)
+          ?.keys,
       )
     } finally {
       surfaces.forEach { it.sheet.destroy() }
