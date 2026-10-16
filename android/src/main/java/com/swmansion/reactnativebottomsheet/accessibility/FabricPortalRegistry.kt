@@ -7,6 +7,10 @@ import com.facebook.react.uimanager.IllegalViewOperationException
 import com.facebook.react.uimanager.StateWrapper
 import com.facebook.react.uimanager.UIManagerHelper
 import com.swmansion.reactnativebottomsheet.BottomSheetView
+import com.swmansion.reactnativebottomsheet.presentation.NativePortalOrder
+import com.swmansion.reactnativebottomsheet.presentation.NativePortalOrderResolver
+import com.swmansion.reactnativebottomsheet.presentation.resolvePortalPresentationContext
+import com.swmansion.reactnativebottomsheet.presentation.resolvePresentationOwnership
 
 /**
  * Reads exact delivered States from the SDK registry, including sheets outside this native branch.
@@ -76,19 +80,17 @@ internal fun FabricPublicationLease.attachedReceiptsFromRegistry(
 }
 
 /**
- * Reads per-surface native branches after validating every supplied owner's source and window.
- * Retained paths are caller-owned. Consume in the current UI work; cross-source composition and
- * final mutation-time validation remain separate from this readonly proposal.
+ * Reads cuts for the complete supplied Active group, choosing retained owners in each logical
+ * context with the shared native-order policy. Source/window failures reject the whole group.
+ * Consume these proposals in the current UI work, with final validation before mutation.
  */
 @UiThread
-internal fun FabricPublicationLease.attachedIsolationBranchesFromRegistry(
+internal fun FabricPublicationLease.attachedIsolationCutsFromRegistry(
   manager: UIManager,
   presentations: Collection<BottomSheetView>,
-  retainedPresentations: Collection<BottomSheetView>,
   windowRoot: View,
-): Map<Int, Set<View>>? {
-  if (!presentations.toSet().containsAll(retainedPresentations)) return null
-  val branchesBySurface = mutableMapOf<Int, Set<View>>()
+): Map<Int, PortalAccessibilityCut>? {
+  val cutsBySurface = mutableMapOf<Int, PortalAccessibilityCut>()
   for ((surface, owners) in presentations.groupBy(UIManagerHelper::getSurfaceId)) {
     if (surface <= 0) return null
     val states = deliveredStatesFromRegistry(manager, surface, owners.first()) ?: return null
@@ -100,16 +102,29 @@ internal fun FabricPublicationLease.attachedIsolationBranchesFromRegistry(
     }
     val source = receipts.getValue(owners.first())
     if (source.nativeMembers(manager::resolveView) == null) return null
+    val localGroups =
+      receipts.keys.groupBy { receipts.getValue(it).contexts.firstOrNull() ?: return null }
+    val nativeContexts = owners.associateWith { it.resolvePortalPresentationContext() }
+    val retainedPresentations =
+      localGroups.values.flatMap { group ->
+        resolvePresentationOwnership(group) { first, second ->
+            val firstContext = nativeContexts[first]
+            val secondContext = nativeContexts[second]
+            if (firstContext == null || secondContext == null) NativePortalOrder.UNKNOWN
+            else NativePortalOrderResolver.compare(firstContext, secondContext)
+          }
+          .retainedPresentations
+      }
     val retainedByHost =
       retainedPresentations
-        .filter(receipts::containsKey)
         .groupBy { receipts.getValue(it).hostTag }
         .mapValues { (_, retained) -> retained.map { it.id } }
     val projection = isolation(surface, states, source.nativeParents, retainedByHost) ?: return null
-    branchesBySurface[surface] =
+    val branches =
       source.nativeIsolationBranches(projection, manager::resolveView, windowRoot) ?: return null
+    cutsBySurface[surface] = PortalAccessibilityCut(branches, retainedPresentations)
   }
-  return branchesBySurface
+  return cutsBySurface
 }
 
 /** Reads every supplied owner across this manager's surfaces, or rejects the complete group. */

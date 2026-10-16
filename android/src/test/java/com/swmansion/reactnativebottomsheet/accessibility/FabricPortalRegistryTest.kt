@@ -6,6 +6,7 @@ package com.swmansion.reactnativebottomsheet.accessibility
 import android.app.Activity
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.TranslateAnimation
 import android.widget.FrameLayout
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.facebook.react.bridge.BridgeReactContext
@@ -33,6 +34,62 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35], shadows = [TestArgumentsShadow::class])
 class FabricPortalRegistryTest {
   @Before fun useLocalReactNativeFeatureFlags() = ReactNativeFeatureFlagsForTests.setUp()
+
+  @Test
+  fun `shared logical context keeps its visual Top even when the lower sheet registered later`() {
+    Fixture().use { f ->
+      f.stackInAreaA()
+
+      val cut = f.observation.readPortalIsolationCuts(f.a.rootView, listOf(f.b, f.a))?.get(2)
+
+      assertEquals(listOf(f.b), cut?.retainedOwners)
+      assertEquals(setOf(f.a), cut?.branches)
+      assertEquals(mapOf(13 to listOf(24)), f.projectionRetained)
+
+      f.b.translationZ = -1f
+      f.projectionResult =
+        FabricPortalIsolationProjection(intArrayOf(24), intArrayOf(11, 13, 13, 14))
+      val changed = f.observation.readPortalIsolationCuts(f.a.rootView, listOf(f.b, f.a))?.get(2)
+      assertEquals(listOf(f.a), changed?.retainedOwners)
+      assertEquals(setOf(f.b), changed?.branches)
+      assertEquals(mapOf(13 to listOf(14)), f.projectionRetained)
+    }
+  }
+
+  @Test
+  fun `unresolved local order retains every supplied Active sheet without treating registration as Top`() {
+    Fixture().use { f ->
+      f.stackInAreaA()
+      f.b.startAnimation(TranslateAnimation(0f, 10f, 0f, 0f).apply { duration = 1000 })
+      f.projectionResult =
+        FabricPortalIsolationProjection(intArrayOf(), intArrayOf(11, 13, 13, 14, 13, 24))
+
+      val cut = f.observation.readPortalIsolationCuts(f.a.rootView, listOf(f.a, f.b))?.get(2)
+
+      assertEquals(listOf(f.a, f.b), cut?.retainedOwners)
+      assertEquals(mapOf(13 to listOf(14, 24)), f.projectionRetained)
+      assertEquals(emptySet<View>(), cut?.branches)
+    }
+  }
+
+  @Test
+  fun `missing logical context rejects the complete group without substituting a native root`() {
+    Fixture().use { f ->
+      val receipt = requireNotNull(f.read(f.a.rootView)).getValue(f.a)
+      f.receiptOverrides[14] =
+        FabricPortalReceipt(
+          receipt.publicationId,
+          receipt.hostTag,
+          intArrayOf(),
+          receipt.ancestors.toIntArray(),
+          receipt.logicalTags.toIntArray(),
+          receipt.nativeParents.flatMap { (tag, parent) -> listOf(tag, parent) }.toIntArray(),
+        )
+
+      assertNull(f.observation.readPortalIsolationCuts(f.a.rootView, listOf(f.a, f.b)))
+      assertNull(f.projectionRetained)
+    }
+  }
 
   @Test
   fun `every supplied owner must be attached before any window receipt is accepted`() {
@@ -148,27 +205,38 @@ class FabricPortalRegistryTest {
     Fixture().use { f ->
       val window = f.a.rootView
       val chrome = View(f.activity.get()).also(f.areaA::addView)
-      var result: Map<Int, Set<View>>? = null
+      var active = listOf(f.a)
+      var result: Map<Int, PortalAccessibilityCut>? = null
       lateinit var observation: ReactNativeMountReconciliationAdapter.Observation
       observation =
         f.adapter.observe(f.boundary) {
-          result =
-            observation.readPortalIsolationBranches(window, listOf(f.a, f.b), listOf(f.a, f.b))
+          result = observation.readPortalIsolationCuts(window, active)
         }
       try {
         observation.requestReconciliation()
+        active = listOf(f.a, f.b)
         val current = f.newState()
         f.a.stateWrapper = current
         f.b.stateWrapper = current
         f.posted.removeAt(0).run()
 
         assertEquals(setOf(2), result?.keys)
-        assertEquals(setOf(chrome), result?.get(2))
+        assertEquals(setOf(chrome), result?.get(2)?.branches)
+        assertEquals(listOf(f.a, f.b), result?.get(2)?.retainedOwners)
         assertSame(current, f.projectionStates?.get(14))
         assertSame(current, f.projectionStates?.get(24))
         assertEquals(mapOf(13 to listOf(14), 23 to listOf(24)), f.projectionRetained)
         assertEquals(13, f.projectionParents?.get(14))
         assertEquals(23, f.projectionParents?.get(24))
+
+        observation.requestReconciliation()
+        active = listOf(f.b)
+        f.projectionResult =
+          FabricPortalIsolationProjection(intArrayOf(), intArrayOf(21, 23, 23, 24))
+        f.posted.removeAt(0).run()
+        assertEquals(listOf(f.b), result?.get(2)?.retainedOwners)
+        assertEquals(mapOf(23 to listOf(24)), f.projectionRetained)
+        assertEquals(setOf(14, 24), f.projectionStates?.keys)
       } finally {
         observation.remove()
       }
@@ -176,45 +244,40 @@ class FabricPortalRegistryTest {
   }
 
   @Test
-  fun `projection reads source sheets outside the supplied owners and rejects invalid retention`() {
+  fun `projection reads source sheets outside the supplied Active owners and rejects missing source data`() {
     Fixture().use { f ->
       val window = f.a.rootView
       f.projectionResult = FabricPortalIsolationProjection(intArrayOf(), intArrayOf(11, 13, 13, 14))
       assertEquals(
         emptySet<View>(),
-        f.observation.readPortalIsolationBranches(window, listOf(f.a), listOf(f.a))?.get(2),
+        f.observation.readPortalIsolationCuts(window, listOf(f.a))?.get(2)?.branches,
       )
       assertEquals(setOf(14, 24), f.projectionStates?.keys)
       assertEquals(mapOf(13 to listOf(14)), f.projectionRetained)
-      assertNull(f.observation.readPortalIsolationBranches(window, listOf(f.a), listOf(f.b)))
 
       val state = f.b.stateWrapper
       f.b.stateWrapper = null
-      assertNull(f.observation.readPortalIsolationBranches(window, listOf(f.a), listOf(f.a)))
+      assertNull(f.observation.readPortalIsolationCuts(window, listOf(f.a)))
       f.b.stateWrapper = state
       f.projectionResult = null
-      assertNull(f.observation.readPortalIsolationBranches(window, listOf(f.a), listOf(f.a)))
+      assertNull(f.observation.readPortalIsolationCuts(window, listOf(f.a)))
     }
   }
 
   @Test
-  fun `projection validates every supplied owner and the source edges of unretained sheets`() {
+  fun `projection validates every supplied owner and the source edges of non-Active sheets`() {
     Fixture().use { f ->
       val window = f.a.rootView
-      assertNotNull(
-        f.observation.readPortalIsolationBranches(window, listOf(f.a, f.b), listOf(f.a))
-      )
-      assertNull(f.observation.readPortalIsolationBranches(f.root, listOf(f.a), listOf(f.a)))
+      assertNotNull(f.observation.readPortalIsolationCuts(window, listOf(f.a, f.b)))
+      assertNull(f.observation.readPortalIsolationCuts(f.root, listOf(f.a)))
       f.root.removeView(f.modalContent)
-      assertNull(f.observation.readPortalIsolationBranches(window, listOf(f.a, f.b), listOf(f.a)))
+      assertNull(f.observation.readPortalIsolationCuts(window, listOf(f.a, f.b)))
       f.root.addView(f.modalContent)
-      assertNotNull(
-        f.observation.readPortalIsolationBranches(window, listOf(f.a, f.b), listOf(f.a))
-      )
+      assertNotNull(f.observation.readPortalIsolationCuts(window, listOf(f.a, f.b)))
 
       f.hostB.removeView(f.b)
       f.root.addView(f.b)
-      assertNull(f.observation.readPortalIsolationBranches(window, listOf(f.a), listOf(f.a)))
+      assertNull(f.observation.readPortalIsolationCuts(window, listOf(f.a)))
     }
   }
 
@@ -226,7 +289,7 @@ class FabricPortalRegistryTest {
       val replacement = f.adapter.observe(f.boundary) {}
       try {
         assertNull(replacement.readPortalReceipts(window, listOf(f.a, f.b)))
-        assertNull(replacement.readPortalIsolationBranches(window, listOf(f.a), listOf(f.a)))
+        assertNull(replacement.readPortalIsolationCuts(window, listOf(f.a)))
         while (f.posted.isNotEmpty()) f.posted.removeAt(0).run()
         assertEquals(
           setOf(f.a, f.b),
@@ -237,20 +300,19 @@ class FabricPortalRegistryTest {
           replacement.readPortalReceipts(window, emptyList()),
         )
         assertEquals(
-          emptyMap<Int, Set<View>>(),
-          replacement.readPortalIsolationBranches(window, emptyList(), emptyList()),
+          emptyMap<Int, PortalAccessibilityCut>(),
+          replacement.readPortalIsolationCuts(window, emptyList()),
         )
-        assertNull(replacement.readPortalIsolationBranches(window, emptyList(), listOf(f.a)))
-        assertNotNull(replacement.readPortalIsolationBranches(window, listOf(f.a), listOf(f.a)))
+        assertNotNull(replacement.readPortalIsolationCuts(window, listOf(f.a)))
         assertNull(f.observation.readPortalReceipts(window, listOf(f.a)))
-        assertNull(f.observation.readPortalIsolationBranches(window, emptyList(), emptyList()))
+        assertNull(f.observation.readPortalIsolationCuts(window, emptyList()))
       } finally {
         replacement.remove()
       }
       assertNull(replacement.readPortalReceipts(window, listOf(f.a, f.b)))
       assertNull(replacement.readPortalReceipts(window, emptyList()))
-      assertNull(replacement.readPortalIsolationBranches(window, listOf(f.a), listOf(f.a)))
-      assertNull(replacement.readPortalIsolationBranches(window, emptyList(), emptyList()))
+      assertNull(replacement.readPortalIsolationCuts(window, listOf(f.a)))
+      assertNull(replacement.readPortalIsolationCuts(window, emptyList()))
     }
   }
 
@@ -321,16 +383,15 @@ class FabricPortalRegistryTest {
         source.attachedReceiptsFromRegistry(manager, owners, window.rootView)?.keys,
       )
       assertEquals(setOf(2, 4), requestedSurfaces)
-      val projections =
-        source.attachedIsolationBranchesFromRegistry(manager, owners, owners, window.rootView)
+      val projections = source.attachedIsolationCutsFromRegistry(manager, owners, window.rootView)
       assertEquals(setOf(2, 4), projections?.keys)
-      assertEquals(setOf(chrome[0]), projections?.get(2))
-      assertEquals(setOf(chrome[1]), projections?.get(4))
+      assertEquals(setOf(chrome[0]), projections?.get(2)?.branches)
+      assertEquals(setOf(chrome[1]), projections?.get(4)?.branches)
+      assertEquals(listOf(owners[0]), projections?.get(2)?.retainedOwners)
+      assertEquals(listOf(owners[1]), projections?.get(4)?.retainedOwners)
       window.removeView(surfaces[1].root)
       assertNull(source.attachedReceiptsFromRegistry(manager, owners, window.rootView))
-      assertNull(
-        source.attachedIsolationBranchesFromRegistry(manager, owners, owners, window.rootView)
-      )
+      assertNull(source.attachedIsolationCutsFromRegistry(manager, owners, window.rootView))
       window.addView(surfaces[1].root)
       assertEquals(
         setOf(owners[0], owners[1]),
@@ -338,9 +399,7 @@ class FabricPortalRegistryTest {
       )
       assertEquals(
         setOf(2, 4),
-        source
-          .attachedIsolationBranchesFromRegistry(manager, owners, owners, window.rootView)
-          ?.keys,
+        source.attachedIsolationCutsFromRegistry(manager, owners, window.rootView)?.keys,
       )
     } finally {
       surfaces.forEach { it.sheet.destroy() }
@@ -450,6 +509,7 @@ class FabricPortalRegistryTest {
         if (method.name == "resolveView") registry[args!![0] as Int] else null
       } as UIManager
     val readStates = mutableListOf<Map<Int, StateWrapper?>>()
+    val receiptOverrides = mutableMapOf<Int, FabricPortalReceipt>()
     var projectionResult: FabricPortalIsolationProjection? =
       FabricPortalIsolationProjection(intArrayOf(), intArrayOf(11, 13, 13, 14, 21, 23, 23, 24))
     var projectionStates: Map<Int, StateWrapper?>? = null
@@ -482,6 +542,9 @@ class FabricPortalRegistryTest {
         ): FabricPortalReceipt? {
           readStates.add(states.toMap())
           if (states.keys != setOf(14, 24) || states.values.any { it == null }) return null
+          receiptOverrides[tag]?.let {
+            return it
+          }
           return FabricPortalReceipt(
             "source:1",
             if (tag == 14) 13 else 23,
@@ -531,6 +594,23 @@ class FabricPortalRegistryTest {
       root.addView(modal)
       root.addView(modalContent)
       activity.get().setContentView(root)
+    }
+
+    fun stackInAreaA() {
+      hostB.removeView(b)
+      hostA.addView(b)
+      for (tag in listOf(14, 24)) {
+        receiptOverrides[tag] =
+          FabricPortalReceipt(
+            "source:1",
+            13,
+            intArrayOf(11),
+            intArrayOf(tag, 13, 11, 2),
+            intArrayOf(2, 11, 13, 14, 21, 23, 24, 30),
+            intArrayOf(2, 0, 11, 2, 13, 11, 14, 13, 30, 2, 21, 30, 23, 21, 24, 13),
+          )
+      }
+      projectionResult = FabricPortalIsolationProjection(intArrayOf(14), intArrayOf(11, 13, 13, 24))
     }
 
     fun read(window: View, owners: Collection<BottomSheetView> = listOf(a, b)) =

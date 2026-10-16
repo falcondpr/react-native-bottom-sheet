@@ -52,13 +52,13 @@ internal class ReactNativeMountReconciliationAdapter(
     ): Map<BottomSheetView, FabricPortalReceipt>?
 
     /**
-     * Native branch proposals for current supplied owners; compose and consume in the same UI work.
+     * Source cuts for all supplied Active owners, retaining Top or all Active per local context.
+     * Compose and consume in the same UI work; this does not discover Active membership.
      */
-    fun readPortalIsolationBranches(
+    fun readPortalIsolationCuts(
       windowRoot: View,
       presentations: Collection<BottomSheetView>,
-      retainedPresentations: Collection<BottomSheetView>,
-    ): Map<Int, Set<View>>?
+    ): Map<Int, PortalAccessibilityCut>?
 
     fun remove()
   }
@@ -148,20 +148,17 @@ internal class ReactNativeMountReconciliationAdapter(
         return source.attachedReceiptsFromRegistry(manager, presentations, windowRoot)
       }
 
-      override fun readPortalIsolationBranches(
+      override fun readPortalIsolationCuts(
         windowRoot: View,
         presentations: Collection<BottomSheetView>,
-        retainedPresentations: Collection<BottomSheetView>,
-      ): Map<Int, Set<View>>? {
+      ): Map<Int, PortalAccessibilityCut>? {
         if (!active || !state.active) return null
-        if (presentations.isEmpty())
-          return if (retainedPresentations.isEmpty()) emptyMap() else null
+        if (presentations.isEmpty()) return emptyMap()
         val source = state.publicationSource ?: return null
         val manager = state.boundary.identity as? UIManager ?: return null
-        return source.attachedIsolationBranchesFromRegistry(
+        return source.attachedIsolationCutsFromRegistry(
           manager,
           presentations,
-          retainedPresentations,
           windowRoot,
         )
       }
