@@ -12,6 +12,12 @@ internal data class PortalAccessibilityScope(
   val retainedAnchors: Collection<View>,
 )
 
+/** Native branch proposals and the whole owners retained by this source. */
+internal data class PortalAccessibilityCut(
+  val branches: Collection<View>,
+  val retainedOwners: Collection<View>,
+)
+
 /** Applies supplied native context cuts through one ledger; it does not discover boundaries. */
 internal class PortalAccessibilityReconciler(windowAnchor: View) {
   private val windowAnchor = WeakReference(windowAnchor)
@@ -21,11 +27,7 @@ internal class PortalAccessibilityReconciler(windowAnchor: View) {
     scopes: Collection<PortalAccessibilityScope>,
     isCurrent: () -> Boolean = { true },
   ): Boolean {
-    if (scopes.isEmpty()) {
-      if (!isCurrent()) return false
-      maskLedger.reconcile(emptyList())
-      return true
-    }
+    if (scopes.isEmpty()) return reconcileCuts(emptyList(), isCurrent)
     val window = windowAnchor.get()?.rootView ?: return false
     val token = window.windowToken ?: return false
     if (!window.isAttachedToWindow) return false
@@ -63,8 +65,43 @@ internal class PortalAccessibilityReconciler(windowAnchor: View) {
         }
       }
     }
-    val composed = composeMasks(desiredMasks, retainedOwners)
+    return reconcileCuts(listOf(PortalAccessibilityCut(desiredMasks, retainedOwners)), isCurrent)
+  }
+
+  /**
+   * Source validation belongs to the caller. Consume the complete cut collection in the current UI
+   * work; an empty collection releases our masks, and a rejected proposal changes none of them.
+   */
+  fun reconcileCuts(
+    cuts: Collection<PortalAccessibilityCut>,
+    isCurrent: () -> Boolean = { true },
+  ): Boolean {
+    if (cuts.isEmpty()) {
+      if (!isCurrent()) return false
+      maskLedger.reconcile(emptyList())
+      return true
+    }
+    val window = windowAnchor.get()?.rootView ?: return false
+    val token = window.windowToken ?: return false
+    val branches = identitySet()
+    val retainedOwners = identitySet()
+    cuts.forEach { cut ->
+      if (cut.retainedOwners.isEmpty()) return false
+      branches.addAll(cut.branches)
+      retainedOwners.addAll(cut.retainedOwners)
+    }
+    val composed = composeMasks(branches, retainedOwners)
     if (!isCurrent()) return false
+    // Validate the complete proposal after the caller's current-source check, before any writes.
+    listOf(branches, retainedOwners, composed).flatten().forEach { view ->
+      if (
+        !view.isAttachedToWindow ||
+          view.rootView !== window ||
+          view.windowToken !== token ||
+          pathFromRoot(view, window) == null
+      )
+        return false
+    }
     maskLedger.reconcile(composed)
     return true
   }
@@ -94,10 +131,12 @@ internal class PortalAccessibilityReconciler(windowAnchor: View) {
     val reversed = mutableListOf<View>()
     var current = anchor
     while (true) {
+      if (reversed.any { it === current }) return null
       reversed.add(current)
       if (current === root) return reversed.asReversed()
       val parent = current.parent as? ViewGroup ?: return null
-      if (parent.indexOfChild(current) < 0) return null
+      val index = parent.indexOfChild(current)
+      if (index < 0 || parent.getChildAt(index) !== current) return null
       current = parent
     }
   }

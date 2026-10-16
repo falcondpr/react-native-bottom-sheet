@@ -11,6 +11,7 @@ import java.lang.ref.WeakReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -20,6 +21,136 @@ import org.robolectric.annotation.Config
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35])
 class PortalAccessibilityReconcilerTest {
+  @Test
+  fun `invalid projected cuts preserve existing masks without applying a valid partial proposal`() {
+    val activity = Robolectric.buildActivity(Activity::class.java).setup()
+    try {
+      val area = FrameLayout(activity.get())
+      val background = View(activity.get()).also(area::addView)
+      val owner = View(activity.get()).also(area::addView)
+      val added = View(activity.get()).also(area::addView)
+      activity.get().setContentView(area)
+      val reconciler = PortalAccessibilityReconciler(area)
+      assertTrue(
+        reconciler.reconcileCuts(listOf(PortalAccessibilityCut(listOf(background), listOf(owner))))
+      )
+      val dialog = Dialog(activity.get())
+      try {
+        val otherArea = FrameLayout(activity.get())
+        val otherBackground = View(activity.get()).also(otherArea::addView)
+        val otherOwner = View(activity.get()).also(otherArea::addView)
+        dialog.setContentView(otherArea)
+        dialog.show()
+        shadowOf(Looper.getMainLooper()).idle()
+        val valid = PortalAccessibilityCut(listOf(added), listOf(owner))
+        listOf(
+            PortalAccessibilityCut(listOf(otherBackground), listOf(owner)),
+            PortalAccessibilityCut(listOf(background), listOf(otherOwner)),
+            PortalAccessibilityCut(listOf(background), emptyList()),
+          )
+          .forEach { invalid ->
+            assertFalse(reconciler.reconcileCuts(listOf(valid, invalid)))
+            assertEquals(
+              View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+              background.importantForAccessibility,
+            )
+            listOf(added, owner, otherBackground, otherOwner).forEach {
+              assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, it.importantForAccessibility)
+            }
+          }
+      } finally {
+        dialog.dismiss()
+      }
+      assertTrue(
+        reconciler.reconcileCuts(listOf(PortalAccessibilityCut(emptyList(), listOf(owner))))
+      )
+      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, background.importantForAccessibility)
+    } finally {
+      activity.close()
+    }
+  }
+
+  @Test
+  fun `current check can reject release or invalidate native facts before any mask write`() {
+    val activity = Robolectric.buildActivity(Activity::class.java).setup()
+    try {
+      val area = FrameLayout(activity.get())
+      val background = View(activity.get()).also(area::addView)
+      val owner = View(activity.get()).also(area::addView)
+      activity.get().setContentView(area)
+      val reconciler = PortalAccessibilityReconciler(area)
+      val cut = PortalAccessibilityCut(listOf(background), listOf(owner))
+      assertTrue(reconciler.reconcileCuts(listOf(cut)))
+      val added = View(activity.get()).also(area::addView)
+
+      assertFalse(reconciler.reconcileCuts(emptyList()) { false })
+      assertEquals(
+        View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+        background.importantForAccessibility,
+      )
+      assertFalse(
+        reconciler.reconcileCuts(listOf(PortalAccessibilityCut(listOf(added), listOf(owner)))) {
+          area.removeView(owner)
+          true
+        }
+      )
+      assertEquals(
+        View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+        background.importantForAccessibility,
+      )
+      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, added.importantForAccessibility)
+      assertTrue(reconciler.reconcileCuts(emptyList()))
+      assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, background.importantForAccessibility)
+    } finally {
+      activity.close()
+    }
+  }
+
+  @Test
+  fun `projected cuts preserve another source owner inside a covered branch while keeping inner isolation`() {
+    val activity = Robolectric.buildActivity(Activity::class.java).setup()
+    try {
+      val window = FrameLayout(activity.get())
+      val toolbar = View(activity.get()).also(window::addView)
+      val area = FrameLayout(activity.get()).also(window::addView)
+      val background = View(activity.get()).also(area::addView)
+      val covered = FrameLayout(activity.get()).also(area::addView)
+      val chrome = View(activity.get()).also(covered::addView)
+      val inner = FrameLayout(activity.get()).also(covered::addView)
+      val innerBackground = View(activity.get()).also(inner::addView)
+      val innerOwner = FrameLayout(activity.get()).also(inner::addView)
+      val content = View(activity.get()).also(innerOwner::addView)
+      val top = View(activity.get()).also(area::addView)
+      activity.get().setContentView(window)
+      val reconciler = PortalAccessibilityReconciler(window)
+
+      val applied =
+        reconciler.reconcileCuts(
+          listOf(
+            PortalAccessibilityCut(listOf(background, covered), listOf(top)),
+            PortalAccessibilityCut(listOf(innerBackground), listOf(innerOwner)),
+          )
+        )
+
+      listOf(background, chrome, innerBackground).forEach {
+        assertEquals(
+          View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+          it.importantForAccessibility,
+        )
+      }
+      listOf(toolbar, covered, inner, innerOwner, content, top).forEach {
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, it.importantForAccessibility)
+      }
+      assertTrue(applied)
+      assertTrue(reconciler.reconcileCuts(emptyList()))
+      listOf(background, chrome, innerBackground).forEach {
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, it.importantForAccessibility)
+      }
+    } finally {
+      activity.close()
+    }
+  }
+
   @Test
   @Config(sdk = [24, 35])
   fun `shared scope retains a whole Active ancestor without hiding its content for another retained path`() {
