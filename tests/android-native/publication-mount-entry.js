@@ -1,5 +1,5 @@
 import React, { useLayoutEffect } from 'react';
-import { AppRegistry, NativeModules, View } from 'react-native';
+import { AppRegistry, NativeModules, Text, View } from 'react-native';
 import NativeSheet from '../../src/BottomSheetNativeComponent';
 import { renderPortalHost } from '../../src/PortalHost';
 
@@ -34,11 +34,15 @@ function MountedPublication({ generation = 0, contextInWrapper = false }) {
         collapsable: false,
         style: { width: 320, height: 640, position: 'relative' },
       },
-      React.createElement(View, {
-        testID: 'local-background',
-        accessibilityLabel: `Background generation ${generation}`,
-        style: { position: 'absolute', width: 20, height: 20 },
-      }),
+      React.createElement(
+        View,
+        {
+          testID: 'local-background',
+          accessibilityLabel: `Background generation ${generation}`,
+          style: { position: 'absolute', width: 20, height: 20 },
+        },
+        React.createElement(Text, null, 'Panel background')
+      ),
       React.createElement(
         View,
         { style: { position: contextInWrapper ? 'relative' : 'static' } },

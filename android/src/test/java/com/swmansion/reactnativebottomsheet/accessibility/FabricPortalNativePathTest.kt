@@ -275,10 +275,33 @@ class FabricPortalNativePathTest {
   }
 
   @Test
-  fun `a materialized logical ancestor cannot be skipped as a flattened wrapper`() {
+  fun `an unattached preallocated flattened ancestor does not become a physical source member`() {
     Fixture().use { f ->
       f.registry[31] = FrameLayout(f.activity.get()).apply { id = 31 }
+      assertEquals(
+        listOf(f.sheet, f.wrapper, f.host, f.area, f.root),
+        f.receipt.nativePath(f.registry::get, f.sheet),
+      )
+      assertEquals(setOf(2, 11, 12, 13, 14), f.receipt.nativeMembers(f.registry::get)?.keys)
+      assertEquals(
+        setOf(f.background),
+        f.receipt.nativeIsolationBranches(
+          FabricPortalIsolationProjection(intArrayOf(12), intArrayOf(11, 31, 31, 13, 13, 14)),
+          f.registry::get,
+          f.sheet.rootView,
+        ),
+      )
+    }
+  }
+
+  @Test
+  fun `a physically materialized logical ancestor cannot be skipped as a flattened wrapper`() {
+    Fixture().use { f ->
+      val materialized = FrameLayout(f.activity.get()).apply { id = 31 }
+      f.registry[31] = materialized
+      f.root.addView(materialized)
       assertNull(f.receipt.nativePath(f.registry::get, f.sheet))
+      assertNull(f.receipt.nativeMembers(f.registry::get))
     }
   }
 
@@ -342,7 +365,7 @@ class FabricPortalNativePathTest {
       f.registry[99] = chrome
       assertNull(f.receipt.nativeMembers(f.registry::get))
       f.registry.remove(99)
-      f.registry[31] = View(f.activity.get()).apply { id = 31 }
+      f.registry[31] = View(f.activity.get()).apply { id = 31 }.also(f.root::addView)
       assertNull(f.receipt.nativeMembers(f.registry::get))
     }
   }

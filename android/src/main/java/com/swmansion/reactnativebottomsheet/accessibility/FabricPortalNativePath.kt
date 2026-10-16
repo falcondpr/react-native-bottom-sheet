@@ -31,6 +31,11 @@ private fun View.isManagedContainer(owner: View?, child: View): Boolean {
   return index >= 0 && owner.childCount == childCount && owner.getChildAt(index) === child
 }
 
+// The SDK registry also contains preallocated views that have not entered the native tree.
+private fun View?.matchesSourceMaterialization(tag: Int, materialized: Boolean): Boolean =
+  if (materialized) this != null && id == tag
+  else this == null || (id == tag && parent == null && !isAttachedToWindow)
+
 /** Validates expected source materialization/edges, not family bindings or completed mounting. */
 @UiThread
 internal fun FabricPortalReceipt.nativeMembers(resolveView: (Int) -> View?): Map<Int, View>? {
@@ -40,11 +45,9 @@ internal fun FabricPortalReceipt.nativeMembers(resolveView: (Int) -> View?): Map
   val members = mutableMapOf<Int, View>()
   for (tag in logicalTags) {
     val view = registered(tag)
-    if ((tag in nativeParents) != (view != null)) return null
-    if (view != null) {
-      if (view.id != tag) return null
-      members[tag] = view
-    }
+    val materialized = tag in nativeParents
+    if (!view.matchesSourceMaterialization(tag, materialized)) return null
+    if (materialized) members[tag] = requireNotNull(view)
   }
   val root = members[rootTag] as? ViewGroup ?: return null
   val pending = mutableListOf<View>(root)
@@ -80,9 +83,9 @@ internal fun FabricPortalReceipt.nativeMembers(resolveView: (Int) -> View?): Map
 }
 
 /**
- * Checks queried ancestry, not full native branch/family membership or completed mounting. Missing
- * intermediate registry views may be flattened logical nodes. The returned physical path does not
- * replace a logical context with its nearest materialized ancestor.
+ * Checks queried ancestry, not full native branch/family membership or completed mounting.
+ * Flattened logical nodes may be absent or only preallocated in the registry. The physical path
+ * does not replace a logical context with its nearest materialized ancestor.
  */
 @UiThread
 internal fun FabricPortalReceipt.nativePath(
@@ -93,9 +96,10 @@ internal fun FabricPortalReceipt.nativePath(
   val registered = cachedNativeLookup(resolveView)
   val expected = mutableListOf<View>()
   for (tag in ancestors) {
-    val view = registered(tag) ?: continue
-    if (view.id != tag) return null
-    expected.add(view)
+    val view = registered(tag)
+    val materialized = tag in nativeParents
+    if (!view.matchesSourceMaterialization(tag, materialized)) return null
+    if (materialized) expected.add(requireNotNull(view))
   }
   if (expected.firstOrNull() !== presentation || registered(ancestors.last()) == null) return null
   val host = registered(hostTag) as? ViewGroup ?: return null

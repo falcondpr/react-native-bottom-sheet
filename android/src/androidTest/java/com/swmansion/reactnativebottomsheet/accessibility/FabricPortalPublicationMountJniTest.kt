@@ -8,10 +8,12 @@ import android.view.ViewGroup
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.facebook.react.ReactPackage
+import com.facebook.react.bridge.JavaOnlyMap
 import com.facebook.react.bridge.NativeModule
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint
 import com.facebook.react.defaults.DefaultReactHost
 import com.facebook.react.fabric.FabricUIManager
@@ -19,7 +21,6 @@ import com.facebook.react.interfaces.TaskInterface
 import com.facebook.react.runtime.ReactSurfaceImpl
 import com.facebook.react.shell.MainReactPackage
 import com.facebook.react.soloader.OpenSourceMergedSoMapping
-import com.facebook.react.uimanager.IllegalViewOperationException
 import com.facebook.react.uimanager.StateWrapper
 import com.facebook.react.uimanager.ViewManager
 import com.facebook.soloader.SoLoader
@@ -131,14 +132,8 @@ class FabricPortalPublicationMountJniTest {
               assertEquals(listOf(area.id), receipt.contexts)
             }
             assertTrue(
-              "The fixture must retain a logical ancestor with no native registry view",
-              receipt.ancestors.any {
-                try {
-                  manager.resolveView(it) == null
-                } catch (_: IllegalViewOperationException) {
-                  true
-                }
-              },
+              "The fixture must retain a flattened logical ancestor",
+              receipt.ancestors.any { it !in receipt.nativeParents },
             )
             assertNull(receipt.attachedNativePath(manager::resolveView, sheet, root.rootView))
             assertNull(
@@ -177,6 +172,48 @@ class FabricPortalPublicationMountJniTest {
       val firstPublicationId = requireNotNull(publicationId)
       val firstState = requireNotNull(deliveredState)
       val firstSource = requireNotNull(lease)
+      onMain {
+        val manager =
+          requireNotNull(ReactNativeMountReconciliationAdapter.resolve(root)).identity
+            as FabricUIManager
+        val sheet = requireNotNull(mountedSheet)
+        val receipt =
+          requireNotNull(firstSource.receiptFromRegistry(manager, surface.surfaceID, sheet))
+        val flatTag = receipt.ancestors.first { it !in receipt.nativeParents }
+        val beforePreallocation = sheet.stateWrapper
+        // Exercise the SDK's real preallocation without mounting the flattened ancestor.
+        // Reflection is confined to this external SDK boundary, never production code.
+        val mounting =
+          FabricUIManager::class
+            .java
+            .getDeclaredField("mMountingManager")
+            .apply { isAccessible = true }
+            .get(manager)
+        val surfaceManager =
+          requireNotNull(
+            mounting.javaClass
+              .getMethod("getSurfaceManager", Int::class.javaPrimitiveType)
+              .invoke(mounting, surface.surfaceID)
+          )
+        surfaceManager.javaClass
+          .getMethod(
+            "preallocateView",
+            String::class.java,
+            Int::class.javaPrimitiveType,
+            ReadableMap::class.java,
+            StateWrapper::class.java,
+            Boolean::class.javaPrimitiveType,
+          )
+          .invoke(surfaceManager, "RCTView", flatTag, JavaOnlyMap(), null, true)
+        val allocated = requireNotNull(manager.resolveView(flatTag))
+        assertNull(allocated.parent)
+        assertFalse(allocated.isAttachedToWindow)
+        assertSame(beforePreallocation, sheet.stateWrapper)
+        assertNotNull(
+          "Preallocation must not invalidate the mounted source path",
+          firstSource.receiptFromRegistry(manager, surface.surfaceID, sheet),
+        )
+      }
       onMain {
         observation?.remove()
         observation = null
