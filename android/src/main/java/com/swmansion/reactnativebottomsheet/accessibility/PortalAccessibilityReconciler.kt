@@ -25,9 +25,10 @@ internal class PortalAccessibilityReconciler(windowAnchor: View) {
 
   fun reconcile(
     scopes: Collection<PortalAccessibilityScope>,
+    sourceCuts: Collection<PortalAccessibilityCut> = emptyList(),
     isCurrent: () -> Boolean = { true },
   ): Boolean {
-    if (scopes.isEmpty()) return reconcileCuts(emptyList(), isCurrent)
+    if (scopes.isEmpty()) return reconcileCuts(sourceCuts, isCurrent)
     val window = windowAnchor.get()?.rootView ?: return false
     val token = window.windowToken ?: return false
     if (!window.isAttachedToWindow) return false
@@ -65,7 +66,10 @@ internal class PortalAccessibilityReconciler(windowAnchor: View) {
         }
       }
     }
-    return reconcileCuts(listOf(PortalAccessibilityCut(desiredMasks, retainedOwners)), isCurrent)
+    return reconcileCuts(
+      sourceCuts + PortalAccessibilityCut(desiredMasks, retainedOwners),
+      isCurrent,
+    )
   }
 
   /**

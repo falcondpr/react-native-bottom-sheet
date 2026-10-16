@@ -142,6 +142,21 @@ class PortalAccessibilityReconcilerTest {
         assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, it.importantForAccessibility)
       }
       assertTrue(applied)
+      assertTrue(
+        reconciler.reconcile(
+          listOf(PortalAccessibilityScope(area, listOf(top))),
+          sourceCuts = listOf(PortalAccessibilityCut(listOf(innerBackground), listOf(innerOwner))),
+        )
+      )
+      listOf(background, chrome, innerBackground).forEach {
+        assertEquals(
+          View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+          it.importantForAccessibility,
+        )
+      }
+      listOf(toolbar, covered, inner, innerOwner, content, top).forEach {
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, it.importantForAccessibility)
+      }
       assertTrue(reconciler.reconcileCuts(emptyList()))
       listOf(background, chrome, innerBackground).forEach {
         assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, it.importantForAccessibility)
@@ -392,7 +407,12 @@ class PortalAccessibilityReconcilerTest {
             PortalAccessibilityScope(dialogArea, listOf(dialogOwner)),
           )
           .forEach { invalid ->
-            assertFalse(reconciler.reconcile(listOf(scope, invalid)))
+            assertFalse(
+              reconciler.reconcile(
+                listOf(scope, invalid),
+                sourceCuts = listOf(PortalAccessibilityCut(listOf(added), listOf(owner))),
+              )
+            )
             assertEquals(
               View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
               background.importantForAccessibility,

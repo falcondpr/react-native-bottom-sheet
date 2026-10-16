@@ -168,7 +168,19 @@ internal object PortalPresentationCoordinator {
     root: View,
     forceAccessibilityPolicyReconciliation: Boolean = false,
   ) {
-    val window = windows[root] ?: return
+    reconcilePolicy(root, forceAccessibilityPolicyReconciliation, notifyObservers = true)
+  }
+
+  /** Reads current membership/order without feeding a queued mount read back to observers. */
+  fun currentAccessibilityPolicy(root: View): PortalAccessibilityPolicy =
+    reconcilePolicy(root, force = false, notifyObservers = false)
+
+  private fun reconcilePolicy(
+    root: View,
+    force: Boolean,
+    notifyObservers: Boolean,
+  ): PortalAccessibilityPolicy {
+    val window = windows[root] ?: return PortalAccessibilityPolicy(emptyList(), emptyList())
     val entries = window.entries
     val contexts = mutableMapOf<Entry, PortalPresentationContext>()
     entries.toList().forEach { entry ->
@@ -190,18 +202,23 @@ internal object PortalPresentationCoordinator {
       }
     }
     if (entries.isEmpty()) {
-      publishAccessibilityPolicy(
-        root,
-        window,
-        emptyList(),
-        emptyList(),
-        emptyList(),
-        emptyList(),
-        forceAccessibilityPolicyReconciliation,
-      )
-      window.stopObserving()
-      windows.remove(root)
-      return
+      val policy =
+        publishAccessibilityPolicy(
+          root,
+          window,
+          emptyList(),
+          emptyList(),
+          emptyList(),
+          emptyList(),
+          force,
+          notifyObservers,
+        )
+      // A silent read must not consume the final publication owed to other observers.
+      if (notifyObservers) {
+        window.stopObserving()
+        windows.remove(root)
+      }
+      return policy
     }
     window.observeDrawing(root)
     val ownership =
@@ -218,7 +235,7 @@ internal object PortalPresentationCoordinator {
     )
     val retainedEntries = ownership.retainedPresentations
     val retainedContexts = retainedEntries.mapNotNull(contexts::get)
-    publishAccessibilityPolicy(
+    return publishAccessibilityPolicy(
       root,
       window,
       retainedEntries.zip(retainedContexts).mapNotNull { (entry, context) ->
@@ -231,7 +248,8 @@ internal object PortalPresentationCoordinator {
         PortalPresentationAnchor(context.reactRoot, anchor)
       },
       contexts.values.map(PortalPresentationContext::path),
-      forceAccessibilityPolicyReconciliation,
+      force,
+      notifyObservers,
     )
   }
 
@@ -243,14 +261,21 @@ internal object PortalPresentationCoordinator {
     activePresentations: List<PortalPresentationAnchor>,
     activePaths: List<List<View>>,
     force: Boolean,
-  ) {
-    if (!force && window.accessibilityPolicySnapshot.matches(retainedPaths, activePaths)) return
+    notifyObservers: Boolean,
+  ): PortalAccessibilityPolicy {
+    val policy = PortalAccessibilityPolicy(retainedPresentations, activePresentations)
+    if (
+      !notifyObservers ||
+        (!force && window.accessibilityPolicySnapshot.matches(retainedPaths, activePaths))
+    )
+      return policy
     window.accessibilityPolicySnapshot = AccessibilityPolicySnapshot(retainedPaths, activePaths)
     accessibilityPolicyObservers.toList().forEach {
       it.onPolicyChanged(
         root,
-        PortalAccessibilityPolicy(retainedPresentations, activePresentations),
+        policy,
       )
     }
+    return policy
   }
 }

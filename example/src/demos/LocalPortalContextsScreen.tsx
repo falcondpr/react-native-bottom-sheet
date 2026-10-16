@@ -74,7 +74,7 @@ export const LocalPortalContextsScreen = () => {
       <Text>
         {Platform.OS === 'ios'
           ? 'With VoiceOver, Escape in A closes A while B stays open. Each open panel hides its own background.'
-          : 'Local accessibility context integration is currently under development on Android.'}
+          : 'With TalkBack, each open panel hides its own background. Use Close A and Close B to check each panel separately.'}
       </Text>
       <View style={styles.openButtons}>
         <Button title="Open A" onPress={() => setIndexA(1)} />

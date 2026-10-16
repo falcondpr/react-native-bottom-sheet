@@ -41,12 +41,12 @@ export type DemoCase = {
 export const DEMO_CASES: DemoCase[] = [
   {
     key: 'portal-composed-contexts',
-    title: 'RN Modal + local contexts (iOS)',
+    title: 'RN Modal + local contexts',
     href: '/portal-composed-contexts',
   },
   {
     key: 'portal-local-contexts',
-    title: 'Local portal contexts (iOS)',
+    title: 'Local portal contexts',
     href: '/portal-local-contexts',
   },
   {

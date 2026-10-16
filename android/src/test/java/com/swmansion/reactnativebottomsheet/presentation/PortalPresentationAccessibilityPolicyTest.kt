@@ -14,6 +14,43 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class PortalPresentationAccessibilityPolicyTest {
   @Test
+  fun `queued policy read does not consume the pending empty publication for observers`() {
+    val activity = Robolectric.buildActivity(Activity::class.java).setup()
+    try {
+      val root = TestReactRoot(activity.get())
+      val owner = View(activity.get()).also(root::addView)
+      activity.get().setContentView(root)
+      var publications = 0
+      var active = emptySet<View>()
+      val observation = PortalPresentationCoordinator.observeAccessibilityPolicy { _, policy ->
+        publications++
+        active = policy.activePresentations.map { it.anchor }.toSet()
+      }
+      val registration = requireNotNull(PortalPresentationCoordinator.register(owner, true) {})
+      try {
+        root.removeView(owner)
+        assertEquals(
+          emptyList<PortalPresentationAnchor>(),
+          PortalPresentationCoordinator.currentAccessibilityPolicy(root.rootView)
+            .activePresentations,
+        )
+        assertEquals(1, publications)
+        assertEquals(setOf(owner), active)
+
+        root.viewTreeObserver.dispatchOnPreDraw()
+
+        assertEquals(2, publications)
+        assertEquals(emptySet<View>(), active)
+      } finally {
+        registration.remove()
+        observation.remove()
+      }
+    } finally {
+      activity.close()
+    }
+  }
+
+  @Test
   fun `losing a lower Active anchor republishes policy even when the retained Top is unchanged`() {
     val activity = Robolectric.buildActivity(Activity::class.java).setup()
     var observation: PortalPresentationCoordinator.PolicyObservation? = null
