@@ -191,6 +191,7 @@ struct MountedTree {
   child.tag = 14;
   [parent addSubview:child];
   auto hierarchy = [BottomSheetNativeHierarchySnapshot new];
+  XCTAssertTrue(hierarchy.isValid, @"Standard UIKit hierarchy must be readable with diagnostic instrumentation");
   XCTAssertEqual([hierarchy parentOfView:child], parent);
   XCTAssertEqual([hierarchy tagOfView:child], 14);
   XCTAssertEqualObjects([hierarchy childrenOfView:parent], (@[child]));

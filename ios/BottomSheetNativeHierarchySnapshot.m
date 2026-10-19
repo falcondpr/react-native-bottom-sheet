@@ -1,7 +1,6 @@
 #import "BottomSheetNativeHierarchySnapshot.h"
 #import <React/RCTFabricModalHostViewController.h>
 #import <objc/runtime.h>
-#include <dlfcn.h>
 
 static NSMapTable *BottomSheetNativeFactTable(void)
 {
@@ -10,15 +9,10 @@ static NSMapTable *BottomSheetNativeFactTable(void)
             valueOptions:NSPointerFunctionsStrongMemory capacity:0];
 }
 
-static IMP BottomSheetFrameworkGetter(Class type, SEL selector)
+static IMP BottomSheetGetterImplementation(Class type, SEL selector)
 {
   Method method = class_getInstanceMethod(type, selector);
-  if (!method) return NULL;
-  IMP getter = method_getImplementation(method);
-  Dl_info classImage = {0}, getterImage = {0};
-  return dladdr((__bridge const void *)type, &classImage) &&
-      dladdr((const void *)getter, &getterImage) && classImage.dli_fbase &&
-      classImage.dli_fbase == getterImage.dli_fbase ? getter : NULL;
+  return method ? method_getImplementation(method) : NULL;
 }
 
 @implementation BottomSheetNativeHierarchySnapshot {
@@ -44,21 +38,15 @@ static IMP BottomSheetFrameworkGetter(Class type, SEL selector)
     _tags = BottomSheetNativeFactTable();
     _modalOwners = BottomSheetNativeFactTable();
     Class base = objc_getClass("UIView");
-    _parentGetter = method_getImplementation(class_getInstanceMethod(base, @selector(superview)));
-    _childrenGetter = method_getImplementation(class_getInstanceMethod(base, @selector(subviews)));
-    _tagGetter = method_getImplementation(class_getInstanceMethod(base, @selector(tag)));
-    _nextResponderGetter = BottomSheetFrameworkGetter(base, @selector(nextResponder));
-    _loadedViewGetter = BottomSheetFrameworkGetter(UIViewController.class, @selector(viewIfLoaded));
-    _modalDelegateGetter = BottomSheetFrameworkGetter(RCTFabricModalHostViewController.class, @selector(delegate));
-    Dl_info classImage = {0};
-    _valid = dladdr((__bridge const void *)base, &classImage) && classImage.dli_fbase;
-    // A global replacement must not become the supposedly standard getter.
-    for (NSValue *value in @[[NSValue valueWithPointer:(const void *)_parentGetter],
-                            [NSValue valueWithPointer:(const void *)_childrenGetter],
-                            [NSValue valueWithPointer:(const void *)_tagGetter]]) {
-      Dl_info info = {0};
-      if (!dladdr(value.pointerValue, &info) || info.dli_fbase != classImage.dli_fbase) _valid = NO;
-    }
+    // Accept installed base getters, including diagnostic wrappers. Their
+    // identity must remain stable for this query; subclass overrides are rejected.
+    _parentGetter = BottomSheetGetterImplementation(base, @selector(superview));
+    _childrenGetter = BottomSheetGetterImplementation(base, @selector(subviews));
+    _tagGetter = BottomSheetGetterImplementation(base, @selector(tag));
+    _nextResponderGetter = BottomSheetGetterImplementation(base, @selector(nextResponder));
+    _loadedViewGetter = BottomSheetGetterImplementation(UIViewController.class, @selector(viewIfLoaded));
+    _modalDelegateGetter = BottomSheetGetterImplementation(RCTFabricModalHostViewController.class, @selector(delegate));
+    _valid = _parentGetter != NULL && _childrenGetter != NULL && _tagGetter != NULL;
   }
   return self;
 }

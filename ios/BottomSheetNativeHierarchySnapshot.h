@@ -2,8 +2,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-// Query-scoped physical facts. Unsupported structural overrides are rejected
-// before dispatch; no getter callbacks run during final validation.
+// Query-scoped physical facts. Unsupported subclass structural overrides are
+// rejected before dispatch; captured facts are checked during final validation.
 @interface BottomSheetNativeHierarchySnapshot : NSObject
 @property (nonatomic, readonly, getter=isValid) BOOL valid;
 - (nullable UIView *)parentOfView:(nullable UIView *)view;
