@@ -4,6 +4,85 @@
 #import "../../../ios/BottomSheetPresentationOwnership.h"
 #import "ReactNativeBottomSheet-Swift.h"
 #import "Support/BottomSheetTestComponentFactory.h"
+#import "../../../ios/BottomSheetComponentView.h"
+#import "../../../ios/BottomSheetPortalMountingObserver.h"
+#import <React/RCTComponentViewRegistry.h>
+#import <React/RCTMountingManager.h>
+#include <react/renderer/components/view/ViewComponentDescriptor.h>
+
+using namespace facebook::react;
+using namespace facebook::react::bottomsheet;
+
+namespace {
+using PortalChildren = std::vector<std::shared_ptr<const ShadowNode>>;
+
+struct MountedProductionPortal {
+  std::shared_ptr<const ContextContainer> context = std::make_shared<ContextContainer>();
+  std::shared_ptr<UIManager> manager = std::make_shared<UIManager>(RuntimeExecutor{}, context);
+  ViewComponentDescriptor views{{.eventDispatcher = {}, .contextContainer = context, .flavor = nullptr}};
+  ComponentDescriptor::Unique sheets = [BottomSheetComponentView componentDescriptorProvider].constructor(
+      {.eventDispatcher = {}, .contextContainer = context, .flavor = nullptr});
+  RCTMountingManager *__strong mounting = [RCTMountingManager new];
+  UIView *__strong viewport = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 390, 844)];
+  BottomSheetPortalMountingObserver *__strong observer;
+  ShadowTree *tree;
+
+  MountedProductionPortal() {
+    auto owned = std::make_unique<ShadowTree>(1,
+        LayoutConstraints{.minimumSize = {390, 844}, .maximumSize = {390, 844}},
+        LayoutContext{}, *manager, *context);
+    tree = owned.get();
+    manager->getShadowTreeRegistry().add(std::move(owned));
+    [mounting.componentViewRegistry.componentViewFactory registerComponentViewClass:RCTViewComponentView.class];
+    [mounting.componentViewRegistry.componentViewFactory registerComponentViewClass:BottomSheetComponentView.class];
+    [mounting attachSurfaceToView:viewport surfaceId:1];
+    std::weak_ptr<UIManager> weakManager = manager;
+    observer = [[BottomSheetPortalMountingObserver alloc] initWithMountingManager:mounting
+        uiManagerProvider:^{ return weakManager.lock(); } beforeDeletingNativeSubtrees:nil];
+  }
+
+  ~MountedProductionPortal() {
+    [observer invalidate];
+    [mounting detachSurfaceFromView:viewport surfaceId:1];
+    manager->getShadowTreeRegistry().remove(1);
+  }
+
+  std::shared_ptr<ViewShadowNode> view(Tag tag, PortalChildren children = {}, bool host = false) {
+    folly::dynamic raw = folly::dynamic::object("collapsable", false)
+        ("position", "absolute")("width", 390)("height", 844);
+    if (host) raw["nativeID"] = PortalHostNativeID;
+    auto props = views.cloneProps(PropsParserContext(1, *context), nullptr, RawProps(std::move(raw)));
+    auto family = views.createFamily({.tag = tag, .surfaceId = 1, .instanceHandle = nullptr});
+    return std::static_pointer_cast<ViewShadowNode>(views.createShadowNode(
+        {.props = props, .children = std::make_shared<const PortalChildren>(std::move(children))}, family));
+  }
+
+  std::shared_ptr<const ShadowNode> sheet(Tag tag, NSInteger index) {
+    auto raw = folly::dynamic::object("modal", true)("index", index)("animateIn", false)
+        ("position", "absolute")("width", 390)("height", 844)
+        ("detents", folly::dynamic::array(
+            folly::dynamic::object("value", 0)("kind", "points")("programmatic", false),
+            folly::dynamic::object("value", 320)("kind", "points")("programmatic", false)));
+    auto props = sheets->cloneProps(PropsParserContext(1, *context), nullptr, RawProps(std::move(raw)));
+    auto family = sheets->createFamily({.tag = tag, .surfaceId = 1, .instanceHandle = nullptr});
+    return sheets->createShadowNode(
+        {.props = props, .children = ShadowNode::emptySharedShadowNodeSharedList(),
+         .state = sheets->createInitialState(props, family)}, family);
+  }
+
+  void mount(PortalChildren children) {
+    tree->commit([&](const RootShadowNode &current) {
+      return std::static_pointer_cast<RootShadowNode>(current.ShadowNode::clone(
+          {.children = std::make_shared<const PortalChildren>(std::move(children))}));
+    }, {});
+    [mounting scheduleTransaction:tree->getMountingCoordinator()];
+  }
+
+  UIView *native(Tag tag) {
+    return [mounting.componentViewRegistry findComponentViewWithTag:tag];
+  }
+};
+} // namespace
 
 static UIWindow *BottomSheetMakeIntegrationWindow(void)
 {
@@ -103,6 +182,44 @@ static void BottomSheetTearDownIntegrationWindow(UIWindow *window)
 @end
 
 @implementation BottomSheetPresentationModeIntegrationTests
+
+- (void)testMountedPortalOpeningCommitsLocalIsolationBeforeRevealingContent
+{
+  UIWindow *window = BottomSheetMakeIntegrationWindow();
+  MountedProductionPortal fixture;
+  [window.rootViewController.view addSubview:fixture.viewport];
+  auto sheet = fixture.sheet(14, 0);
+  auto background = fixture.view(12);
+  auto inactiveScreen = fixture.view(16);
+  auto portal = fixture.view(13, {sheet}, true);
+  auto area = fixture.view(11, {background, inactiveScreen, portal});
+  fixture.mount({area});
+  [fixture.native(16) removeFromSuperview];
+  UIView *component = fixture.native(14);
+  BottomSheetLayoutIntegrationTree(window);
+  BottomSheetHostingView *host = BottomSheetFindIntegrationHost(component);
+  XCTAssertNotNil(host);
+  XCTAssertFalse(fixture.native(12).accessibilityElementsHidden);
+  XCTAssertTrue(host.accessibilityElementsHidden);
+
+  auto openProps = fixture.sheets->cloneProps(PropsParserContext(1, *fixture.context), sheet->getProps(),
+      RawProps(folly::dynamic::object("index", 1)));
+  auto opened = sheet->clone({.props = openProps});
+  auto openPortal = portal->clone({.children = std::make_shared<const PortalChildren>(PortalChildren{opened})});
+  fixture.mount({area->clone({.children = std::make_shared<const PortalChildren>(PortalChildren{background, inactiveScreen, openPortal})})});
+  XCTAssertNotNil([host.sheetContainer.layer animationForKey:@"bottomSheetSettle"]);
+  XCTAssertFalse(fixture.native(12).accessibilityElementsHidden);
+  XCTAssertTrue(host.accessibilityElementsHidden);
+
+  [host animationDidStop:[CAAnimation new] finished:YES];
+
+  XCTAssertTrue(fixture.native(12).accessibilityElementsHidden,
+                @"After opening settles, the local background must leave accessibility navigation");
+  XCTAssertFalse(host.accessibilityElementsHidden,
+                 @"After isolation commits, the opened portal content must become accessible");
+  BottomSheetTearDownIntegrationComponent(component);
+  BottomSheetTearDownIntegrationWindow(window);
+}
 
 - (void)testNestedUnmappedProductionPortalsDoNotExpandToWindowModalBoundary
 {

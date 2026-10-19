@@ -123,7 +123,9 @@ Tag parentTag(const Mutation& mutation) {
   return 0;
 }
 
-- (BOOL)validateBranch:(const ShadowNode &)node hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy
+- (BOOL)validateBranch:(const ShadowNode &)node
+         retainedPath:(const std::set<Tag> &)retainedPath
+            hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy
 {
   Tag tag = node.getTag();
   UIView *view = [self mounted:tag];
@@ -135,13 +137,17 @@ Tag parentTag(const Mutation& mutation) {
     if (!view || identity == _identities.end() || identity->second.view != view ||
         identity->second.family.lock() != node.getFamilyShared()) return NO;
     auto parent = _members.parents.find(tag);
-    if (parent == _members.parents.end() ||
-        parent->second != [self registeredParentOf:view hierarchy:hierarchy]) return NO;
+    if (parent == _members.parents.end()) return NO;
+    if (parent->second != [self registeredParentOf:view hierarchy:hierarchy]) {
+      // Navigation may detach inactive background without changing Fabric membership.
+      // Retained corridors and attached branches must still match their applied edges.
+      if (retainedPath.contains(tag) || [hierarchy parentOfView:view] != nil) return NO;
+    }
   } else if (view) {
     return NO;
   }
   for (const auto& child : node.getChildren()) {
-    if (![self validateBranch:*child hierarchy:hierarchy]) return NO;
+    if (![self validateBranch:*child retainedPath:retainedPath hierarchy:hierarchy]) return NO;
   }
   return hierarchy.isValid;
 }
@@ -235,13 +241,17 @@ Tag parentTag(const Mutation& mutation) {
             isEqualToString:[NSString stringWithUTF8String:PortalHostNativeID]]) return nil;
     scopes.insert(host->second);
   }
-  for (Tag scope : scopes) {
-    if (![self validateBranch:*graph->contexts.at(scope).boundary hierarchy:hierarchy]) {
-      return nil;
-    }
-  }
   auto projection = projectPortalIsolation(*graph, _members, requests);
   if (!projection) return nil;
+  std::set<Tag> retainedPath;
+  for (const auto& [parent, children] : projection->retainedChildren) {
+    retainedPath.insert(parent);
+    retainedPath.insert(children.begin(), children.end());
+  }
+  for (Tag scope : scopes) {
+    if (![self validateBranch:*graph->contexts.at(scope).boundary
+                retainedPath:retainedPath hierarchy:hierarchy]) return nil;
+  }
   NSMutableSet<UIView *> *branches = [NSMutableSet new];
   for (Tag tag : projection->hiddenBranches) {
     UIView *view = [self mounted:tag];

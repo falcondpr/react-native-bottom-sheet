@@ -227,6 +227,31 @@ struct MountedTree {
 @end
 
 @implementation BottomSheetMountedPortalContextGraphTests
+
+- (void)testDetachedBackgroundDoesNotDisableIsolationButRetainedPathsStillRequireAncestry
+{
+  MountedTree fixture;
+  auto sheet = fixture.node(14);
+  auto host = fixture.node(13, {sheet}, true, true);
+  auto root = fixture.mount({fixture.node(11, {fixture.node(12), fixture.node(16), host})});
+  auto publication = [[BottomSheetMountedPortalContextGraph alloc]
+      initWithMountingManager:fixture.manager];
+  fixture.bootstrap(publication, root);
+  std::vector<PortalRetainedPaths> requests{{&host->getFamily(), {&sheet->getFamily()}}};
+  // Navigation containers can detach an inactive screen without an RN mutation.
+  [fixture.view(16) removeFromSuperview];
+  XCTAssertNil(fixture.view(16).superview);
+
+  auto branches = [publication hiddenBranchesForRoot:root retainedPaths:requests];
+  XCTAssertNotNil(branches);
+  XCTAssertTrue([branches containsObject:fixture.view(12)]);
+  XCTAssertFalse([branches containsObject:fixture.view(14)]);
+
+  [fixture.view(14) removeFromSuperview];
+  XCTAssertNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
+  [fixture.view(13) addSubview:fixture.view(14)];
+  XCTAssertNotNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
+}
 - (void)testStockModalContentProjectsOnlyTheActualLocalPanel
 {
   MountedTree fixture;
