@@ -281,6 +281,12 @@ class ReactNativeMountReconciliationAdapterTest {
       states: Map<Int, com.facebook.react.uimanager.StateWrapper?>,
     ): FabricPortalReceipt? = null
 
+    override fun contextPath(
+      surfaceId: Int,
+      tag: Int,
+      states: Map<Int, com.facebook.react.uimanager.StateWrapper?>,
+    ): List<Int>? = null
+
     override fun isolation(
       surfaceId: Int,
       states: Map<Int, com.facebook.react.uimanager.StateWrapper?>,

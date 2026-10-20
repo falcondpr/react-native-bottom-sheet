@@ -36,6 +36,26 @@ class FabricPortalRegistryTest {
   @Before fun useLocalReactNativeFeatureFlags() = ReactNativeFeatureFlagsForTests.setUp()
 
   @Test
+  fun `native-only focus descendant uses its current source containing context`() {
+    Fixture().use { f ->
+      val origin = View(f.activity.get()).also(f.areaA::addView)
+      val snapshot =
+        f.adapter.readPortalInputContexts(
+          f.boundary,
+          2,
+          listOf(f.a, f.b),
+          origin.rootView,
+          origin,
+        )
+
+      assertEquals(listOf(11), snapshot?.focusContexts)
+      assertEquals(listOf(f.a), snapshot?.contextOwners?.get(11))
+      assertEquals(listOf(f.b), snapshot?.contextOwners?.get(21))
+      assertEquals(1, snapshot?.nativeDepth)
+    }
+  }
+
+  @Test
   fun `shared logical context keeps its visual Top even when the lower sheet registered later`() {
     Fixture().use { f ->
       f.stackInAreaA()
@@ -377,6 +397,12 @@ class FabricPortalRegistryTest {
 
           override fun release() = Unit
 
+          override fun contextPath(
+            surfaceId: Int,
+            tag: Int,
+            states: Map<Int, com.facebook.react.uimanager.StateWrapper?>,
+          ): List<Int>? = null
+
           override fun isolation(
             surfaceId: Int,
             states: Map<Int, StateWrapper?>,
@@ -547,11 +573,19 @@ class FabricPortalRegistryTest {
     var projectionStates: Map<Int, StateWrapper?>? = null
     var projectionRetained: Map<Int, List<Int>>? = null
     var projectionParents: Map<Int, Int>? = null
+    val contextPaths =
+      mutableMapOf(11 to listOf(11), 14 to listOf(11), 21 to listOf(21), 24 to listOf(21))
     val source =
       object : FabricPublicationLease {
         override fun bootstrap() = Unit
 
         override fun release() = Unit
+
+        override fun contextPath(
+          surfaceId: Int,
+          tag: Int,
+          states: Map<Int, com.facebook.react.uimanager.StateWrapper?>,
+        ): List<Int>? = contextPaths[tag]
 
         override fun isolation(
           surfaceId: Int,

@@ -73,6 +73,7 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
         makeNativeMethod("bootstrapNative", FabricPortalPublication::bootstrapNative),
         makeNativeMethod("sheetTagsNative", FabricPortalPublication::sheetTagsNative),
         makeNativeMethod("receiptNative", FabricPortalPublication::receiptNative),
+        makeNativeMethod("contextPathNative", FabricPortalPublication::contextPathNative),
         makeNativeMethod("isolationNative", FabricPortalPublication::isolationNative),
     });
   }
@@ -140,6 +141,18 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
     auto receipt = source_.receiptForState(surface, tag, selected->second);
     if (!receipt) return nullptr;
     return JFabricPortalReceipt::create(*receipt);
+  }
+
+  jni::local_ref<jintArray> contextPathNative(
+      jint surface, jint tag, jni::alias_ref<jintArray> tags,
+      jni::alias_ref<jni::JArrayClass<StateWrapper::javaobject>::javaobject> objects) {
+    auto states = deliveredStates(tags, objects);
+    if (!states) return nullptr;
+    auto path = source_.contextPathForStates(surface, *states, tag);
+    if (!path) return nullptr;
+    auto result = jni::JArrayInt::newArray(path->size());
+    result->setRegion(0, path->size(), path->data());
+    return result;
   }
 
   jni::local_ref<JFabricPortalIsolationProjection> isolationNative(

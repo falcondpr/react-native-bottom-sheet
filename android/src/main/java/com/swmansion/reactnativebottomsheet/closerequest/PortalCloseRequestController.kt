@@ -5,8 +5,10 @@ import android.view.KeyEvent
 import android.view.View
 import androidx.activity.OnBackPressedDispatcher
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.facebook.react.ReactActivity
 import com.swmansion.reactnativebottomsheet.presentation.PortalPresentationAssignment
 import com.swmansion.reactnativebottomsheet.presentation.PortalPresentationContext
 import com.swmansion.reactnativebottomsheet.presentation.PortalPresentationCoordinator
@@ -17,6 +19,11 @@ internal class PortalCloseRequestController(
   private val currentActivity: () -> Activity?,
   private val emitCloseRequest: () -> Boolean,
 ) : PortalCloseRequestParticipant {
+  override val inputAnchor: View
+    get() = view
+
+  override fun currentInputAction(): CloseRequestInputAction = currentPortalAction()
+
   private var inputState = CloseRequestInputState.INACTIVE
   private var usesPortalPresentation = false
   private var disposed = false
@@ -24,14 +31,15 @@ internal class PortalCloseRequestController(
   private var closeRequestRoutingContext: PortalCloseRequestRoutingContext? = null
   private var presentationContext: PortalPresentationContext? = null
   private var presentationAssignment = PortalPresentationAssignment.NONE
-  private var assignedCloseRequestAction = CloseRequestInputAction.PASS_THROUGH
   private var hasBackCallbackPresentationEnded = false
   private var isReconcilingBackCallback = false
-  private var isEscapeListenerInstalled = false
+  private var isKeyListenerInstalled = false
 
   private var backDispatcher: OnBackPressedDispatcher? = null
 
   private var backCallback: CloseRequestBackCallback? = null
+  private var backInput: PortalBackInput? = null
+  private var appliedImeVisible: Boolean? = null
 
   private val lifecycleObserver: LifecycleEventObserver =
     LifecycleEventObserver { lifecycleOwner, event ->
@@ -45,7 +53,7 @@ internal class PortalCloseRequestController(
     }
 
   private val unhandledKeyEventListener = ViewCompat.OnUnhandledKeyEventListenerCompat { _, event ->
-    dispatchEscape(event)
+    dispatchEscape(event) || backInput?.dispatchKey(event) == true
   }
 
   fun update(
@@ -56,6 +64,12 @@ internal class PortalCloseRequestController(
     inputState = state
     this.usesPortalPresentation = usesPortalPresentation
     syncRoutingContext()
+  }
+
+  fun onImeVisibilityChanged(visible: Boolean) {
+    if (disposed || appliedImeVisible == visible) return
+    appliedImeVisible = visible
+    reconcileBackCallback()
   }
 
   fun onPresentationChanged(
@@ -96,18 +110,14 @@ internal class PortalCloseRequestController(
     clearRoutingContext()
   }
 
-  override fun onAssignedActionChanged(action: CloseRequestInputAction) {
+  override fun onInputPolicyChanged() {
     if (disposed) return
-    assignedCloseRequestAction = action
+    ensureInputListener()
     reconcileBackCallback()
   }
 
   override fun emitCloseRequestIfEligible(): Boolean {
-    if (
-      disposed ||
-        assignedCloseRequestAction != CloseRequestInputAction.EMIT_CLOSE_REQUEST ||
-        currentPortalAction() != CloseRequestInputAction.EMIT_CLOSE_REQUEST
-    ) {
+    if (disposed || currentPortalAction() != CloseRequestInputAction.EMIT_CLOSE_REQUEST) {
       return false
     }
     return emitCloseRequest()
@@ -126,7 +136,11 @@ internal class PortalCloseRequestController(
         ?.resolvePortalCloseRequestRoutingContext(currentActivity())
     val previousRoutingContext = closeRequestRoutingContext
     if (!routingContextsAreIdentical(resolvedRoutingContext, previousRoutingContext)) {
+      previousRoutingContext?.windowRoot?.let {
+        PortalCloseRequestCoordinator.removeParticipant(it, this)
+      }
       removeInputHandlers()
+      appliedImeVisible = null
       previousRoutingContext?.lifecycleOwner?.lifecycle?.removeObserver(lifecycleObserver)
       closeRequestRoutingContext = resolvedRoutingContext
       resolvedRoutingContext?.lifecycleOwner?.lifecycle?.addObserver(lifecycleObserver)
@@ -136,8 +150,9 @@ internal class PortalCloseRequestController(
 
   private fun reconcileInputHandling() {
     if (disposed) return
-    ensureEscapeListener()
+    ensureInputListener()
     presentationContext?.windowRoot?.let { windowRoot ->
+      PortalCloseRequestCoordinator.updateParticipant(windowRoot, this)
       if (presentationAssignment != PortalPresentationAssignment.NONE) {
         PortalCloseRequestCoordinator.assign(windowRoot, this, currentPortalAction())
       } else {
@@ -168,10 +183,10 @@ internal class PortalCloseRequestController(
   }
 
   /**
-   * Starts Escape registration at the first presentation with a handler, then keeps the listener
-   * stable for the structural lifetime of the resolved routing context.
+   * Starts key registration when a presentation can handle input, then keeps the listener stable
+   * for the structural lifetime of the resolved routing context.
    */
-  private fun ensureEscapeListener() {
+  private fun ensureInputListener() {
     val currentRoutingContext = closeRequestRoutingContext
     if (
       currentRoutingContext == null ||
@@ -182,18 +197,19 @@ internal class PortalCloseRequestController(
       return
     }
     if (
-      isEscapeListenerInstalled ||
-        !inputState.hasCloseRequestHandler ||
+      isKeyListenerInstalled ||
+        (!inputState.hasCloseRequestHandler &&
+          !PortalCloseRequestCoordinator.hasInputHandler(currentRoutingContext.windowRoot)) ||
         !inputState.isPresentationActive
     ) {
       return
     }
 
     ViewCompat.addOnUnhandledKeyEventListener(view, unhandledKeyEventListener)
-    isEscapeListenerInstalled = true
+    isKeyListenerInstalled = true
   }
 
-  /** Keeps one OnBackPressedCallback for a complete presentation, including predictive Back. */
+  /** Keeps one system input registration through a presentation and its captured Back. */
   private fun reconcileBackCallback() {
     if (disposed || isReconcilingBackCallback) return
     isReconcilingBackCallback = true
@@ -210,54 +226,101 @@ internal class PortalCloseRequestController(
       }
 
       val presentationActive = currentRoutingContext != null && inputState.isPresentationActive
+      val canProxyBack =
+        presentationAssignment != PortalPresentationAssignment.NONE &&
+          currentRoutingContext?.windowRoot?.let(PortalCloseRequestCoordinator::hasInputHandler) ==
+            true
+      val proxyAction =
+        if (canProxyBack) CloseRequestInputAction.EMIT_CLOSE_REQUEST
+        else CloseRequestInputAction.PASS_THROUGH
       val callback = backCallback
+      val capturedAction =
+        if (callback?.isBackInProgress == true)
+          currentRoutingContext?.windowRoot?.let {
+            PortalCloseRequestCoordinator.capturedBackAction(it, this)
+          }
+        else null
       if (callback != null) {
         if (!presentationActive) {
           hasBackCallbackPresentationEnded = true
         }
 
         if (hasBackCallbackPresentationEnded) {
-          if (callback.isPredictiveBackInProgress) {
+          if (callback.isBackInProgress) {
             callback.updateState(
               canReceiveBack = false,
-              currentAction = CloseRequestInputAction.CONSUME,
+              currentAction = capturedAction ?: CloseRequestInputAction.CONSUME,
             )
+            updateBackInput(callback)
             return
           }
           disposeBackCallbackImmediately()
         } else {
           callback.updateState(
-            canReceiveBack = assignedCloseRequestAction != CloseRequestInputAction.PASS_THROUGH,
-            currentAction = assignedCloseRequestAction,
+            canReceiveBack = canProxyBack,
+            currentAction = capturedAction ?: proxyAction,
           )
+          updateBackInput(callback)
           return
         }
       }
 
-      if (dispatcher != null && presentationActive && inputState.hasCloseRequestHandler) {
+      if (
+        dispatcher != null &&
+          presentationActive &&
+          (inputState.hasCloseRequestHandler || canProxyBack)
+      ) {
         val newCallback =
           CloseRequestBackCallback(
-            resolveAction = { assignedCloseRequestAction },
+            resolveAction = {
+              currentRoutingContext?.windowRoot?.let {
+                PortalCloseRequestCoordinator.resolveBackAction(it, this)
+              } ?: CloseRequestInputAction.PASS_THROUGH
+            },
             executeAction = ::executeBackAction,
-            onPredictiveBackStateChanged = ::reconcileBackCallback,
+            onCaptureStateChanged = ::reconcileBackCallback,
+            onCaptureCancelled = {
+              PortalCloseRequestCoordinator.cancelBackCapture(
+                currentRoutingContext.windowRoot,
+                this,
+              )
+            },
           )
         backDispatcher = dispatcher
         backCallback = newCallback
         hasBackCallbackPresentationEnded = false
-        dispatcher.addCallback(newCallback)
+        backInput = PortalBackInput(view, newCallback)
         newCallback.updateState(
-          canReceiveBack = assignedCloseRequestAction != CloseRequestInputAction.PASS_THROUGH,
-          currentAction = assignedCloseRequestAction,
+          canReceiveBack = canProxyBack,
+          currentAction = proxyAction,
         )
+        updateBackInput(newCallback)
       }
     } finally {
       isReconcilingBackCallback = false
     }
   }
 
+  private fun updateBackInput(callback: CloseRequestBackCallback) {
+    val imeVisible =
+      appliedImeVisible
+        ?: (ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true)
+    backInput?.update(callback.isEnabled && (!imeVisible || callback.isBackInProgress))
+  }
+
   private fun executeBackAction(action: CloseRequestInputAction) {
-    if (action == CloseRequestInputAction.EMIT_CLOSE_REQUEST) {
-      emitCloseRequestIfEligible()
+    closeRequestRoutingContext?.windowRoot?.let {
+      PortalCloseRequestCoordinator.executeBackAction(it, this, action)
+    }
+    if (action == CloseRequestInputAction.PASS_THROUGH) {
+      val dispatcher = backDispatcher ?: return
+      val host = currentActivity() as? ReactActivity
+      if (host != null && closeRequestRoutingContext?.dispatcherOwner === host) {
+        // RN's later default enters the Activity dispatcher, where this portal has no callback.
+        @Suppress("DEPRECATION") host.onBackPressed()
+      } else {
+        dispatcher.onBackPressed()
+      }
     }
   }
 
@@ -268,10 +331,11 @@ internal class PortalCloseRequestController(
       removeInputHandlers()
       closeRequestRoutingContext?.lifecycleOwner?.lifecycle?.removeObserver(lifecycleObserver)
       closeRequestRoutingContext = null
-      presentationContext?.windowRoot?.let { PortalCloseRequestCoordinator.release(it, this) }
+      presentationContext?.windowRoot?.let {
+        PortalCloseRequestCoordinator.removeParticipant(it, this)
+      }
       presentationContext = null
       presentationAssignment = PortalPresentationAssignment.NONE
-      assignedCloseRequestAction = CloseRequestInputAction.PASS_THROUGH
     } finally {
       isReconcilingBackCallback = wasReconciling
     }
@@ -282,9 +346,9 @@ internal class PortalCloseRequestController(
     isReconcilingBackCallback = true
     try {
       disposeBackCallbackImmediately()
-      if (isEscapeListenerInstalled) {
+      if (isKeyListenerInstalled) {
         ViewCompat.removeOnUnhandledKeyEventListener(view, unhandledKeyEventListener)
-        isEscapeListenerInstalled = false
+        isKeyListenerInstalled = false
       }
     } finally {
       isReconcilingBackCallback = wasReconciling
@@ -293,6 +357,8 @@ internal class PortalCloseRequestController(
 
   private fun disposeBackCallbackImmediately() {
     val callback = backCallback
+    backInput?.dispose()
+    backInput = null
     backCallback = null
     backDispatcher = null
     hasBackCallbackPresentationEnded = false

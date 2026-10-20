@@ -3,7 +3,6 @@ package com.swmansion.reactnativebottomsheet.closerequest
 import android.view.KeyEvent
 import android.view.View
 import android.widget.FrameLayout
-import androidx.activity.BackEventCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -18,7 +17,7 @@ import org.robolectric.Robolectric
 import org.robolectric.annotation.Config
 
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [35])
+@Config(sdk = [35], shadows = [TestWindowBackDispatcher::class])
 class PortalCloseRequestCoordinatorTest {
   @Test
   fun `higher handlerless presentation blocks lower and handler updates keep visual ownership`() {
@@ -135,9 +134,7 @@ class PortalCloseRequestCoordinatorTest {
   fun `predictive Back remains captured when a higher presentation appears`() {
     Fixture().use { fixture ->
       val lower = fixture.portal()
-      fixture.activity.onBackPressedDispatcher.dispatchOnBackStarted(
-        BackEventCompat(0f, 0f, 0f, BackEventCompat.EDGE_LEFT)
-      )
+      fixture.activity.startSystemBack()
       val upper = fixture.portal()
       fixture.back()
       assertEquals(0, lower.requests)
@@ -184,9 +181,7 @@ class PortalCloseRequestCoordinatorTest {
     Fixture().use { fixture ->
       val lower = fixture.portal()
       val upper = fixture.portal()
-      fixture.activity.onBackPressedDispatcher.dispatchOnBackStarted(
-        BackEventCompat(0f, 0f, 0f, BackEventCompat.EDGE_LEFT)
-      )
+      fixture.activity.startSystemBack()
       lower.view.elevation = 10f
       lower.view.viewTreeObserver.dispatchOnPreDraw()
       lower.view.elevation = 0f
@@ -225,7 +220,7 @@ class PortalCloseRequestCoordinatorTest {
         it.update(state)
       }
 
-    fun back() = activity.onBackPressedDispatcher.onBackPressed()
+    fun back() = activity.systemBack()
 
     override fun close() {
       portals.asReversed().forEach { it.dispose() }

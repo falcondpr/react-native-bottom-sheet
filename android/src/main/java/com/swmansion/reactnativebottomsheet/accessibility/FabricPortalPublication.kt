@@ -45,6 +45,22 @@ private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
     mHybridData.resetNative()
   }
 
+  override fun contextPath(
+    surfaceId: Int,
+    tag: Int,
+    states: Map<Int, StateWrapper?>,
+  ): List<Int>? {
+    if (!active) return null
+    val delivered = states.toList()
+    return contextPathNative(
+        surfaceId,
+        tag,
+        delivered.map { it.first }.toIntArray(),
+        delivered.map { it.second }.toTypedArray(),
+      )
+      ?.toList()
+  }
+
   override fun isolation(
     surfaceId: Int,
     states: Map<Int, StateWrapper?>,
@@ -76,6 +92,14 @@ private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
     tags: IntArray,
     states: Array<StateWrapper?>,
   ): FabricPortalReceipt?
+
+  @DoNotStrip
+  private external fun contextPathNative(
+    surfaceId: Int,
+    tag: Int,
+    tags: IntArray,
+    states: Array<StateWrapper?>,
+  ): IntArray?
 
   @DoNotStrip
   private external fun isolationNative(

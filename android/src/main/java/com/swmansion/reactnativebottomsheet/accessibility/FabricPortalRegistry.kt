@@ -79,6 +79,43 @@ internal fun FabricPublicationLease.attachedReceiptsFromRegistry(
   return receipts
 }
 
+/** Ephemeral input facts for one exact surface, supplied Active owners, and optional origin. */
+internal data class FabricPortalInputContexts(
+  val contextOwners: Map<Int, List<BottomSheetView>>,
+  val focusContexts: List<Int>,
+  val nativeDepth: Int?,
+)
+
+@UiThread
+internal fun FabricPublicationLease.attachedInputContextsFromRegistry(
+  manager: UIManager,
+  surfaceId: Int,
+  presentations: Collection<BottomSheetView>,
+  windowRoot: View,
+  origin: View?,
+): FabricPortalInputContexts? {
+  val first = presentations.firstOrNull() ?: return null
+  val states = deliveredStatesFromRegistry(manager, surfaceId, first) ?: return null
+  val receipts = mutableMapOf<BottomSheetView, FabricPortalReceipt>()
+  for (owner in presentations) {
+    val receipt = receipt(surfaceId, owner.id, states) ?: return null
+    if (receipt.attachedNativePath(manager::resolveView, owner, windowRoot) == null) return null
+    receipts[owner] = receipt
+  }
+  val source = receipts.getValue(first)
+  if (receipts.values.any { it.publicationId != source.publicationId }) return null
+  val groups = receipts.keys.groupBy { receipts.getValue(it).contexts.firstOrNull() ?: return null }
+  val native = origin?.let {
+    source.nativeOrigin(manager::resolveView, it, windowRoot) ?: return null
+  }
+  val contexts = native?.let { contextPath(surfaceId, it.tag, states) ?: return null }.orEmpty()
+  // Registry access is a platform boundary: reject a changed delivered inventory.
+  val current = deliveredStatesFromRegistry(manager, surfaceId, first) ?: return null
+  if (current.keys != states.keys || states.any { (tag, state) -> current[tag] !== state })
+    return null
+  return FabricPortalInputContexts(groups, contexts, native?.depth)
+}
+
 /**
  * Reads cuts for the complete supplied Active group, choosing retained owners in each logical
  * context with the shared native-order policy. Delivered source States stay complete; physical

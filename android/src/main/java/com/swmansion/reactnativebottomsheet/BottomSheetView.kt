@@ -14,9 +14,11 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
+import android.view.WindowInsets
 import android.view.WindowManager
 import androidx.activity.ComponentDialog
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.common.LifecycleState
 import com.facebook.react.config.ReactFeatureFlags
@@ -225,6 +227,13 @@ class BottomSheetView(context: Context) : ReactViewGroup(context), LifecycleEven
   override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
     super.onWindowFocusChanged(hasWindowFocus)
     refreshPresentationRouting()
+  }
+
+  override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
+    portalCloseRequestController.onImeVisibilityChanged(
+      WindowInsetsCompat.toWindowInsetsCompat(insets, this).isVisible(WindowInsetsCompat.Type.ime())
+    )
+    return super.onApplyWindowInsets(insets)
   }
 
   override fun dispatchKeyEvent(event: KeyEvent): Boolean {

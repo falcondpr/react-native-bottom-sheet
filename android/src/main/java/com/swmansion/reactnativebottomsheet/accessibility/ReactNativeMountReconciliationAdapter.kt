@@ -119,6 +119,28 @@ internal class ReactNativeMountReconciliationAdapter(
 
   private val managers = IdentityHashMap<Any, ManagerState>()
 
+  /** Fresh UI input reuses the installed source; unavailable bootstrap is unresolved. */
+  @UiThread
+  fun readPortalInputContexts(
+    boundary: ReactNativeMountCallbacks,
+    surfaceId: Int,
+    presentations: Collection<BottomSheetView>,
+    windowRoot: View,
+    origin: View?,
+  ): FabricPortalInputContexts? {
+    val state =
+      managers[boundary.identity]?.takeIf { it.active && it.boundary.isFabric } ?: return null
+    val manager = state.boundary.identity as? UIManager ?: return null
+    val source = state.publicationSource ?: return null
+    return source.attachedInputContextsFromRegistry(
+      manager,
+      surfaceId,
+      presentations,
+      windowRoot,
+      origin,
+    )
+  }
+
   /** Reconciliation runs in queued UI work and must read current facts when invoked. */
   fun observe(
     boundary: ReactNativeMountCallbacks,

@@ -34,6 +34,9 @@ class FabricPortalPublicationJniTest {
           assertEquals(listOf(14, 13, 31, 11, 1), receipt.ancestors)
           assertEquals(listOf(1, 11, 13, 14, 31), receipt.logicalTags)
           assertEquals(mapOf(1 to 0, 13 to 1, 14 to 13), receipt.nativeParents)
+          assertEquals(listOf(11), lease.contextPath(1, 13, mapOf(14 to state)))
+          assertEquals(emptyList<Int>(), lease.contextPath(1, 1, mapOf(14 to state)))
+          assertNull(lease.contextPath(1, 99, mapOf(14 to state)))
           // Synthetic source membership tests transport, not native attachment acceptance.
           val projection =
             requireNotNull(
@@ -56,6 +59,7 @@ class FabricPortalPublicationJniTest {
           assertNull(lease.receipt(1, 99, mapOf(14 to state)))
           state.destroyState()
           assertNull(lease.receipt(1, 14, mapOf(14 to state)))
+          assertNull(lease.contextPath(1, 13, mapOf(14 to state)))
           assertNull(
             lease.isolation(1, mapOf(14 to state), receipt.nativeParents, mapOf(13 to listOf(14)))
           )
@@ -66,6 +70,7 @@ class FabricPortalPublicationJniTest {
           assertNull(fixture.takeDeliveredPublicationState())
           assertNull(lease.receipt(1, 14, mapOf(14 to state)))
           assertNull(lease.isolation(1, emptyMap(), emptyMap(), emptyMap()))
+          assertNull(lease.contextPath(1, 13, emptyMap()))
         } finally {
           state.destroyState()
         }

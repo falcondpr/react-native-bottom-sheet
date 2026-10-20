@@ -259,7 +259,30 @@ internal fun FabricPortalReceipt.nativeIsolationBranches(
 private fun nativeIdentitySet(): MutableSet<View> =
   Collections.newSetFromMap(IdentityHashMap<View, Boolean>())
 
-private fun View.currentWindowPath(windowRoot: View): List<View>? {
+internal data class PortalNativeOrigin(val tag: Int, val depth: Int)
+
+/** Finds the nearest real source owner, including library/RN Modal owned containers. */
+@UiThread
+internal fun FabricPortalReceipt.nativeOrigin(
+  resolveView: (Int) -> View?,
+  origin: View,
+  windowRoot: View,
+): PortalNativeOrigin? {
+  val path = origin.currentWindowPath(windowRoot) ?: return null
+  val registered = cachedNativeLookup(resolveView)
+  for ((depth, view) in path.withIndex()) {
+    val owner = registered(view.id) ?: continue
+    if (owner !== view && !view.isManagedContainer(owner, path.getOrNull(depth - 1) ?: return null))
+      return null
+    val tag = owner.id
+    if (tag !in nativeParents || nativeMembers(resolveView, setOf(tag), windowRoot) == null)
+      return null
+    return PortalNativeOrigin(tag, depth)
+  }
+  return null
+}
+
+internal fun View.currentWindowPath(windowRoot: View): List<View>? {
   val token = windowRoot.windowToken ?: return null
   val path = mutableListOf<View>()
   var current = this

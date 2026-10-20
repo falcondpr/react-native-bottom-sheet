@@ -325,6 +325,12 @@ class PortalActiveMountObservationTest {
           return surface.receipt
         }
 
+        override fun contextPath(
+          surfaceId: Int,
+          tag: Int,
+          states: Map<Int, com.facebook.react.uimanager.StateWrapper?>,
+        ): List<Int>? = null
+
         override fun isolation(
           surfaceId: Int,
           states: Map<Int, StateWrapper?>,

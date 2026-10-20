@@ -51,6 +51,12 @@ class PortalPublicationSource final : private UIManagerCommitHook {
   std::optional<PortalSourceReceipt> receiptForState(
       SurfaceId surface, Tag tag, const State::Shared& state) const;
 
+  // Innermost containing contexts for a node in the exact all-sheet source.
+  // Empty means outside; missing source/node is unresolved. Native origin
+  // identity and attachment must be validated by the caller.
+  std::optional<std::vector<Tag>> contextPathForStates(
+      SurfaceId surface, const std::map<Tag, State::Shared>& states, Tag tag) const;
+
   // Resolve retained tags only in the exact all-sheet source. The native
   // adapter supplies validated membership; this does not establish attachment.
   std::optional<PortalIsolationProjection> isolationForStates(

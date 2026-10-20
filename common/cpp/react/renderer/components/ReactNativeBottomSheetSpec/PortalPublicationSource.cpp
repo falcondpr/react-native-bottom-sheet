@@ -194,6 +194,15 @@ std::optional<PortalSourceReceipt> PortalPublicationSource::receiptForState(
       std::move(ancestors), std::move(logicalTags), std::move(nativeParents)};
 }
 
+std::optional<std::vector<Tag>> PortalPublicationSource::contextPathForStates(
+    SurfaceId surface, const std::map<Tag, State::Shared>& states, Tag tag) const {
+  auto root = rootForStates(surface, states);
+  if (!root) return std::nullopt;
+  auto graph = discoverPortalContexts(*root);
+  if (!graph || !graph->nodes.contains(tag)) return std::nullopt;
+  return graph->contextPathForNode(*graph->nodes.at(tag), *root);
+}
+
 std::optional<PortalIsolationProjection> PortalPublicationSource::isolationForStates(
     SurfaceId surface, const std::map<Tag, State::Shared>& states,
     const PortalNativeMembers& members,

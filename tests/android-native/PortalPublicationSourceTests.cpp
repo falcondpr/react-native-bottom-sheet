@@ -148,6 +148,9 @@ int main() {
            receipt && receipt->logicalTags == std::vector<Tag>{1, 11, 12, 13, 14} &&
            receipt->nativeParents == std::map<Tag, Tag>{{1, 0}, {12, 1}, {13, 1}, {14, 13}} &&
            receipt->contexts == std::vector<Tag>{11});
+    expect("a current native focus anchor keeps its flattened local containing context",
+           f.source->contextPathForStates(1, {{14, native}}, 12) ==
+               std::optional<std::vector<Tag>>{{11}});
   }
 
   {
