@@ -2,6 +2,7 @@
 #import <XCTest/XCTest.h>
 
 #import "../../../ios/BottomSheetPresentationOwnership.h"
+#import "Support/BottomSheetAccessibilityObservation.h"
 
 @interface BottomSheetModalBoundaryRecordingView : UIView
 
@@ -105,6 +106,44 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
 @end
 
 @implementation BottomSheetPresentationModalIsolationControllerTests
+
+- (void)tearDown
+{
+  [BottomSheetAccessibilityObservation endAccessibilityObservation];
+  [super tearDown];
+}
+
+- (void)testReentrantPendingBatchDefersTheNotificationWithoutLosingTheInterfaceChange
+{
+  UIWindow *window = BottomSheetMakeModalIsolationTestWindow();
+  BottomSheetAccessibilityHiddenRecordingView *background =
+      [[BottomSheetAccessibilityHiddenRecordingView alloc] initWithName:@"background"
+          writeLog:[NSMutableArray new]];
+  UIView *boundary = [UIView new];
+  [window.rootViewController.view addSubview:background];
+  [window.rootViewController.view addSubview:boundary];
+  BottomSheetPresentationController *controller =
+      [[BottomSheetPresentationController alloc] initWithAnchor:boundary];
+  __weak BottomSheetPresentationController *weakController = controller;
+  background.afterWrite = ^(BOOL hidden) {
+    if (hidden) [weakController beginHierarchyMutation];
+  };
+  [BottomSheetAccessibilityObservation beginAccessibilityObservationForDismiss:boundary
+      voiceOverRunning:YES focused:NO];
+
+  [controller updateModal:YES active:YES mode:BottomSheetPresentationModeNativeOverlay];
+  XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityScreenChangedNotificationCount], 0u);
+  background.afterWrite = nil;
+  [controller endHierarchyMutation];
+
+  XCTAssertTrue(background.accessibilityElementsHidden);
+  XCTAssertTrue(boundary.accessibilityViewIsModal);
+  XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityScreenChangedNotificationCount], 1u);
+  [controller reconcilePresentationOrder];
+  XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityScreenChangedNotificationCount], 1u);
+  [controller invalidate];
+  BottomSheetTearDownModalIsolationTestWindow(window);
+}
 
 - (void)testTopPathHidesSiblingBranchesAndRestoresThemAfterOwnershipEnds
 {

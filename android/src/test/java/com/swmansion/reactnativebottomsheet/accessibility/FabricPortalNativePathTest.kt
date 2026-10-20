@@ -35,6 +35,132 @@ class FabricPortalNativePathTest {
   }
 
   @Test
+  fun `painted logical ancestors bypassed by source mount edges are not physical parents`() {
+    Fixture().use { f ->
+      // Minimal replay of example: logical panel -> painted ancestor -> root,
+      // while Fabric mounts both panel and painted body directly under root.
+      val painted = FrameLayout(f.activity.get()).apply { id = 31 }.also(f.root::addView)
+      f.registry[31] = painted
+      val receipt =
+        FabricPortalReceipt(
+          "source:1",
+          13,
+          intArrayOf(11),
+          intArrayOf(14, 13, 11, 31, 2),
+          intArrayOf(2, 11, 12, 13, 14, 31),
+          intArrayOf(2, 0, 31, 2, 11, 2, 12, 11, 13, 11, 14, 13),
+        )
+      assertNotNull(receipt.nativeMembers(f.registry::get))
+      assertEquals(
+        listOf(f.sheet, f.wrapper, f.host, f.area, f.root),
+        receipt.nativePath(f.registry::get, f.sheet),
+      )
+      assertEquals(
+        setOf(f.background),
+        receipt.nativeIsolationBranches(
+          FabricPortalIsolationProjection(intArrayOf(12), intArrayOf(11, 13, 13, 14)),
+          f.registry::get,
+          f.sheet.rootView,
+        ),
+      )
+    }
+  }
+
+  @Test
+  fun `a disconnected branch outside the local cut does not release isolation inside it`() {
+    Fixture().use { f ->
+      val outside = View(f.activity.get()).apply { id = 40 }
+      FrameLayout(f.activity.get()).addView(outside)
+      f.registry[40] = outside
+      val receipt =
+        FabricPortalReceipt(
+          "source:1",
+          13,
+          intArrayOf(11),
+          f.receipt.ancestors.toIntArray(),
+          intArrayOf(2, 11, 12, 13, 14, 31, 40),
+          intArrayOf(2, 0, 11, 2, 12, 11, 13, 11, 14, 13, 40, 2),
+        )
+      val window = f.sheet.rootView
+      val projection = FabricPortalIsolationProjection(intArrayOf(12), intArrayOf(11, 13, 13, 14))
+      assertNotNull(receipt.attachedNativePath(f.registry::get, f.sheet, window))
+      assertEquals(
+        setOf(f.background),
+        receipt.nativeIsolationBranches(projection, f.registry::get, window),
+      )
+
+      f.area.removeView(f.background)
+      assertNull(receipt.nativeIsolationBranches(projection, f.registry::get, window))
+      assertEquals(
+        emptySet<View>(),
+        receipt.nativeIsolationBranches(
+          FabricPortalIsolationProjection(intArrayOf(), intArrayOf()),
+          f.registry::get,
+          window,
+        ),
+      )
+    }
+  }
+
+  @Test
+  fun `detached native descendants do not invalidate an attached hidden frontier`() {
+    Fixture().use { f ->
+      val background = FrameLayout(f.activity.get()).apply { id = 12 }
+      f.area.removeView(f.background)
+      f.area.addView(background)
+      f.registry[12] = background
+      val inactive = View(f.activity.get()).apply { id = 15 }
+      FrameLayout(f.activity.get()).addView(inactive)
+      f.registry[15] = inactive
+      val receipt =
+        FabricPortalReceipt(
+          "source:1",
+          13,
+          intArrayOf(11),
+          f.receipt.ancestors.toIntArray(),
+          intArrayOf(2, 11, 12, 13, 14, 15, 31),
+          intArrayOf(2, 0, 11, 2, 12, 11, 13, 11, 14, 13, 15, 12),
+        )
+      val projection = FabricPortalIsolationProjection(intArrayOf(12), intArrayOf(11, 13, 13, 14))
+      assertNull(receipt.nativeMembers(f.registry::get))
+      assertEquals(
+        setOf(background),
+        receipt.nativeIsolationBranches(projection, f.registry::get, f.sheet.rootView),
+      )
+    }
+  }
+
+  @Test
+  fun `source descendants escaping a hidden local branch reject the complete cut`() {
+    Fixture().use { f ->
+      val background = FrameLayout(f.activity.get()).apply { id = 12 }
+      f.area.removeView(f.background)
+      f.area.addView(background)
+      f.registry[12] = background
+      val escaped = View(f.activity.get()).apply { id = 15 }.also(f.root::addView)
+      f.registry[15] = escaped
+      val receipt =
+        FabricPortalReceipt(
+          "source:1",
+          13,
+          intArrayOf(11),
+          f.receipt.ancestors.toIntArray(),
+          intArrayOf(2, 11, 12, 13, 14, 15, 31),
+          intArrayOf(2, 0, 11, 2, 12, 11, 13, 11, 14, 13, 15, 12),
+        )
+      val projection = FabricPortalIsolationProjection(intArrayOf(12), intArrayOf(11, 13, 13, 14))
+      assertNull(receipt.nativeIsolationBranches(projection, f.registry::get, f.sheet.rootView))
+
+      f.root.removeView(escaped)
+      background.addView(escaped)
+      assertEquals(
+        setOf(background),
+        receipt.nativeIsolationBranches(projection, f.registry::get, f.sheet.rootView),
+      )
+    }
+  }
+
+  @Test
   fun `native frontiers hide source background and native chrome while preserving wrappers and outside controls`() {
     Fixture().use { f ->
       val chrome = View(f.activity.get()).also(f.area::addView)
@@ -138,13 +264,6 @@ class FabricPortalNativePathTest {
       assertNull(f.receipt.nativeIsolationBranches(projection, f.registry::get, f.root))
       f.area.removeView(f.background)
       assertNull(f.receipt.nativeIsolationBranches(projection, f.registry::get, window))
-      assertNull(
-        f.receipt.nativeIsolationBranches(
-          FabricPortalIsolationProjection(intArrayOf(), intArrayOf()),
-          f.registry::get,
-          window,
-        )
-      )
     }
   }
 
@@ -181,6 +300,48 @@ class FabricPortalNativePathTest {
         setOf(wrapper),
         f.receipt.nativeIsolationBranches(projection, f.registry::get, window),
       )
+    }
+  }
+
+  @Test
+  fun `a hidden Modal cannot bring its other window into the local native scan`() {
+    Fixture().use { f ->
+      val context = BridgeReactContext(f.activity.get().applicationContext)
+      val modal =
+        ReactModalHostView(ThemedReactContext(context, f.activity.get(), "test", 1)).apply {
+          id = 30
+        }
+      val other = Robolectric.buildActivity(Activity::class.java).setup()
+      try {
+        f.root.addView(modal)
+        val foreign = FrameLayout(f.activity.get()).apply { id = 40 }
+        modal.addView(foreign, 0)
+        other.get().setContentView(foreign.parent as android.view.ViewGroup)
+        val unknown = View(f.activity.get()).apply { id = 41 }.also(foreign::addView)
+        f.registry[30] = modal
+        f.registry[40] = foreign
+        f.registry[41] = unknown
+        val receipt =
+          FabricPortalReceipt(
+            "source:1",
+            13,
+            intArrayOf(2),
+            f.receipt.ancestors.toIntArray(),
+            intArrayOf(2, 11, 12, 13, 14, 30, 31, 40),
+            intArrayOf(2, 0, 11, 2, 12, 11, 13, 11, 14, 13, 30, 2, 40, 30),
+          )
+        assertEquals(
+          setOf(f.background, modal),
+          receipt.nativeIsolationBranches(
+            FabricPortalIsolationProjection(intArrayOf(12, 30), intArrayOf(2, 11, 11, 13, 13, 14)),
+            f.registry::get,
+            f.sheet.rootView,
+          ),
+        )
+      } finally {
+        other.close()
+        modal.onDropInstance()
+      }
     }
   }
 

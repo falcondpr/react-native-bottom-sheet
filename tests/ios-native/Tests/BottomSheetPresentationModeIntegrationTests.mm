@@ -4,6 +4,7 @@
 #import "../../../ios/BottomSheetPresentationOwnership.h"
 #import "ReactNativeBottomSheet-Swift.h"
 #import "Support/BottomSheetTestComponentFactory.h"
+#import "Support/BottomSheetAccessibilityObservation.h"
 #import "../../../ios/BottomSheetComponentView.h"
 #import "../../../ios/BottomSheetPortalMountingObserver.h"
 #import <React/RCTComponentViewRegistry.h>
@@ -132,7 +133,12 @@ static UIView *BottomSheetAssertIntegrationDismissGeometry(BottomSheetHostingVie
       CGRectGetMinY(host.bounds),
       CGRectGetWidth(host.bounds),
       MAX(0, host.currentContentOffsetY));
-  XCTAssertTrue(CGRectEqualToRect(dismiss.frame, hostRect));
+  // The live spring sample can advance between the cached Dismiss frame and
+  // currentContentOffsetY. Use the same subpixel bound as screen geometry below.
+  XCTAssertEqualWithAccuracy(CGRectGetMinX(dismiss.frame), CGRectGetMinX(hostRect), 0.5);
+  XCTAssertEqualWithAccuracy(CGRectGetMinY(dismiss.frame), CGRectGetMinY(hostRect), 0.5);
+  XCTAssertEqualWithAccuracy(CGRectGetWidth(dismiss.frame), CGRectGetWidth(hostRect), 0.5);
+  XCTAssertEqualWithAccuracy(CGRectGetHeight(dismiss.frame), CGRectGetHeight(hostRect), 0.5);
   CGRect expectedFrame = UIAccessibilityConvertFrameToScreenCoordinates(hostRect, host);
   XCTAssertEqualWithAccuracy(
       CGRectGetMinX(dismiss.accessibilityFrame), CGRectGetMinX(expectedFrame), 0.5);
@@ -183,7 +189,13 @@ static void BottomSheetTearDownIntegrationWindow(UIWindow *window)
 
 @implementation BottomSheetPresentationModeIntegrationTests
 
-- (void)testMountedPortalOpeningCommitsLocalIsolationBeforeRevealingContent
+- (void)tearDown
+{
+  [BottomSheetAccessibilityObservation endAccessibilityObservation];
+  [super tearDown];
+}
+
+- (void)testMountedPortalNotifiesAfterOpeningAndClosingIsolationCommits
 {
   UIWindow *window = BottomSheetMakeIntegrationWindow();
   MountedProductionPortal fixture;
@@ -202,6 +214,12 @@ static void BottomSheetTearDownIntegrationWindow(UIWindow *window)
   XCTAssertFalse(fixture.native(12).accessibilityElementsHidden);
   XCTAssertTrue(host.accessibilityElementsHidden);
 
+  [BottomSheetAccessibilityObservation beginAccessibilityObservationForDismiss:host
+      voiceOverRunning:YES focused:NO];
+  UIAccessibilityElement *backgroundFocus = [[UIAccessibilityElement alloc]
+      initWithAccessibilityContainer:fixture.native(12)];
+  [BottomSheetAccessibilityObservation setVoiceOverFocusedElement:backgroundFocus];
+
   auto openProps = fixture.sheets->cloneProps(PropsParserContext(1, *fixture.context), sheet->getProps(),
       RawProps(folly::dynamic::object("index", 1)));
   auto opened = sheet->clone({.props = openProps});
@@ -210,6 +228,7 @@ static void BottomSheetTearDownIntegrationWindow(UIWindow *window)
   XCTAssertNotNil([host.sheetContainer.layer animationForKey:@"bottomSheetSettle"]);
   XCTAssertFalse(fixture.native(12).accessibilityElementsHidden);
   XCTAssertTrue(host.accessibilityElementsHidden);
+  XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityScreenChangedNotificationCount], 0u);
 
   [host animationDidStop:[CAAnimation new] finished:YES];
 
@@ -217,7 +236,155 @@ static void BottomSheetTearDownIntegrationWindow(UIWindow *window)
                 @"After opening settles, the local background must leave accessibility navigation");
   XCTAssertFalse(host.accessibilityElementsHidden,
                  @"After isolation commits, the opened portal content must become accessible");
+  XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityScreenChangedNotificationCount], 1u);
+  [BottomSheetTestComponentFactory performObservedMountForProductionComponent:component mutation:^{}];
+  XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityScreenChangedNotificationCount], 1u,
+                @"An unchanged mount must not restart VoiceOver navigation");
+
+  UIAccessibilityElement *sheetFocus = [[UIAccessibilityElement alloc]
+      initWithAccessibilityContainer:host.sheetContainer];
+  [BottomSheetAccessibilityObservation setVoiceOverFocusedElement:sheetFocus];
+  XCTAssertTrue([host accessibilityPerformEscape],
+                @"A portal with a current Fabric source must route its virtual origin to local dismissal");
+  XCTAssertTrue(fixture.native(12).accessibilityElementsHidden);
+  XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityScreenChangedNotificationCount], 1u);
+  [host animationDidStop:[CAAnimation new] finished:YES];
+  XCTAssertFalse(fixture.native(12).accessibilityElementsHidden);
+  XCTAssertTrue(host.accessibilityElementsHidden);
+  XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityScreenChangedNotificationCount], 2u,
+                @"Restoring the previous interface must notify VoiceOver after masks are released");
   BottomSheetTearDownIntegrationComponent(component);
+  BottomSheetTearDownIntegrationWindow(window);
+}
+
+- (void)testMountedPortalModeChangesNotifyOnlyWhenTheAccessibleInterfaceChanges
+{
+  UIWindow *window = BottomSheetMakeIntegrationWindow();
+  MountedProductionPortal fixture;
+  [window.rootViewController.view addSubview:fixture.viewport];
+  auto sheet = fixture.sheet(14, 1);
+  auto background = fixture.view(12);
+  auto portal = fixture.view(13, {sheet}, true);
+  auto area = fixture.view(11, {background, portal});
+  fixture.mount({area});
+  BottomSheetLayoutIntegrationTree(window);
+  UIView *component = fixture.native(14);
+  BottomSheetHostingView *host = BottomSheetFindIntegrationHost(component);
+  [BottomSheetAccessibilityObservation beginAccessibilityObservationForDismiss:host
+      voiceOverRunning:YES focused:NO];
+  auto update = [&](folly::dynamic props) {
+    auto nextProps = fixture.sheets->cloneProps(PropsParserContext(1, *fixture.context), sheet->getProps(),
+        RawProps(std::move(props)));
+    sheet = sheet->clone({.props = nextProps});
+    auto nextPortal = portal->clone({.children = std::make_shared<const PortalChildren>(PortalChildren{sheet})});
+    fixture.mount({area->clone({.children = std::make_shared<const PortalChildren>(PortalChildren{background, nextPortal})})});
+    BottomSheetLayoutIntegrationTree(window);
+  };
+
+  update(folly::dynamic::object("nativeOverlay", true));
+  XCTAssertTrue(host.superview.accessibilityViewIsModal);
+  XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityScreenChangedNotificationCount], 1u);
+  update(folly::dynamic::object("nativeOverlay", false));
+  XCTAssertFalse(host.superview.accessibilityViewIsModal);
+  XCTAssertTrue(fixture.native(12).accessibilityElementsHidden);
+  XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityScreenChangedNotificationCount], 2u);
+  update(folly::dynamic::object("modal", false));
+  XCTAssertFalse(fixture.native(12).accessibilityElementsHidden);
+  XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityScreenChangedNotificationCount], 3u);
+  update(folly::dynamic::object("modal", true));
+  XCTAssertTrue(fixture.native(12).accessibilityElementsHidden);
+  XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityScreenChangedNotificationCount], 4u);
+
+  update(folly::dynamic::object("scrimOpacities", folly::dynamic::array(0, 0)));
+  XCTAssertNil(BottomSheetFindIntegrationDismiss(host));
+  update(folly::dynamic::object("detents", folly::dynamic::array(
+      folly::dynamic::object("value", 0)("kind", "points")("programmatic", true),
+      folly::dynamic::object("value", 320)("kind", "points")("programmatic", false))));
+  XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityScreenChangedNotificationCount], 4u,
+                @"Scrim and dismissal eligibility are not new modal interfaces");
+  BottomSheetTearDownIntegrationComponent(component);
+  BottomSheetTearDownIntegrationWindow(window);
+}
+
+- (void)testLocalHandoffDoesNotResetAvailableOrUnmappableVoiceOverFocus
+{
+  UIWindow *window = BottomSheetMakeIntegrationWindow();
+  MountedProductionPortal fixture;
+  [window.rootViewController.view addSubview:fixture.viewport];
+  auto sheet = fixture.sheet(14, 0);
+  fixture.mount({fixture.view(2), fixture.view(11, {fixture.view(12), fixture.view(13, {sheet}, true)})});
+  BottomSheetLayoutIntegrationTree(window);
+  UIView *component = fixture.native(14);
+  BottomSheetHostingView *host = BottomSheetFindIntegrationHost(component);
+  [BottomSheetAccessibilityObservation beginAccessibilityObservationForDismiss:host
+      voiceOverRunning:YES focused:NO];
+  UIAccessibilityElement *outsideFocus = [[UIAccessibilityElement alloc]
+      initWithAccessibilityContainer:fixture.native(2)];
+  NSUInteger expectedLayouts = 0;
+  UIView *outside = fixture.native(2);
+  outside.isAccessibilityElement = YES;
+  outside.accessibilityElementsHidden = YES; // hides descendants, not its own element
+  for (id focus in @[ outside, [NSObject new] ]) {
+    [BottomSheetAccessibilityObservation setVoiceOverFocusedElement:focus];
+    [host setDetentIndex:1];
+    [host animationDidStop:[CAAnimation new] finished:YES];
+    XCTAssertTrue(fixture.native(12).accessibilityElementsHidden);
+    XCTAssertTrue(fixture.native(2).accessibilityElementsHidden,
+                  @"The outside application's pre-hidden descendants must stay unchanged");
+    expectedLayouts += 1;
+    XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityLayoutChangedNotificationCount], expectedLayouts);
+    XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityScreenChangedNotificationCount], 0u);
+    [host setDetentIndex:0];
+    [host animationDidStop:[CAAnimation new] finished:YES];
+    XCTAssertFalse(fixture.native(12).accessibilityElementsHidden);
+    expectedLayouts += 1;
+    XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityLayoutChangedNotificationCount], expectedLayouts);
+    XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityScreenChangedNotificationCount], 0u);
+  }
+  outside.accessibilityElementsHidden = NO;
+  [BottomSheetAccessibilityObservation setVoiceOverFocusedElement:outsideFocus];
+  [host setDetentIndex:1];
+  [host animationDidStop:[CAAnimation new] finished:YES];
+  XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityScreenChangedNotificationCount], 0u);
+  expectedLayouts += 1;
+  XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityLayoutChangedNotificationCount], expectedLayouts);
+  BottomSheetTearDownIntegrationComponent(component);
+  BottomSheetTearDownIntegrationWindow(window);
+}
+
+- (void)testChangingTheContainingBlockKeepsThePortalAndRefreshesTheInterface
+{
+  UIWindow *window = BottomSheetMakeIntegrationWindow();
+  MountedProductionPortal fixture;
+  [window.rootViewController.view addSubview:fixture.viewport];
+  auto sheet = fixture.sheet(14, 1);
+  auto portal = fixture.view(13, {sheet}, true);
+  auto backgroundA = fixture.view(12);
+  auto backgroundC = fixture.view(22);
+  auto areaC = fixture.view(21, {backgroundC, portal});
+  auto staticProps = fixture.views.cloneProps(PropsParserContext(1, *fixture.context), areaC->getProps(),
+      RawProps(folly::dynamic::object("position", "static")));
+  auto staticAreaC = areaC->clone({.props = staticProps});
+  auto areaA = fixture.view(11, {backgroundA, staticAreaC});
+  fixture.mount({areaA});
+  BottomSheetLayoutIntegrationTree(window);
+  BottomSheetHostingView *host = BottomSheetFindIntegrationHost(fixture.native(14));
+  [BottomSheetAccessibilityObservation beginAccessibilityObservationForDismiss:host
+      voiceOverRunning:YES focused:NO];
+  XCTAssertTrue(fixture.native(12).accessibilityElementsHidden);
+
+  // Change the containing block through ordinary props, preserving every family
+  // and native instance rather than illegally moving a ShadowNodeFamily.
+  fixture.mount({areaA->clone({
+      .children = std::make_shared<const PortalChildren>(PortalChildren{backgroundA, areaC})})});
+  BottomSheetLayoutIntegrationTree(window);
+
+  XCTAssertEqual(BottomSheetFindIntegrationHost(fixture.native(14)), host);
+  XCTAssertFalse(fixture.native(12).accessibilityElementsHidden);
+  XCTAssertTrue(fixture.native(22).accessibilityElementsHidden);
+  XCTAssertEqual([BottomSheetAccessibilityObservation accessibilityScreenChangedNotificationCount], 1u,
+                @"The same sheet identity can establish a different local modal boundary");
+  BottomSheetTearDownIntegrationComponent(fixture.native(14));
   BottomSheetTearDownIntegrationWindow(window);
 }
 

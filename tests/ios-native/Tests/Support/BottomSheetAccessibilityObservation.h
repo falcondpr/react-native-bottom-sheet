@@ -11,6 +11,9 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)resetAccessibilityNotificationCount NS_SWIFT_NAME(resetNotificationCount());
 + (NSUInteger)accessibilityLayoutChangedNotificationCount
     NS_SWIFT_NAME(layoutChangedNotificationCount());
++ (NSUInteger)accessibilityScreenChangedNotificationCount
+    NS_SWIFT_NAME(screenChangedNotificationCount());
++ (void)setVoiceOverFocusedElement:(nullable id)element;
 + (void)endAccessibilityObservation NS_SWIFT_NAME(end());
 
 @end

@@ -112,11 +112,13 @@ final class BottomSheetPresentationEscapeTests: XCTestCase {
     XCTAssertEqual(fixture.eventRecorders[0].changedIndices, [0])
   }
 
-  func testDetachedCallerPassesThroughWithoutConsultingFormerWindow() {
+  func testDetachedCallerPassesThroughWithoutConsultingFormerWindow() async {
     let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay, .nativeOverlay])
     defer { fixture.tearDown() }
     let detachedHost = fixture.hosts[1]
     fixture.detachComponent(at: 1)
+    await fixture.finishPendingPresentationUpdates()
+    XCTAssertNil(detachedHost.window)
     let detachedOffset = detachedHost.currentContentOffsetY
 
     XCTAssertFalse(detachedHost.accessibilityPerformEscape())

@@ -110,7 +110,7 @@ final class BottomSheetPresentationLifecycleTests: XCTestCase {
     )
   }
 
-  func testActiveDetachTransfersOwnershipSynchronously() throws {
+  func testActiveDetachTransfersOwnershipAfterDeferredOverlayCleanup() async throws {
     let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay, .nativeOverlay])
     defer { fixture.tearDown() }
     let lowerBoundary = try XCTUnwrap(fixture.hosts[0].superview)
@@ -118,12 +118,18 @@ final class BottomSheetPresentationLifecycleTests: XCTestCase {
 
     fixture.detachComponent(at: 1)
 
+    XCTAssertTrue(upperBoundary.window === fixture.window)
+    XCTAssertTrue(upperBoundary.accessibilityViewIsModal)
+    XCTAssertFalse(lowerBoundary.accessibilityViewIsModal)
+    await fixture.finishPendingPresentationUpdates()
+
+    XCTAssertNil(upperBoundary.window)
     XCTAssertTrue(lowerBoundary.accessibilityViewIsModal)
     XCTAssertFalse(upperBoundary.accessibilityViewIsModal)
     XCTAssertFalse(fixture.hosts[1].accessibilityPerformEscape())
   }
 
-  func testClosingDetachTransfersOwnershipBeforeSettle() throws {
+  func testClosingDetachTransfersOwnershipAfterCleanupWithoutWaitingForSettle() async throws {
     let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay, .nativeOverlay])
     defer { fixture.tearDown() }
     let lowerBoundary = try XCTUnwrap(fixture.hosts[0].superview)
@@ -134,10 +140,17 @@ final class BottomSheetPresentationLifecycleTests: XCTestCase {
 
     fixture.detachComponent(at: 1)
 
+    XCTAssertTrue(upperBoundary.window === fixture.window)
+    XCTAssertTrue(upperBoundary.accessibilityViewIsModal)
+    XCTAssertFalse(lowerBoundary.accessibilityViewIsModal)
+    await fixture.finishPendingPresentationUpdates()
+
+    XCTAssertNil(upperBoundary.window)
     XCTAssertTrue(lowerBoundary.accessibilityViewIsModal)
     XCTAssertFalse(upperBoundary.accessibilityViewIsModal)
     XCTAssertFalse(fixture.hosts[1].accessibilityPerformEscape())
     XCTAssertEqual(fixture.eventRecorders[0].changedIndices, [])
+    XCTAssertEqual(fixture.eventRecorders[1].settledIndices, [])
   }
 
   func testRecyclingCurrentTopDestroysItsIdentityAndPromotesLower() throws {

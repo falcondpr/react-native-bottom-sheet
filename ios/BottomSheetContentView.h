@@ -27,12 +27,13 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable UIView *)portalNativeOwnerForBottomSheetView:(BottomSheetContentView *)view;
 @end
 
-@interface BottomSheetContentView : UIView <BottomSheetPortalNativeContainer>
+@interface BottomSheetContentView : UIView <BottomSheetPortalNativeContainer, BottomSheetPortalAccessibilityTransition>
 
 @property (nonatomic, weak, nullable) id<BottomSheetContentViewDelegate> delegate;
 @property (nonatomic) BOOL animateIn;
 @property (nonatomic) BOOL animateContentHeight;
 @property (nonatomic) BOOL modal;
+@property (nonatomic) BOOL defersAccessibilityPresentation;
 @property (nonatomic) NSInteger scrollableExpandNegotiation;
 @property (nonatomic) NSInteger scrollableCollapseNegotiation;
 @property (nonatomic, readonly) UIView *sheetContainer;

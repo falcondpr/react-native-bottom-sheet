@@ -104,6 +104,8 @@ class FabricPortalPublicationMountJniTest {
             if (sheets.size != 2) return@verify
             val sheet = sheets.single { it.tag == "mounted-sheet" }
             val area = views.single { it.tag == "local-area" }
+            val painted = views.single { it.tag == "painted-ancestor" } as ViewGroup
+            val content = views.single { it.tag == "mounted-content" }
             val portalHost = views.single {
               it.getTag(com.facebook.react.R.id.view_tag_native_id) ==
                 "__react_native_bottom_sheet_portal_host"
@@ -116,8 +118,42 @@ class FabricPortalPublicationMountJniTest {
             deliveredState = requireNotNull(sheet.stateWrapper)
             sheetTag = sheet.id
             val receipt =
-              requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet)
-                ?: return@verify
+              requireNotNull(lease)
+                .receipt(
+                  surface.surfaceID,
+                  sheet.id,
+                  sheets.associate { it.id to it.stateWrapper },
+                ) ?: return@verify
+            assertTrue(
+              "The painted view remains a logical ancestor",
+              painted.id in receipt.ancestors,
+            )
+            assertTrue("The painted body remains materialized", painted.id in receipt.nativeParents)
+            assertEquals(0, painted.childCount)
+            assertSame(painted.parent, area.parent)
+            assertEquals((area.parent as View).id, receipt.nativeParents[area.id])
+            assertNotNull(receipt.nativeMembers(manager::resolveView))
+            assertSame(content, manager.resolveView(content.id))
+            assertEquals(sheet.id, receipt.nativeParents[content.id])
+            val paintedParent = painted.parent as ViewGroup
+            val paintedIndex = paintedParent.indexOfChild(painted)
+            paintedParent.removeView(painted)
+            try {
+              assertNull(receipt.nativeMembers(manager::resolveView))
+              val local =
+                receipt.nativeMembers(manager::resolveView, setOf(area.id, portalHost.id, sheet.id))
+              assertNotNull(
+                "An unrelated disconnected body must not invalidate local source members",
+                local,
+              )
+              assertSame(content, requireNotNull(local)[content.id])
+            } finally {
+              paintedParent.addView(painted, paintedIndex)
+            }
+            assertNotNull(
+              "Hoisted descendants must follow source mount parents instead of every painted logical ancestor",
+              requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet),
+            )
             assertTrue(receipt.publicationId.isNotEmpty())
             assertEquals(portalHost.id, receipt.hostTag)
             if (expectedWrapperContext) {

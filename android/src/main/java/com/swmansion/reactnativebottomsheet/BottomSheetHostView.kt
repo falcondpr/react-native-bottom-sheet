@@ -205,6 +205,29 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
   private var pendingInitialContentDetentFrames = 0
   private var hasPerformedHostLayoutSinceAttach = false
   private val presentationLifecycleTracker = PresentationLifecycleTracker()
+  private var defersAccessibilityPresentation = false
+  private var accessibilityPresentationCommitted = false
+
+  internal val isAccessibilityTransitionRunning: Boolean
+    get() = activeAnimation != null || isPanning
+
+  internal fun updateAccessibilityPresentation(deferUntilSettled: Boolean) {
+    defersAccessibilityPresentation = deferUntilSettled
+    if (!deferUntilSettled || !isPresentationActive) accessibilityPresentationCommitted = false
+    importantForAccessibility =
+      if (deferUntilSettled && !accessibilityPresentationCommitted)
+        View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+      else View.IMPORTANT_FOR_ACCESSIBILITY_NO
+  }
+
+  internal fun commitAccessibilityPresentation() {
+    if (
+      !defersAccessibilityPresentation || !isPresentationActive || isAccessibilityTransitionRunning
+    )
+      return
+    accessibilityPresentationCommitted = true
+    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+  }
 
   private val contentHeightMarkerLayoutListener =
     View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->

@@ -81,8 +81,10 @@ internal fun FabricPublicationLease.attachedReceiptsFromRegistry(
 
 /**
  * Reads cuts for the complete supplied Active group, choosing retained owners in each logical
- * context with the shared native-order policy. Source/window failures reject the whole group.
- * Consume these proposals in the current UI work, with final validation before mutation.
+ * context with the shared native-order policy. Delivered source States stay complete; physical
+ * validation covers the proposed local subtrees and their parent paths. A failure in that scope
+ * rejects the whole group. Consume these proposals in current UI work, with final validation before
+ * mutation.
  */
 @UiThread
 internal fun FabricPublicationLease.attachedIsolationCutsFromRegistry(
@@ -101,7 +103,6 @@ internal fun FabricPublicationLease.attachedIsolationCutsFromRegistry(
       receipts[owner] = receipt
     }
     val source = receipts.getValue(owners.first())
-    if (source.nativeMembers(manager::resolveView) == null) return null
     val localGroups =
       receipts.keys.groupBy { receipts.getValue(it).contexts.firstOrNull() ?: return null }
     val nativeContexts = owners.associateWith { it.resolvePortalPresentationContext() }

@@ -5,10 +5,12 @@ package com.swmansion.reactnativebottomsheet
 
 import android.app.Activity
 import android.os.Looper
+import android.os.SystemClock
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
+import androidx.dynamicanimation.animation.SpringAnimation
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.facebook.react.bridge.BridgeReactContext
 import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsForTests
@@ -29,6 +31,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.util.ReflectionHelpers
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35])
@@ -36,6 +39,67 @@ class BottomSheetViewPortalAccessibilityTest {
   @Before
   fun useLocalReactNativeFeatureFlags() {
     ReactNativeFeatureFlagsForTests.setUp()
+  }
+
+  @Test
+  fun `opening keeps the previous accessible interface and closing retains the new one until settle`() {
+    val activity = Robolectric.buildActivity(Activity::class.java).setup()
+    val sheet = BottomSheetView(activity.get())
+    try {
+      val root = TestReactRoot(activity.get())
+      val background =
+        View(activity.get())
+          .apply {
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+          }
+          .also(root::addView)
+      val content =
+        View(activity.get()).apply {
+          importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+        }
+      sheet.configurePortal(index = 0, content = content)
+      root.addView(sheet, matchParent())
+      activity.get().setContentView(root)
+      layout(root)
+      layout(sheet)
+
+      sheet.setIndex(1)
+      assertTrue(accessibleTree(root).contains(background))
+      assertFalse(accessibleTree(root).contains(content))
+      val opening = AnimationDriver(sheet)
+      opening.advance(3)
+      assertTrue(accessibleTree(root).contains(background))
+      assertFalse(accessibleTree(root).contains(content))
+      sheet.setIndex(0) // An unfinished opening never exposes the incoming portal.
+      AnimationDriver(sheet).finish()
+      shadowOf(Looper.getMainLooper()).idle()
+      assertTrue(accessibleTree(root).contains(background))
+      assertFalse(accessibleTree(root).contains(content))
+      sheet.setIndex(1)
+      AnimationDriver(sheet).finish()
+      shadowOf(Looper.getMainLooper()).idle()
+      assertFalse(accessibleTree(root).contains(background))
+      assertTrue(accessibleTree(root).contains(content))
+
+      sheet.setIndex(0)
+      val closing = AnimationDriver(sheet)
+      closing.advance(3)
+      assertFalse(accessibleTree(root).contains(background))
+      assertTrue(accessibleTree(root).contains(content))
+      sheet.setIndex(1) // Reversing a close retains the already accessible interface.
+      AnimationDriver(sheet).finish()
+      shadowOf(Looper.getMainLooper()).idle()
+      assertFalse(accessibleTree(root).contains(background))
+      assertTrue(accessibleTree(root).contains(content))
+      sheet.setIndex(0)
+      AnimationDriver(sheet).finish()
+      shadowOf(Looper.getMainLooper()).idle()
+      assertTrue(accessibleTree(root).contains(background))
+      assertFalse(accessibleTree(root).contains(content))
+    } finally {
+      sheet.destroy()
+      activity.close()
+    }
   }
 
   @Test
@@ -202,6 +266,7 @@ class BottomSheetViewPortalAccessibilityTest {
       assertTrue(lowerTree.contains(lowerContent))
 
       upperSheet.setIndex(1)
+      AnimationDriver(upperSheet).finish()
       shadowOf(Looper.getMainLooper()).idle()
 
       val upperTree = accessibleTree(root)
@@ -255,6 +320,28 @@ class BottomSheetViewPortalAccessibilityTest {
       ViewGroup.LayoutParams.MATCH_PARENT,
       ViewGroup.LayoutParams.MATCH_PARENT,
     )
+
+  private class AnimationDriver(sheet: BottomSheetView) {
+    private val host = sheet.getChildAt(0) as BottomSheetHostView
+    private val animation =
+      requireNotNull(ReflectionHelpers.getField<SpringAnimation?>(host, "activeAnimation"))
+    private var time = SystemClock.uptimeMillis()
+
+    fun advance(frames: Int) {
+      repeat(frames) {
+        time += 16
+        assertFalse(animation.doAnimationFrame(time))
+      }
+    }
+
+    fun finish() {
+      repeat(240) {
+        time += 16
+        if (animation.doAnimationFrame(time)) return
+      }
+      throw AssertionError("Spring did not settle within 240 frames")
+    }
+  }
 }
 
 private object NoOpPortalAccessibilityEventDispatcher : EventDispatcher {

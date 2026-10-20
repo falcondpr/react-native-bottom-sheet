@@ -4,6 +4,138 @@ import XCTest
 
 @MainActor
 final class BottomSheetHostingViewLifecycleTests: XCTestCase {
+  func testScrollOnlyPanCompletionRetriesDeferredPresentationReconciliation() {
+    let host = BottomSheetHostingView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+    host.modal = true
+    host.animateIn = false
+    host.setDetents([
+      ["value": 0.0, "kind": "points", "programmatic": false],
+      ["value": 320.0, "kind": "points", "programmatic": false],
+    ])
+    host.setDetentIndex(1)
+    let scrollView = UIScrollView(frame: CGRect(x: 0, y: 0, width: 390, height: 320))
+    scrollView.contentSize = CGSize(width: 390, height: 1000)
+    host.mountChildComponentView(scrollView, atIndex: 0)
+    host.setNeedsLayout()
+    host.layoutIfNeeded()
+    defer { host.resetSheetState() }
+    var stationaryNotifications = 0
+    let onChange: @convention(block) (Bool) -> Void = { _ in
+      if !(host.value(forKey: "isAccessibilityTransitionRunning") as! Bool) {
+        stationaryNotifications += 1
+      }
+    }
+    host.setValue(onChange, forKey: "presentationActiveDidChange")
+    defer { host.setValue(nil, forKey: "presentationActiveDidChange") }
+
+    for terminal in [UIGestureRecognizer.State.ended, .cancelled, .failed] {
+      let pan = LifecyclePanGesture()
+      pan.probeState = .began
+      host.perform(NSSelectorFromString("handlePan:"), with: pan)
+      XCTAssertTrue(host.value(forKey: "isAccessibilityTransitionRunning") as! Bool)
+      pan.probeState = terminal
+      let before = stationaryNotifications
+      host.perform(NSSelectorFromString("handlePan:"), with: pan)
+      XCTAssertFalse(host.value(forKey: "isAccessibilityTransitionRunning") as! Bool)
+      XCTAssertEqual(stationaryNotifications, before + 1, "terminal pan state: \(terminal)")
+    }
+  }
+
+  func testNonanimatedPortalWaitsForIsolationCommitBeforeBecomingAccessible() {
+    let host = BottomSheetHostingView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+    host.modal = true
+    host.setValue(true, forKey: "defersAccessibilityPresentation")
+    host.animateIn = false
+    host.setDetents([
+      ["value": 0.0, "kind": "points", "programmatic": false],
+      ["value": 320.0, "kind": "points", "programmatic": false],
+    ])
+    host.setDetentIndex(1)
+    host.setNeedsLayout()
+    host.layoutIfNeeded()
+    XCTAssertTrue(host.accessibilityElementsHidden)
+    host.perform(NSSelectorFromString("commitAccessibilityPresentation"))
+    XCTAssertFalse(host.accessibilityElementsHidden)
+    host.resetSheetState()
+    XCTAssertTrue(host.accessibilityElementsHidden)
+  }
+
+  func testPortalAccessibilityIsRevealedOnlyAfterSettleAndIsolationCommit() throws {
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+    let controller = UIViewController()
+    window.rootViewController = controller
+    window.isHidden = false
+    let host = BottomSheetHostingView(frame: window.bounds)
+    host.modal = true
+    controller.view.addSubview(host)
+    host.setValue(true, forKey: "defersAccessibilityPresentation")
+    host.animateIn = false
+    host.setDetents([
+      ["value": 0.0, "kind": "points", "programmatic": false],
+      ["value": 320.0, "kind": "points", "programmatic": false],
+    ])
+    host.setDetentIndex(0)
+    host.setNeedsLayout()
+    host.layoutIfNeeded()
+    defer {
+      host.resetSheetState()
+      window.isHidden = true
+    }
+
+    host.setDetentIndex(1)
+    XCTAssertNotNil(host.sheetContainer.layer.animation(forKey: "bottomSheetSettle"))
+    BottomSheetAccessibilityObservation.begin(
+      forDismiss: try XCTUnwrap(host.subviews.first { $0.accessibilityLabel == "Dismiss" }),
+      voiceOverRunning: true,
+      focused: false
+    )
+    host.perform(NSSelectorFromString("commitAccessibilityPresentation"))
+    XCTAssertTrue(host.accessibilityElementsHidden)
+    XCTAssertEqual(BottomSheetAccessibilityObservation.screenChangedNotificationCount(), 0)
+    host.animationDidStop(CAAnimation(), finished: true)
+    XCTAssertTrue(host.accessibilityElementsHidden, "new masks must precede revealing the portal")
+    XCTAssertEqual(BottomSheetAccessibilityObservation.screenChangedNotificationCount(), 0)
+    host.perform(NSSelectorFromString("commitAccessibilityPresentation"))
+    XCTAssertFalse(host.accessibilityElementsHidden)
+    XCTAssertEqual(
+      BottomSheetAccessibilityObservation.screenChangedNotificationCount(),
+      0,
+      "the presentation authority notifies after the complete interface is committed"
+    )
+    host.perform(NSSelectorFromString("commitAccessibilityPresentation"))
+    XCTAssertEqual(
+      BottomSheetAccessibilityObservation.screenChangedNotificationCount(),
+      0,
+      "the host must not send a second notification independently of its authority"
+    )
+    XCTAssertEqual(BottomSheetAccessibilityObservation.layoutChangedNotificationCount(), 0)
+
+    host.setDetentIndex(0)
+    XCTAssertFalse(host.accessibilityElementsHidden, "closing keeps the current interface")
+    host.animationDidStop(CAAnimation(), finished: true)
+    XCTAssertTrue(host.accessibilityElementsHidden)
+  }
+
+  func testNativeOverlayNotifiesOnceAfterEachSettledInterfaceChange() throws {
+    let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay], initialIndices: [0])
+    defer { fixture.tearDown() }
+    let host = fixture.host
+    BottomSheetAccessibilityObservation.begin(forDismiss: host, voiceOverRunning: true, focused: false)
+
+    fixture.setIndex(1, forPresentationAt: 0)
+    XCTAssertEqual(BottomSheetAccessibilityObservation.screenChangedNotificationCount(), 0)
+    host.animationDidStop(CAAnimation(), finished: true)
+    XCTAssertTrue(try XCTUnwrap(host.superview).accessibilityViewIsModal)
+    XCTAssertEqual(BottomSheetAccessibilityObservation.screenChangedNotificationCount(), 1)
+
+    fixture.setIndex(0, forPresentationAt: 0)
+    XCTAssertTrue(try XCTUnwrap(host.superview).accessibilityViewIsModal)
+    XCTAssertEqual(BottomSheetAccessibilityObservation.screenChangedNotificationCount(), 1)
+    host.animationDidStop(CAAnimation(), finished: true)
+    XCTAssertFalse(try XCTUnwrap(host.superview).accessibilityViewIsModal)
+    XCTAssertEqual(BottomSheetAccessibilityObservation.screenChangedNotificationCount(), 2)
+  }
+
   override func tearDown() {
     BottomSheetAccessibilityObservation.end()
     super.tearDown()
@@ -276,5 +408,22 @@ private final class BottomSheetSafeAreaWindow: UIWindow {
 
   override var safeAreaInsets: UIEdgeInsets {
     overriddenSafeAreaInsets
+  }
+}
+
+private final class LifecyclePanGesture: UIPanGestureRecognizer {
+  var probeState: UIGestureRecognizer.State = .possible
+
+  override var state: UIGestureRecognizer.State {
+    get { probeState }
+    set { probeState = newValue }
+  }
+
+  override func location(in view: UIView?) -> CGPoint {
+    CGPoint(x: 20, y: 20)
+  }
+
+  override func velocity(in view: UIView?) -> CGPoint {
+    CGPoint(x: 0, y: -100)
   }
 }

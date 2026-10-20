@@ -17,6 +17,9 @@
 
 @interface BottomSheetHostingView (BottomSheetPresentationOwnership)
 @property (nonatomic, readonly, getter=isPresentationActive) BOOL presentationActive;
+@property (nonatomic) BOOL defersAccessibilityPresentation;
+@property (nonatomic, readonly) BOOL isAccessibilityTransitionRunning;
+- (void)commitAccessibilityPresentation;
 @property (nonatomic, copy, nullable) void (^presentationActiveDidChange)(BOOL active);
 @property (nonatomic, copy, nullable) BottomSheetPresentationEscapeDecision *
     (^presentationEscapePolicy)(void);
@@ -63,6 +66,26 @@
 - (BOOL)animateIn
 {
   return _impl.animateIn;
+}
+
+- (BOOL)defersAccessibilityPresentation
+{
+  return _impl.defersAccessibilityPresentation;
+}
+
+- (void)setDefersAccessibilityPresentation:(BOOL)value
+{
+  _impl.defersAccessibilityPresentation = value;
+}
+
+- (BOOL)isAccessibilityTransitionRunning
+{
+  return _impl.isAccessibilityTransitionRunning;
+}
+
+- (void)commitAccessibilityPresentation
+{
+  [_impl commitAccessibilityPresentation];
 }
 
 - (UIView *)portalNativeOwner

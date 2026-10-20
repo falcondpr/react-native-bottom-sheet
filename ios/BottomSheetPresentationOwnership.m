@@ -125,6 +125,7 @@ static void BottomSheetAssertMainThread(void)
 @property (nonatomic, strong) NSHashTable<UIView *> *boundaries;
 @property (nonatomic, strong) NSHashTable<UIView *> *pendingReleasedBoundaries;
 @property (nonatomic, strong) BottomSheetAccessibilityMaskLedger *maskLedger;
+@property (nonatomic, copy) NSDictionary<BottomSheetPresentationIdentity *, NSArray<NSNumber *> *> *retainedPresentationContexts;
 
 @end
 
@@ -225,6 +226,7 @@ static void BottomSheetAssertMainThread(void)
     return NO;
   }
   [self reconcileHiddenBranches:isolation.hiddenBranches modalBoundary:nil];
+  self.retainedPresentationContexts = isolation.retainedPresentationContexts;
   return YES;
 }
 
@@ -240,6 +242,8 @@ static void BottomSheetAssertMainThread(void)
 @property (nonatomic) BOOL hierarchyMutationDirty;
 @property (nonatomic, getter=isReconciliationInProgress) BOOL reconciliationInProgress;
 @property (nonatomic) BOOL reconciliationDirty;
+// Last committed accessibility interface, not a separate Active/order registry.
+@property (nonatomic, copy) NSDictionary<BottomSheetPresentationIdentity *, NSArray<NSNumber *> *> *accessiblePresentations;
 
 + (nullable instancetype)coordinatorForWindow:(UIWindow *)window createIfNeeded:(BOOL)createIfNeeded;
 - (void)updateController:(BottomSheetPresentationController *)controller
@@ -278,6 +282,7 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
     coordinator = [BottomSheetPresentationCoordinator new];
     coordinator.window = window;
     coordinator.records = [NSMutableDictionary new];
+    coordinator.accessiblePresentations = @{};
     coordinator.modalIsolationAdapter = [BottomSheetPresentationModalIsolationAdapter new];
     [BottomSheetLivePresentationCoordinators() addObject:coordinator];
     objc_setAssociatedObject(
@@ -380,11 +385,31 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
   }
 
   self.reconciliationInProgress = YES;
+  NSDictionary *previousAccessiblePresentations = self.accessiblePresentations;
   do {
     self.reconciliationDirty = NO;
     [self recomputeTopPresentationOnce];
   } while (self.reconciliationDirty && self.hierarchyMutationDepth == 0);
   self.reconciliationInProgress = NO;
+  if (self.hierarchyMutationDepth == 0 && self.window != nil &&
+      ![previousAccessiblePresentations isEqualToDictionary:self.accessiblePresentations] && UIAccessibilityIsVoiceOverRunning()) {
+    // Preserve a still-available focus, including another local panel. A modal
+    // handoff needs a screen change only when the old focus became unavailable.
+    id focus = UIAccessibilityFocusedElement(UIAccessibilityNotificationVoiceOverIdentifier);
+    UIView *focusView = BottomSheetAccessibilityContainerView(focus);
+    BOOL needsRefocus = focus == nil;
+    if (focusView.window == self.window) {
+      for (UIView *view = focusView; view != nil; view = view.superview) {
+        if (view.hidden || view.alpha == 0 ||
+            (view.accessibilityElementsHidden && (view != focusView || focus != focusView))) {
+          needsRefocus = YES;
+          break;
+        }
+      }
+    }
+    UIAccessibilityPostNotification(needsRefocus
+        ? UIAccessibilityScreenChangedNotification : UIAccessibilityLayoutChangedNotification, nil);
+  }
 }
 
 - (void)recomputeTopPresentationOnce
@@ -394,6 +419,7 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
     self.escapeOwnerIdentity = nil;
     [self.modalIsolationAdapter reconcileTopBoundary:nil];
     self.topPresentationIdentity = nil;
+    self.accessiblePresentations = @{};
     return;
   }
 
@@ -413,6 +439,7 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
     self.escapeOwnerIdentity = nil;
     [self.modalIsolationAdapter reconcileTopBoundary:nil];
     self.topPresentationIdentity = nil;
+    self.accessiblePresentations = @{};
     if (objc_getAssociatedObject(window, BottomSheetPresentationCoordinatorAssociationKey) == self) {
       objc_setAssociatedObject(
           window,
@@ -459,15 +486,29 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
   }
   UIView *nextTopBoundary = nextTopIdentity == nil ? nil : anchors[nextTopIdentity];
   BOOL hasWindowModalPresentation = NO;
+  BOOL hasPortalTransition = NO;
+  BOOL hasPresentationTransition = NO;
   BOOL portalSourcesAreAvailable = YES;
   NSMutableArray<BottomSheetPortalPresentation *> *portalPresentations = [NSMutableArray new];
   for (BottomSheetPresentationCandidate *candidate in candidates) {
     if (!candidate.isActive || !candidate.isEligible) continue;
     BottomSheetPresentationCandidateRecord *record = self.records[candidate.identity];
+    BOOL moving = [record.anchor conformsToProtocol:@protocol(BottomSheetPortalAccessibilityTransition)] &&
+        [(id<BottomSheetPortalAccessibilityTransition>)record.anchor isAccessibilityTransitionRunning];
+    hasPresentationTransition |= moving;
     if (record.controller.mode == BottomSheetPresentationModeNativeOverlay) {
       hasWindowModalPresentation = YES;
+    } else {
+      hasPortalTransition |= moving;
+    }
+  }
+  for (BottomSheetPresentationCandidate *candidate in candidates) {
+    if (!candidate.isActive || !candidate.isEligible) continue;
+    BottomSheetPresentationCandidateRecord *record = self.records[candidate.identity];
+    if (record.controller.mode == BottomSheetPresentationModeNativeOverlay) {
       continue;
     }
+    if (hasWindowModalPresentation || hasPortalTransition) continue;
     BottomSheetPortalPresentation *presentation = [BottomSheetPortalPresentation
         presentationForIdentity:candidate.identity anchor:anchors[candidate.identity]
         active:candidate.isActive eligible:candidate.isEligible];
@@ -478,12 +519,28 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
     // Preserve the existing window-modal path until its composed portal join is
     // validated. Every transfer still uses this authority's one mask ledger.
     [self.modalIsolationAdapter reconcileTopBoundary:nextTopBoundary];
-  } else {
-    [self.modalIsolationAdapter reconcilePortalPresentations:
+    if (!hasPresentationTransition && !self.reconciliationDirty && self.hierarchyMutationDepth == 0) {
+      // Empty context path denotes window-modal extent.
+      self.accessiblePresentations = nextTopIdentity == nil ? @{} : @{ nextTopIdentity: @[] };
+    }
+  } else if (!hasPortalTransition) {
+    BOOL applied = [self.modalIsolationAdapter reconcilePortalPresentations:
         portalSourcesAreAvailable ? portalPresentations : nil
         orderProvider:orderProvider ifCurrent:^BOOL {
           return !self.reconciliationDirty && self.hierarchyMutationDepth == 0;
         }];
+    if (applied && !self.reconciliationDirty && self.hierarchyMutationDepth == 0) {
+      for (BottomSheetPresentationCandidate *candidate in candidates) {
+        UIView *anchor = anchors[candidate.identity];
+        if (candidate.isActive && candidate.isEligible &&
+            [anchor conformsToProtocol:@protocol(BottomSheetPortalAccessibilityTransition)]) {
+          [(id<BottomSheetPortalAccessibilityTransition>)anchor commitAccessibilityPresentation];
+        }
+      }
+      if (!self.reconciliationDirty && self.hierarchyMutationDepth == 0) {
+        self.accessiblePresentations = self.modalIsolationAdapter.retainedPresentationContexts;
+      }
+    }
   }
 
   NSArray<BottomSheetPresentationCandidateRecord *> *records = self.records.allValues;

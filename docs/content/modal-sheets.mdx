@@ -147,6 +147,18 @@ Inline `BottomSheet`, iOS physical-keyboard Escape, accessibility dismiss
 actions, scrim taps, drag gestures, and programmatic index changes are outside
 this callback and keep their existing behavior.
 
+## Screen reader transitions
+
+For portal modals, the previous screen reader interface remains available while
+the sheet opens. After opening settles, the sheet content becomes available and
+the background in its presentation context is excluded from screen reader
+navigation. During closing, that accessible interface is retained until the
+sheet is fully closed. A new sheet that closes before finishing its opening is
+never exposed to the screen reader.
+
+This transition timing applies to portals. `nativeOverlay` uses the window
+boundary described below.
+
 ## Native overlay
 
 By default `ModalBottomSheet` renders through `BottomSheetProvider`’s portal.

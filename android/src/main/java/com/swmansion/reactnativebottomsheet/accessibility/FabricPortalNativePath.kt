@@ -36,29 +36,61 @@ private fun View?.matchesSourceMaterialization(tag: Int, materialized: Boolean):
   if (materialized) this != null && id == tag
   else this == null || (id == tag && parent == null && !isAttachedToWindow)
 
-/** Validates expected source materialization/edges, not family bindings or completed mounting. */
+/**
+ * Validates the requested source subtrees and their parent corridors. Physical siblings outside
+ * that scope are not inspected. With a window, physical checks cover its attached members;
+ * frontiers and retained paths separately require current window membership. Omitting both
+ * constraints validates the entire source as before, not family bindings or completed mounting.
+ */
 @UiThread
-internal fun FabricPortalReceipt.nativeMembers(resolveView: (Int) -> View?): Map<Int, View>? {
+internal fun FabricPortalReceipt.nativeMembers(
+  resolveView: (Int) -> View?,
+  scope: Set<Int> = logicalTags.toSet(),
+  windowRoot: View? = null,
+): Map<Int, View>? {
   val rootTag = nativeParents.entries.singleOrNull { it.value == 0 }?.key ?: return null
-  if (!logicalTags.toSet().containsAll(nativeParents.keys)) return null
+  val logical = logicalTags.toSet()
+  if (!logical.containsAll(nativeParents.keys) || !logical.containsAll(scope)) return null
+  val children = nativeParents.entries.groupBy({ it.value }, { it.key })
+  val local = scope.toMutableSet()
+  val tags = ArrayDeque(scope)
+  while (tags.isNotEmpty()) {
+    for (child in children[tags.removeLast()].orEmpty()) {
+      if (local.add(child)) tags.add(child)
+    }
+  }
+  val required = local.toMutableSet()
+  for (tag in local) {
+    var current = tag
+    val seen = mutableSetOf<Int>()
+    while (current in nativeParents && current != rootTag) {
+      if (!seen.add(current)) return null
+      current = nativeParents.getValue(current)
+      if (current !in nativeParents) return null
+      required.add(current)
+    }
+  }
   val registered = cachedNativeLookup(resolveView)
   val members = mutableMapOf<Int, View>()
-  for (tag in logicalTags) {
+  for (tag in required) {
     val view = registered(tag)
     val materialized = tag in nativeParents
     if (!view.matchesSourceMaterialization(tag, materialized)) return null
     if (materialized) members[tag] = requireNotNull(view)
   }
-  val root = members[rootTag] as? ViewGroup ?: return null
-  val pending = mutableListOf<View>(root)
+  if (members[rootTag] !is ViewGroup) return null
+  val currentMembers =
+    if (windowRoot == null) members
+    else members.filterValues { it.isAttachedToWindow && it.rootView === windowRoot }
+  val pending = currentMembers.filterKeys { it in local }.values.toMutableList()
   for ((tag, expectedParent) in nativeParents) {
-    if (tag == rootTag) continue
-    var child = members[tag] ?: return null
+    if (tag == rootTag || tag !in required) continue
+    var child = currentMembers[tag] ?: continue
     val seen = Collections.newSetFromMap(IdentityHashMap<View, Boolean>())
     while (true) {
       val parent = child.parent as? ViewGroup ?: return null
       if (!seen.add(parent)) return null
-      pending.add(parent)
+      if (expectedParent in local) pending.add(parent)
       val index = parent.indexOfChild(child)
       if (index < 0 || parent.getChildAt(index) !== child) return null
       val owner = registered(parent.id)
@@ -72,6 +104,7 @@ internal fun FabricPortalReceipt.nativeMembers(resolveView: (Int) -> View?): Map
   val seen = Collections.newSetFromMap(IdentityHashMap<View, Boolean>())
   while (pending.isNotEmpty()) {
     val view = pending.removeAt(pending.lastIndex)
+    if (windowRoot != null && (!view.isAttachedToWindow || view.rootView !== windowRoot)) continue
     // Managed roots may be reached through both source and physical paths.
     if (!seen.add(view)) continue
     if (registered(view.id) === view && members[view.id] !== view) return null
@@ -85,7 +118,8 @@ internal fun FabricPortalReceipt.nativeMembers(resolveView: (Int) -> View?): Map
 /**
  * Checks queried ancestry, not full native branch/family membership or completed mounting.
  * Flattened logical nodes may be absent or only preallocated in the registry. The physical path
- * does not replace a logical context with its nearest materialized ancestor.
+ * follows source mount edges, which may bypass painted logical ancestors. It does not replace a
+ * logical context with its nearest materialized ancestor.
  */
 @UiThread
 internal fun FabricPortalReceipt.nativePath(
@@ -94,14 +128,13 @@ internal fun FabricPortalReceipt.nativePath(
 ): List<View>? {
   if (ancestors.firstOrNull() != presentation.id || hostTag !in ancestors) return null
   val registered = cachedNativeLookup(resolveView)
-  val expected = mutableListOf<View>()
   for (tag in ancestors) {
     val view = registered(tag)
     val materialized = tag in nativeParents
     if (!view.matchesSourceMaterialization(tag, materialized)) return null
-    if (materialized) expected.add(requireNotNull(view))
   }
-  if (expected.firstOrNull() !== presentation || registered(ancestors.last()) == null) return null
+  if (registered(presentation.id) !== presentation || registered(ancestors.last()) == null)
+    return null
   val host = registered(hostTag) as? ViewGroup ?: return null
   if (
     host.getTag(com.facebook.react.R.id.view_tag_native_id) !=
@@ -110,21 +143,22 @@ internal fun FabricPortalReceipt.nativePath(
     return null
   val path = mutableListOf<View>()
   var current = presentation
-  var next = 0
+  var expectedTag = presentation.id
   while (true) {
-    if (path.any { it === current }) return null
+    if (path.any { it === current } || expectedTag !in ancestors) return null
     path.add(current)
     val owner = registered(current.id)
+    val expected = registered(expectedTag) ?: return null
     if (owner === current) {
-      if (expected.getOrNull(next) !== current) return null
-      next++
-      if (next == expected.size) return path
-    } else if (owner != null && expected.getOrNull(next) === owner && next == expected.lastIndex) {
+      if (expected !== current) return null
+      if (expectedTag == ancestors.last()) return path.takeIf { host in it }
+      expectedTag = nativeParents[expectedTag] ?: return null
+    } else if (owner === expected && expectedTag == ancestors.last()) {
       // Native presentation roots redirect children into an owned container.
       // A copied tag alone cannot establish this physical owner relationship.
       val child = path.getOrNull(path.lastIndex - 1) ?: return null
       if (!current.isManagedContainer(owner, child)) return null
-      return path
+      return path.takeIf { host in it }
     }
     val parent = current.parent as? ViewGroup ?: return null
     val index = parent.indexOfChild(current)
@@ -165,14 +199,12 @@ internal fun FabricPortalReceipt.nativeIsolationBranches(
   windowRoot: View,
 ): Set<View>? {
   if (!windowRoot.isAttachedToWindow || windowRoot.rootView !== windowRoot) return null
-  val members = nativeMembers(resolveView) ?: return null
-  val logical = logicalTags.toSet()
-  if (
-    projection.retainedChildren.any { (parent, children) ->
-      parent !in logical || children.any { it !in logical }
-    }
-  )
-    return null
+  val scope =
+    projection.hiddenBranches +
+      projection.retainedChildren.keys +
+      projection.retainedChildren.values.flatten()
+  if (scope.isEmpty()) return emptySet()
+  val members = nativeMembers(resolveView, scope, windowRoot) ?: return null
   val protected = nativeIdentitySet()
   for (tag in projection.retainedChildren.values.flatten().toSet()) {
     val view = members[tag] ?: continue // Flattened edges stay logical.

@@ -65,11 +65,11 @@ private final class ActiveScrollViewState {
 
   init(scrollView: UIScrollView, inverted: Bool) {
     self.scrollView = scrollView
-    self.pinnedOffset = scrollView.contentOffset
+    pinnedOffset = scrollView.contentOffset
     self.inverted = inverted
-    self.bounces = scrollView.bounces
-    self.directionalLockEnabled = scrollView.isDirectionalLockEnabled
-    self.showsVerticalScrollIndicator = scrollView.showsVerticalScrollIndicator
+    bounces = scrollView.bounces
+    directionalLockEnabled = scrollView.isDirectionalLockEnabled
+    showsVerticalScrollIndicator = scrollView.showsVerticalScrollIndicator
   }
 
   func startPinning(at offset: CGPoint) {
@@ -229,10 +229,12 @@ public final class BottomSheetHostingView: UIView {
   @objc(isPresentationActive)
   private(set) var presentationActive = false {
     didSet {
+      updateAccessibilityPresentation()
       guard presentationActive != oldValue else { return }
       presentationActiveDidChange?(presentationActive)
     }
   }
+
   public var animateIn: Bool = true
   public var animateContentHeight: Bool = true
 
@@ -266,8 +268,35 @@ public final class BottomSheetHostingView: UIView {
   private weak var dismissAccessibilityGeometryWindow: UIWindow?
   private var pendingStableDismissAccessibilityFrame: CGRect?
   private weak var surfaceView: UIView?
-  @objc var presentationActiveDidChange: ((Bool) -> Void)?
-  @objc var presentationEscapePolicy: (() -> PresentationEscapeDecision)?
+  var presentationActiveDidChange: ((Bool) -> Void)?
+  var defersAccessibilityPresentation = false {
+    didSet { updateAccessibilityPresentation() }
+  }
+
+  private var accessibilityPresentationCommitted = false
+  var isAccessibilityTransitionRunning: Bool {
+    activeSpring != nil || isPanning
+  }
+
+  func commitAccessibilityPresentation() {
+    guard
+      defersAccessibilityPresentation,
+      presentationActive,
+      !isAccessibilityTransitionRunning,
+      !accessibilityPresentationCommitted
+    else { return }
+    accessibilityPresentationCommitted = true
+    accessibilityElementsHidden = false
+  }
+
+  private func updateAccessibilityPresentation() {
+    if !defersAccessibilityPresentation || !presentationActive {
+      accessibilityPresentationCommitted = false
+    }
+    accessibilityElementsHidden = defersAccessibilityPresentation && !accessibilityPresentationCommitted
+  }
+
+  var presentationEscapePolicy: (() -> PresentationEscapeDecision)?
   private static var markerObservationContext = 0
   private static let springAnimationKey = "bottomSheetSettle"
 
@@ -341,7 +370,9 @@ public final class BottomSheetHostingView: UIView {
           break
         }
       }
-      if surfaceTouchHandler != nil { break }
+      if surfaceTouchHandler != nil {
+        break
+      }
       current = view.superview
     }
     flushPendingSnapIfNeeded()
@@ -357,7 +388,9 @@ public final class BottomSheetHostingView: UIView {
     }
     // See refreshDetentsFromLayout: without a window the detent cap falls back
     // to the full height, which must not be applied to the container geometry.
-    if hasLaidOut, window == nil { return }
+    if hasLaidOut, window == nil {
+      return
+    }
 
     let commitsStableLayout = hasLaidOut && activeSpring == nil && !isPanning
     if commitsStableLayout {
@@ -415,7 +448,9 @@ public final class BottomSheetHostingView: UIView {
       return
     }
 
-    if activeSpring != nil || isPanning { return }
+    if activeSpring != nil || isPanning {
+      return
+    }
     sheetContainer.transform = CGAffineTransform(translationX: 0, y: translationY(for: targetIndex))
     updateScrim()
     if commitsStableLayout {
@@ -700,10 +735,10 @@ public final class BottomSheetHostingView: UIView {
     let maxHeight = sheetContainerHeight
     let ty = overrideTy ?? currentTranslationY
     let position = maxHeight - ty
-    updatePresentationActive(forPosition: position)
     updateScrim(forPosition: position)
     updateSheetVisibility(forPosition: position)
     updateInteractionState()
+    updatePresentationActive(forPosition: position)
     eventDelegate?.bottomSheetHostingView(
       self, didChangePosition: position, index: detentIndex(forPosition: position)
     )
@@ -899,9 +934,6 @@ public final class BottomSheetHostingView: UIView {
     beginStableDismissGeometryTransition()
 
     targetIndex = index
-    if detent(at: index).height > 0.5 {
-      updatePresentationActive(forPosition: detent(at: index).height)
-    }
     updateInteractionState()
     if !preserveScrimPin {
       scrimPinnedFull = false
@@ -951,6 +983,13 @@ public final class BottomSheetHostingView: UIView {
     sheetContainer.layer.add(animation, forKey: Self.springAnimationKey)
     activeSpring = spring
 
+    // Publish ownership after motion is installed, so accessibility retains the
+    // previous interface instead of projecting the target during this transition.
+    if detent(at: index).height > 0.5 {
+      updatePresentationActive(forPosition: detent(at: index).height)
+    }
+    presentationActiveDidChange?(presentationActive)
+
     startDisplayLink()
 
     // Report the index change as soon as the snap is committed, not when it
@@ -998,6 +1037,8 @@ public final class BottomSheetHostingView: UIView {
     setContentInteractionEnabled(true)
     updateInteractionState()
     commitStableDismissGeometryIfNeeded()
+    // Opening/open-to-open can settle without changing neutral Active membership.
+    presentationActiveDidChange?(presentationActive)
     if emitSettle {
       eventDelegate?.bottomSheetHostingView(self, didSettle: index)
     }
@@ -1055,7 +1096,7 @@ public final class BottomSheetHostingView: UIView {
         let velocity = gesture.velocity(in: self).y
         if
           activeScrollableNegotiationLevel == .handoff,
-          isAtLargestDetent && (velocity < 0 || !activeScrollViewsAreAtStart())
+          isAtLargestDetent, velocity < 0 || !activeScrollViewsAreAtStart()
         {
           panCoordinationMode = .scrollView
         } else {
@@ -1151,6 +1192,7 @@ public final class BottomSheetHostingView: UIView {
         activeDragDetentSpecs = nil
         finishScrollViewCoordination()
         discardPendingStableDismissGeometry()
+        presentationActiveDidChange?(presentationActive)
         return
       }
       let currentHeight = maxHeight - sheetContainer.transform.ty
@@ -1191,6 +1233,7 @@ public final class BottomSheetHostingView: UIView {
         activeDragDetentSpecs = nil
         finishScrollViewCoordination()
         discardPendingStableDismissGeometry()
+        presentationActiveDidChange?(presentationActive)
         return
       }
       let cancelHeight = maxHeight - sheetContainer.transform.ty
@@ -1223,6 +1266,7 @@ public final class BottomSheetHostingView: UIView {
       setContentInteractionEnabled(true)
       finishScrollViewCoordination()
       discardPendingStableDismissGeometry()
+      presentationActiveDidChange?(presentationActive)
 
     default:
       break
@@ -1776,7 +1820,9 @@ extension BottomSheetHostingView: UIGestureRecognizerDelegate {
     shouldBeRequiredToFailBy other: UIGestureRecognizer
   ) -> Bool {
     guard gestureRecognizer === panGesture else { return false }
-    if canCoordinate(with: other) { return false }
+    if canCoordinate(with: other) {
+      return false
+    }
     return other is UIPanGestureRecognizer || other is UITapGestureRecognizer
   }
 
@@ -1899,8 +1945,12 @@ private extension BottomSheetHostingView {
       .sorted { $0.height < $1.height }
 
     guard let first = pairs.first, let last = pairs.last else { return 0 }
-    if position <= first.height { return first.value }
-    if position >= last.height { return last.value }
+    if position <= first.height {
+      return first.value
+    }
+    if position >= last.height {
+      return last.value
+    }
 
     for i in 1 ..< pairs.count where position <= pairs[i].height {
       let lower = pairs[i - 1]

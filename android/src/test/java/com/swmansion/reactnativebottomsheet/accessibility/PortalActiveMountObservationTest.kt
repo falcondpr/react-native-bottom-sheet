@@ -5,8 +5,10 @@ package com.swmansion.reactnativebottomsheet.accessibility
 
 import android.app.Activity
 import android.os.Looper
+import android.os.SystemClock
 import android.view.View
 import android.widget.FrameLayout
+import androidx.dynamicanimation.animation.SpringAnimation
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.facebook.react.bridge.BridgeReactContext
 import com.facebook.react.bridge.ReactContext
@@ -16,6 +18,7 @@ import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsForTests
 import com.facebook.react.uimanager.StateWrapper
 import com.facebook.react.uimanager.ThemedReactContext
 import com.facebook.react.uimanager.UIManagerHelper
+import com.swmansion.reactnativebottomsheet.BottomSheetHostView
 import com.swmansion.reactnativebottomsheet.BottomSheetView
 import com.swmansion.reactnativebottomsheet.TestArgumentsShadow
 import com.swmansion.reactnativebottomsheet.presentation.PortalPresentationCoordinator
@@ -32,11 +35,75 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
+import org.robolectric.util.ReflectionHelpers
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35], shadows = [ActiveRootsUIManagerHelperShadow::class, TestArgumentsShadow::class])
 class PortalActiveMountObservationTest {
   @Before fun useLocalFlags() = ReactNativeFeatureFlagsForTests.setUp()
+
+  @Test
+  fun `detaching a root removes its mount listener while another portal is moving`() {
+    Pipeline(separateManagers = true).use { f ->
+      val sheet = f.surfaces[1].sheet
+      prepareClosedSheet(sheet)
+      f.registerBoth()
+      f.drain()
+      assertTrue(f.manager.listenerCount > 0)
+      val movingRootListeners = f.secondManager.listenerCount
+
+      sheet.setIndex(1)
+      f.window.removeView(f.surfaces[0].root)
+      f.mount()
+      f.drain()
+      shadowOf(Looper.getMainLooper()).idle()
+
+      assertEquals(0, f.manager.listenerCount)
+      assertEquals(movingRootListeners, f.secondManager.listenerCount)
+    }
+  }
+
+  @Test
+  fun `mounts during motion retain masks without source reads and settle flushes current state`() {
+    Pipeline().use { f ->
+      val sheet = f.surfaces[0].sheet
+      prepareClosedSheet(sheet)
+      f.registerBoth()
+      f.drain()
+      f.readSurfaces.clear()
+
+      sheet.setIndex(1)
+      val host = sheet.getChildAt(0) as BottomSheetHostView
+      val animation =
+        requireNotNull(ReflectionHelpers.getField<SpringAnimation?>(host, "activeAnimation"))
+      var time = SystemClock.uptimeMillis()
+      repeat(4) {
+        time += 16
+        animation.doAnimationFrame(time)
+        f.mount()
+        f.drain()
+        assertTrue(
+          "moving portals must not read the Fabric source",
+          f.readSurfaces.isEmpty(),
+        )
+        assertEquals(
+          View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS,
+          f.surfaces[0].background.importantForAccessibility,
+        )
+      }
+      var finished = false
+      for (frame in 0 until 240) {
+        time += 16
+        if (animation.doAnimationFrame(time)) {
+          finished = true
+          break
+        }
+      }
+      assertTrue("spring settles", finished)
+      f.drain()
+      assertEquals(setOf(2, 4), f.readSurfaces)
+    }
+  }
 
   @Test
   fun `one rejected manager preserves the previous window masks and applies no partial update`() {
@@ -201,6 +268,22 @@ class PortalActiveMountObservationTest {
     }
   }
 
+  private fun prepareClosedSheet(sheet: BottomSheetView) {
+    sheet.modal = true
+    sheet.animateIn = false
+    sheet.setDetents(
+      listOf(
+        mapOf("value" to 0.0, "kind" to "points", "programmatic" to false),
+        mapOf("value" to 300.0, "kind" to "points", "programmatic" to false),
+      )
+    )
+    sheet.measure(
+      View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),
+      View.MeasureSpec.makeMeasureSpec(1920, View.MeasureSpec.EXACTLY),
+    )
+    sheet.layout(0, 0, 1080, 1920)
+  }
+
   private class Pipeline(separateManagers: Boolean = false) : AutoCloseable {
     val activity = Robolectric.buildActivity(Activity::class.java).setup()
     val context = BridgeReactContext(activity.get().applicationContext)
@@ -222,8 +305,10 @@ class PortalActiveMountObservationTest {
 
         override fun release() = Unit
 
-        override fun sheetTags(surfaceId: Int, tag: Int, state: StateWrapper?): IntArray? =
-          managed.singleOrNull { it.root.id == surfaceId }?.let { intArrayOf(it.sheet.id) }
+        override fun sheetTags(surfaceId: Int, tag: Int, state: StateWrapper?): IntArray? {
+          readSurfaces.add(surfaceId)
+          return managed.singleOrNull { it.root.id == surfaceId }?.let { intArrayOf(it.sheet.id) }
+        }
 
         override fun receipt(
           surfaceId: Int,
@@ -231,7 +316,6 @@ class PortalActiveMountObservationTest {
           states: Map<Int, StateWrapper?>,
         ): FabricPortalReceipt? {
           val surface = managed.singleOrNull { it.root.id == surfaceId } ?: return null
-          readSurfaces.add(surfaceId)
           if (
             surfaceId == rejectedSurface ||
               states.keys != setOf(surface.sheet.id) ||
@@ -362,6 +446,9 @@ class PortalActiveMountObservationTest {
   private class Manager {
     val registry = mutableMapOf<Int, View>()
     private val listeners = mutableListOf<UIManagerListener>()
+    val listenerCount: Int
+      get() = listeners.size
+
     val proxy =
       Proxy.newProxyInstance(
         UIManager::class.java.classLoader,

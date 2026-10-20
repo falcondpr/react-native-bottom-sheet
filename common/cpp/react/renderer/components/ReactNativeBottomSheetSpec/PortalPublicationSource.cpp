@@ -102,35 +102,30 @@ RootShadowNode::Shared PortalPublicationSource::rootForState(
   if (!concrete || !concrete->getData().portalPublicationId.starts_with(prefix_)) return nullptr;
   auto manager = manager_.lock();
   if (!manager) return nullptr;
-  std::vector<RootShadowNode::Shared> candidates;
   RootShadowNode::Shared liveRoot;
+  RootShadowNode::Shared baseRoot;
   manager->getShadowTreeRegistry().visit(surface, [&](const ShadowTree& tree) {
     liveRoot = tree.getCurrentRevision().rootShadowNode;
-    candidates = {liveRoot,
-                  tree.getMountingCoordinator()->getBaseRevision().rootShadowNode};
+    baseRoot = tree.getMountingCoordinator()->getBaseRevision().rootShadowNode;
   });
   if (!liveRoot) return nullptr;
+  // History roots were indexed when they became final old roots in the commit
+  // hook. Only live/base may be new, including changes from later hooks.
+  rememberFinalRoot(liveRoot);
+  if (baseRoot != liveRoot) rememberFinalRoot(baseRoot);
+  RootShadowNode::Shared result;
   {
     std::lock_guard lock(mutex_);
-    candidates.insert(candidates.end(), history_.begin(), history_.end());
+    auto entry = finalRoots_.find(std::weak_ptr<const State>{state});
+    if (entry == finalRoots_.end() || entry->second.ambiguous) return nullptr;
+    result = entry->second.root.lock();
+    if (!result || (result != liveRoot && result != baseRoot &&
+        std::find(history_.begin(), history_.end(), result) == history_.end())) return nullptr;
   }
-  RootShadowNode::Shared result;
-  for (const auto& root : candidates) {
-    if (root->getSurfaceId() != surface ||
-        root->getFamilyShared() != liveRoot->getFamilyShared()) continue;
-    auto index = indexPortalShadowNodes(*root);
-    if (index && index->contains(tag) && index->at(tag)->getState() == state) {
-      rememberFinalRoot(root);
-      {
-        std::lock_guard lock(mutex_);
-        const auto& final = finalRoots_.at(std::weak_ptr<const State>{state});
-        if (final.ambiguous || final.root.lock() != root) return nullptr;
-      }
-      if (result && result != root) return nullptr;
-      result = root;
-    }
-  }
-  return result;
+  if (result->getSurfaceId() != surface ||
+      result->getFamilyShared() != liveRoot->getFamilyShared()) return nullptr;
+  auto index = indexPortalShadowNodes(*result);
+  return index && index->contains(tag) && index->at(tag)->getState() == state ? result : nullptr;
 }
 
 std::optional<std::vector<Tag>> PortalPublicationSource::sheetTagsForState(

@@ -244,6 +244,38 @@ class FabricPortalRegistryTest {
   }
 
   @Test
+  fun `local cuts keep complete source state checks without requiring unrelated branches to be attached`() {
+    Fixture().use { f ->
+      val window = f.a.rootView
+      val receipts = requireNotNull(f.read(window))
+      val outside = View(f.activity.get()).apply { id = 40 }
+      FrameLayout(f.activity.get()).addView(outside)
+      f.registry[40] = outside
+      for ((owner, receipt) in receipts) {
+        f.receiptOverrides[owner.id] =
+          FabricPortalReceipt(
+            receipt.publicationId,
+            receipt.hostTag,
+            receipt.contexts.toIntArray(),
+            receipt.ancestors.toIntArray(),
+            (receipt.logicalTags + 40).toIntArray(),
+            (receipt.nativeParents.flatMap { (tag, parent) -> listOf(tag, parent) } + listOf(40, 2))
+              .toIntArray(),
+          )
+      }
+      val background = View(f.activity.get()).also(f.areaA::addView)
+
+      val cut = f.observation.readPortalIsolationCuts(window, listOf(f.a, f.b))?.get(2)
+
+      assertEquals(setOf(background), cut?.branches)
+      assertEquals(listOf(f.a, f.b), cut?.retainedOwners)
+      assertEquals(setOf(14, 24), f.projectionStates?.keys)
+      f.b.stateWrapper = null
+      assertNull(f.observation.readPortalIsolationCuts(window, listOf(f.a)))
+    }
+  }
+
+  @Test
   fun `projection reads source sheets outside the supplied Active owners and rejects missing source data`() {
     Fixture().use { f ->
       val window = f.a.rootView

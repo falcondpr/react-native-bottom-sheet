@@ -10,7 +10,18 @@ static BOOL BottomSheetAccessibilityObservationEnabled = NO;
 static BOOL BottomSheetTestVoiceOverRunning = NO;
 static BOOL BottomSheetTestDismissFocused = NO;
 static NSUInteger BottomSheetLayoutChangedNotificationCount = 0;
+static NSUInteger BottomSheetScreenChangedNotificationCount = 0;
+static id BottomSheetTestFocusedElement = nil;
 static IMP BottomSheetOriginalAccessibilityElementIsFocused = nil;
+
+static id BottomSheetObservedAccessibilityFocusedElement(NSString *technology)
+{
+  if (BottomSheetAccessibilityObservationEnabled) return BottomSheetTestFocusedElement;
+  typedef id (*FocusedElementFunction)(NSString *);
+  static FocusedElementFunction original =
+      (FocusedElementFunction)dlsym(RTLD_NEXT, "UIAccessibilityFocusedElement");
+  return original == nil ? nil : original(technology);
+}
 
 static BOOL BottomSheetObservedVoiceOverRunning(void)
 {
@@ -31,6 +42,9 @@ static void BottomSheetObservedAccessibilityPost(
   if (BottomSheetAccessibilityObservationEnabled) {
     if (notification == UIAccessibilityLayoutChangedNotification && argument == nil) {
       BottomSheetLayoutChangedNotificationCount++;
+    }
+    if (notification == UIAccessibilityScreenChangedNotification && argument == nil) {
+      BottomSheetScreenChangedNotificationCount++;
     }
     return;
   }
@@ -157,6 +171,7 @@ __attribute__((constructor)) static void BottomSheetInstallAccessibilityRebindin
   const BottomSheetTestSymbolRebinding rebindings[] = {
       {"UIAccessibilityIsVoiceOverRunning", (void *)BottomSheetObservedVoiceOverRunning},
       {"UIAccessibilityPostNotification", (void *)BottomSheetObservedAccessibilityPost},
+      {"UIAccessibilityFocusedElement", (void *)BottomSheetObservedAccessibilityFocusedElement},
   };
   for (uint32_t index = 0; index < _dyld_image_count(); index++) {
     BottomSheetRebindImage(
@@ -215,13 +230,16 @@ static void BottomSheetInstallDismissFocusObservation(UIView *dismiss)
   BottomSheetInstallDismissFocusObservation(dismiss);
   BottomSheetTestVoiceOverRunning = voiceOverRunning;
   BottomSheetTestDismissFocused = focused;
+  BottomSheetTestFocusedElement = focused ? dismiss : nil;
   BottomSheetLayoutChangedNotificationCount = 0;
+  BottomSheetScreenChangedNotificationCount = 0;
   BottomSheetAccessibilityObservationEnabled = YES;
 }
 
 + (void)resetAccessibilityNotificationCount
 {
   BottomSheetLayoutChangedNotificationCount = 0;
+  BottomSheetScreenChangedNotificationCount = 0;
 }
 
 + (NSUInteger)accessibilityLayoutChangedNotificationCount
@@ -229,12 +247,24 @@ static void BottomSheetInstallDismissFocusObservation(UIView *dismiss)
   return BottomSheetLayoutChangedNotificationCount;
 }
 
++ (NSUInteger)accessibilityScreenChangedNotificationCount
+{
+  return BottomSheetScreenChangedNotificationCount;
+}
+
++ (void)setVoiceOverFocusedElement:(id)element
+{
+  BottomSheetTestFocusedElement = element;
+}
+
 + (void)endAccessibilityObservation
 {
   BottomSheetAccessibilityObservationEnabled = NO;
   BottomSheetTestVoiceOverRunning = NO;
   BottomSheetTestDismissFocused = NO;
+  BottomSheetTestFocusedElement = nil;
   BottomSheetLayoutChangedNotificationCount = 0;
+  BottomSheetScreenChangedNotificationCount = 0;
 }
 
 @end

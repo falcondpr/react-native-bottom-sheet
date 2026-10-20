@@ -186,6 +186,14 @@ final class BottomSheetHostFixture {
     components[index].removeFromSuperview()
   }
 
+  func finishPendingPresentationUpdates() async {
+    // A true overlay detach is distinguished from transient Fabric reparenting
+    // on the next main-queue task. Drain that task without waiting for a spring.
+    await withCheckedContinuation { continuation in
+      DispatchQueue.main.async { continuation.resume() }
+    }
+  }
+
   func recycleComponent(at index: Int) {
     BottomSheetTestComponentFactory.prepare(forRecycle: components[index])
     components[index].removeFromSuperview()

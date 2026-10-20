@@ -42,6 +42,14 @@ internal class PortalAccessibilityIsolationCoordinator(
         .forEach {
           mountCallbacks.remove(it)?.remove()
         }
+      // Keep the previous accessible interface during motion. The host notifies
+      // again on settle; queued mount work then reads current facts once.
+      if (
+        policy.activePresentations.any {
+          (it.anchor as? BottomSheetView)?.isAccessibilityTransitionRunning == true
+        }
+      )
+        return
       val windowRoot = windowRoot.get()
       activeRoots.forEach { root ->
         if (windowRoot == null) return@forEach
@@ -83,8 +91,15 @@ internal class PortalAccessibilityIsolationCoordinator(
         .forEach { retained ->
           retainedByRoot.getOrPut(retained.reactRoot) { mutableListOf() }.add(retained.anchor)
         }
-      val scopes = retainedByRoot.map { (root, anchors) -> PortalAccessibilityScope(root, anchors) }
-      reconciler.reconcile(scopes, cuts, isCurrent)
+      val scopes = retainedByRoot.map { (root, anchors) ->
+        PortalAccessibilityScope(root, anchors)
+      }
+      if (reconciler.reconcile(scopes, cuts, isCurrent) && isCurrent()) {
+        // Establish background masks before exposing a newly settled portal.
+        policy.activePresentations.forEach {
+          (it.anchor as? BottomSheetView)?.commitAccessibilityPresentation()
+        }
+      }
     }
   }
 

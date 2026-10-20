@@ -20,33 +20,42 @@ function MountedPublication({ generation = 0, contextInWrapper = false }) {
     scrollableExpandNegotiation: 0,
     scrollableCollapseNegotiation: 0,
   };
-  const sheet = React.createElement(NativeSheet, {
-    ...sheetProps,
-    testID: 'mounted-sheet',
-  });
+  const sheet = React.createElement(
+    NativeSheet,
+    { ...sheetProps, testID: 'mounted-sheet' },
+    React.createElement(
+      View,
+      { testID: 'mounted-content', collapsable: false },
+      React.createElement(Text, null, 'Active content')
+    )
+  );
   return React.createElement(
     View,
     { collapsable: false, style: { width: 640, height: 640 } },
     React.createElement(
       View,
-      {
-        testID: 'local-area',
-        collapsable: false,
-        style: { width: 320, height: 640, position: 'relative' },
-      },
+      { testID: 'painted-ancestor', style: { backgroundColor: 'white' } },
       React.createElement(
         View,
         {
-          testID: 'local-background',
-          accessibilityLabel: `Background generation ${generation}`,
-          style: { position: 'absolute', width: 20, height: 20 },
+          testID: 'local-area',
+          collapsable: false,
+          style: { width: 320, height: 640, position: 'relative' },
         },
-        React.createElement(Text, null, 'Panel background')
-      ),
-      React.createElement(
-        View,
-        { style: { position: contextInWrapper ? 'relative' : 'static' } },
-        renderPortalHost([['one', sheet]])
+        React.createElement(
+          View,
+          {
+            testID: 'local-background',
+            accessibilityLabel: `Background generation ${generation}`,
+            style: { position: 'absolute', width: 20, height: 20 },
+          },
+          React.createElement(Text, null, 'Panel background')
+        ),
+        React.createElement(
+          View,
+          { style: { position: contextInWrapper ? 'relative' : 'static' } },
+          renderPortalHost([['one', sheet]])
+        )
       )
     ),
     React.createElement(NativeSheet, {

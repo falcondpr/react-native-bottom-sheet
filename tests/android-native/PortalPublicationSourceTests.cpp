@@ -183,14 +183,21 @@ int main() {
     auto host = f.make(13, true, "absolute", {f.make(14, true, "relative", {}, true)}, false, true);
     auto first = delivered(f.commit(tree, {f.make(11, false, "relative", {host})}), 14);
     std::weak_ptr<const RootShadowNode> retired = tree.getCurrentRevision().rootShadowNode;
+    RootShadowNode::Shared externallyRetained;
+    State::Shared externallyRetainedState;
     State::Shared previous;
     State::Shared latest;
     for (int i = 0; i < 40; ++i) {
       previous = latest;
       latest = delivered(f.commit(tree, tree.getCurrentRevision().rootShadowNode->getChildren()), 14);
+      if (i == 0) {
+        externallyRetained = tree.getCurrentRevision().rootShadowNode;
+        externallyRetainedState = latest;
+      }
     }
     expect("finite source history releases old roots and rejects evicted states while recent states remain available",
            retired.expired() && !f.source->rootForState(1, 14, first) &&
+           externallyRetained && !f.source->rootForState(1, 14, externallyRetainedState) &&
            f.source->rootForState(1, 14, previous) &&
            f.source->rootForState(1, 14, latest) == tree.getCurrentRevision().rootShadowNode);
   }

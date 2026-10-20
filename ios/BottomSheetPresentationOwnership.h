@@ -4,6 +4,11 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@protocol BottomSheetPortalAccessibilityTransition <NSObject>
+@property (nonatomic, readonly) BOOL isAccessibilityTransitionRunning;
+- (void)commitAccessibilityPresentation;
+@end
+
 typedef NS_ENUM(NSInteger, BottomSheetPresentationMode) {
   BottomSheetPresentationModePortal,
   BottomSheetPresentationModeNativeOverlay,

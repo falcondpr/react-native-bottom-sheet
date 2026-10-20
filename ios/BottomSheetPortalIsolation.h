@@ -6,6 +6,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+// Resolve only UIView and standard virtual accessibility-container paths.
+FOUNDATION_EXPORT UIView *_Nullable BottomSheetAccessibilityContainerView(id _Nullable origin);
+
 // Ephemeral native-authority facts. No state is registered with this value.
 @interface BottomSheetPortalPresentation : NSObject
 + (nullable instancetype)presentationForIdentity:(BottomSheetPresentationIdentity *)identity
@@ -29,6 +32,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)init NS_UNAVAILABLE;
 @property (nonatomic, copy, readonly) NSSet<UIView *> *hiddenBranches;
 @property (nonatomic, copy, readonly) NSSet<BottomSheetPresentationIdentity *> *topPresentationIdentities;
+// Retained portal identities with their logical (surface, context) scope.
+@property (nonatomic, copy, readonly) NSDictionary<BottomSheetPresentationIdentity *, NSArray<NSNumber *> *> *retainedPresentationContexts;
 
 // Read-only; nil rejects a non-current source, never expands to root/window.
 + (nullable instancetype)projectionFromPresentations:

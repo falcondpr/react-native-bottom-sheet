@@ -427,6 +427,9 @@ class BottomSheetView(context: Context) : ReactViewGroup(context), LifecycleEven
   }
 
   private fun refreshPresentationRouting() {
+    host.updateAccessibilityPresentation(
+      deferUntilSettled = isViewAttached && modal && !nativeOverlay
+    )
     val state =
       CloseRequestInputState(
         isAttached = isViewAttached,
@@ -450,6 +453,11 @@ class BottomSheetView(context: Context) : ReactViewGroup(context), LifecycleEven
       isSheetInteractive = overlayInteractive == true,
     )
   }
+
+  internal val isAccessibilityTransitionRunning: Boolean
+    get() = host.isAccessibilityTransitionRunning
+
+  internal fun commitAccessibilityPresentation() = host.commitAccessibilityPresentation()
 
   // MARK: - Activity lifecycle
 

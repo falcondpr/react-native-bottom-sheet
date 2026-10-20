@@ -172,7 +172,9 @@ final class BottomSheetAccessibleDismissalTests: XCTestCase {
   }
 
   func testHostEscapeRemovesDismissAtCloseCommitAndConsumesRetries() async throws {
-    let fixture = BottomSheetHostFixture(presentations: [.portal])
+    // Exercise the real ownership-routed host. A local portal without a
+    // completed Fabric source correctly passes Escape through instead.
+    let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay])
     defer { fixture.tearDown() }
     let host = fixture.host
     let events = fixture.events

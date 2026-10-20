@@ -527,6 +527,7 @@ using namespace facebook::react;
 
 - (void)reconcilePresentationOwnership
 {
+  _sheetView.defersAccessibilityPresentation = self.window != nil && !_nativeOverlay && _sheetView.modal;
   _overlayContainer.blocksBackgroundTouches =
       _nativeOverlay && _sheetView.modal && _sheetView.isPresentationActive;
   BottomSheetPresentationMode mode = _nativeOverlay

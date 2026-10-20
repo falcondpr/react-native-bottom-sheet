@@ -61,21 +61,6 @@ std::optional<PortalQuery> collectPortalPresentations(
   return query;
 }
 
-UIView *nativeActionView(id origin) {
-  NSHashTable *seen = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
-  while (origin) {
-    if ([seen containsObject:origin]) return nil;
-    [seen addObject:origin];
-    if ([origin isKindOfClass:UIView.class]) return origin;
-    if (![origin isKindOfClass:UIAccessibilityElement.class]) return nil;
-    SEL container = @selector(accessibilityContainer);
-    Method actual = class_getInstanceMethod(object_getClass(origin), container);
-    Method standard = class_getInstanceMethod(UIAccessibilityElement.class, container);
-    if (!actual || method_getImplementation(actual) != method_getImplementation(standard)) return nil;
-    origin = ((UIAccessibilityElement *)origin).accessibilityContainer;
-  }
-  return nil;
-}
 
 NSSet<UIView *> *nativeCut(const AppliedPortalRoot& publication, BottomSheetNativeHierarchySnapshot *hierarchy) {
   std::vector<PortalRetainedPaths> requests;
@@ -117,6 +102,23 @@ NSSet<UIView *> *composeNativeCuts(NSSet<UIView *> *branches, NSSet<UIView *> *r
 }
 } // namespace
 
+UIView *BottomSheetAccessibilityContainerView(id origin) {
+  NSHashTable *seen = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+  while (origin) {
+    if ([seen containsObject:origin]) return nil;
+    [seen addObject:origin];
+    if ([origin isKindOfClass:UIView.class]) return origin;
+    if (![origin isKindOfClass:UIAccessibilityElement.class]) return nil;
+    SEL container = @selector(accessibilityContainer);
+    Method actual = class_getInstanceMethod(object_getClass(origin), container);
+    Method standard = class_getInstanceMethod(UIAccessibilityElement.class, container);
+    if (!actual || method_getImplementation(actual) != method_getImplementation(standard)) return nil;
+    origin = ((UIAccessibilityElement *)origin).accessibilityContainer;
+  }
+  return nil;
+}
+
+
 @implementation BottomSheetPortalPresentation
 + (instancetype)presentationForIdentity:(BottomSheetPresentationIdentity *)identity
                                 anchor:(UIView *)anchor active:(BOOL)active eligible:(BOOL)eligible
@@ -152,7 +154,8 @@ NSSet<UIView *> *composeNativeCuts(NSSet<UIView *> *branches, NSSet<UIView *> *r
 
 @interface BottomSheetPortalIsolation ()
 - (instancetype)initWithHiddenBranches:(NSSet<UIView *> *)hiddenBranches
-                                   tops:(NSSet<BottomSheetPresentationIdentity *> *)tops;
+                                   tops:(NSSet<BottomSheetPresentationIdentity *> *)tops
+                               retained:(NSDictionary<BottomSheetPresentationIdentity *, NSArray<NSNumber *> *> *)retained;
 + (instancetype)projectionFromQuery:(PortalQuery &)query
                            hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy
                        orderProvider:(BottomSheetPresentationOrderProvider)orderProvider;
@@ -194,7 +197,7 @@ NSSet<UIView *> *composeNativeCuts(NSSet<UIView *> *branches, NSSet<UIView *> *r
   }
   auto isolation = [self projectionFromQuery:*query hierarchy:hierarchy orderProvider:orderProvider];
   if (!isolation) return BottomSheetPresentationEscapeRoutePassThrough;
-  UIView *originView = nativeActionView(origin);
+  UIView *originView = BottomSheetAccessibilityContainerView(origin);
   if (!originView || (originView != expectedWindow && originView.window != expectedWindow)) {
     return BottomSheetPresentationEscapeRoutePassThrough;
   }
@@ -232,7 +235,7 @@ NSSet<UIView *> *composeNativeCuts(NSSet<UIView *> *branches, NSSet<UIView *> *r
       }
     }
   }
-  if (nativeActionView(origin) != originView || ![hierarchy validate]) {
+  if (BottomSheetAccessibilityContainerView(origin) != originView || ![hierarchy validate]) {
     return BottomSheetPresentationEscapeRoutePassThrough;
   }
   for (const auto& member : groups.at(*selected)) {
@@ -246,10 +249,12 @@ NSSet<UIView *> *composeNativeCuts(NSSet<UIView *> *branches, NSSet<UIView *> *r
 
 - (instancetype)initWithHiddenBranches:(NSSet<UIView *> *)hiddenBranches
                                    tops:(NSSet<BottomSheetPresentationIdentity *> *)tops
+                               retained:(NSDictionary<BottomSheetPresentationIdentity *, NSArray<NSNumber *> *> *)retained
 {
   if (self = [super init]) {
     _hiddenBranches = [hiddenBranches copy];
     _topPresentationIdentities = [tops copy];
+    _retainedPresentationContexts = [retained copy];
   }
   return self;
 }
@@ -273,6 +278,7 @@ NSSet<UIView *> *composeNativeCuts(NSSet<UIView *> *branches, NSSet<UIView *> *r
 
   NSMutableSet<BottomSheetPresentationIdentity *> *tops = [NSMutableSet new];
   NSMutableSet<UIView *> *retainedOwners = [NSMutableSet new];
+  NSMutableDictionary<BottomSheetPresentationIdentity *, NSArray<NSNumber *> *> *retainedContexts = [NSMutableDictionary new];
   for (const auto& [context, members] : groups) {
     NSMutableArray<BottomSheetPresentationCandidate *> *candidates = [NSMutableArray new];
     for (const auto& member : members) {
@@ -287,6 +293,8 @@ NSSet<UIView *> *composeNativeCuts(NSSet<UIView *> *branches, NSSet<UIView *> *r
       if ([decision.retainedPresentationIdentities containsObject:member.presentation.identity]) {
         retained[member.host].push_back(&member.node->getFamily());
         [retainedOwners addObject:member.presentation.owner];
+        retainedContexts[member.presentation.identity] =
+            @[ @(member.node->getFamily().getSurfaceId()), @(context.second) ];
       }
     }
   }
@@ -311,7 +319,7 @@ NSSet<UIView *> *composeNativeCuts(NSSet<UIView *> *branches, NSSet<UIView *> *r
   }
   auto composed = composeNativeCuts(hiddenBranches, retainedOwners, hierarchy);
   if (!composed || !sourcesAreCurrent()) return nil;
-  auto result = [[self alloc] initWithHiddenBranches:composed tops:tops];
+  auto result = [[self alloc] initWithHiddenBranches:composed tops:tops retained:retainedContexts];
   return [hierarchy validate] ? result : nil;
 }
 @end
