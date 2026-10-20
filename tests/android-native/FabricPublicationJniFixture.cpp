@@ -1,6 +1,7 @@
 // Compile the real JNI resource in this test-only translation unit. Its native
 // factory stays private to production; no testing entry point is added there.
 #include "../../common/cpp/react/renderer/components/ReactNativeBottomSheetSpec/PortalPublicationSourceAndroid.cpp"
+#include <react/fabric/StateWrapperImpl.h>
 #include <react/renderer/components/ReactNativeBottomSheetSpec/ComponentDescriptors.h>
 #include <react/renderer/components/ReactNativeBottomSheetSpec/PortalContextGraph.h>
 #include <react/renderer/components/view/ViewComponentDescriptor.h>

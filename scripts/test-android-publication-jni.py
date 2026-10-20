@@ -54,7 +54,7 @@ def physical_device():
     os.environ['ANDROID_SERIAL'] = selected
 
 
-def build_native(abi, installation=False, mount=False):
+def build_native(abi, installation=False, mount=False, payload=False):
     databases = sorted((ROOT / 'example/android/app/.cxx/Debug').glob(
         f'*/{abi}/compile_commands.json'), key=lambda path: path.stat().st_mtime, reverse=True)
     item = None
@@ -88,6 +88,10 @@ def build_native(abi, installation=False, mount=False):
         print(f'Production JNI packaged: {abi}', flush=True)
         return
     command = shlex.split(item['command'])
+    if payload:
+        # Select the real older-RN transport in this test-only translation unit.
+        # Production selection remains based solely on the consumer's RN SDK.
+        command += ['-UBOTTOM_SHEET_DIRECT_STATE_ACCESS']
     original_object = command[command.index('-o') + 1]
     object_file = OUTPUT / 'objects' / f'{abi}.o'
     object_file.parent.mkdir(parents=True, exist_ok=True)
@@ -125,6 +129,8 @@ def main():
                       help='Test production State delivery through an unattached ReactSurface.')
     mode.add_argument('--failure', action='store_true',
                       help='Document source validation limits after an ignored native layout failure.')
+    mode.add_argument('--payload', action='store_true',
+                      help='Run the fixture against the public State payload transport, including on newer RN.')
     args = parser.parse_args()
     mount = args.mount or args.failure
     test_class = FAILURE_TEST_CLASS if args.failure else MOUNT_TEST_CLASS if args.mount else INSTALL_TEST_CLASS if args.installation else TEST_CLASS
@@ -138,7 +144,7 @@ def main():
               '--no-daemon', '--console=plain', '-PreactNativeArchitectures=' + ','.join(ABIS)]
     run(gradle + [':app:assembleDebug'])
     for abi in ABIS:
-        build_native(abi, args.installation, mount)
+        build_native(abi, args.installation, mount, args.payload)
     task = 'assembleDebugAndroidTest' if args.assemble else 'connectedDebugAndroidTest'
     started = time.time()
     if args.installation:

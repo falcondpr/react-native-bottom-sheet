@@ -5,6 +5,7 @@ package com.swmansion.reactnativebottomsheet.accessibility
 import androidx.annotation.UiThread
 import com.facebook.jni.HybridData
 import com.facebook.proguard.annotations.DoNotStrip
+import com.facebook.react.bridge.ReadableType
 import com.facebook.react.fabric.FabricUIManager
 import com.facebook.react.uimanager.StateWrapper
 import com.facebook.soloader.SoLoader
@@ -16,13 +17,14 @@ internal class FabricPortalPublication
 private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
   FabricPublicationLease {
   private var active = true
+  private val directStateAccess = usesDirectStateNative()
 
   override fun bootstrap() {
     if (active) bootstrapNative()
   }
 
   override fun sheetTags(surfaceId: Int, tag: Int, state: StateWrapper?): IntArray? =
-    if (active) sheetTagsNative(surfaceId, tag, state) else null
+    if (active) sheetTagsNative(surfaceId, tag, transportState(state)) else null
 
   override fun receipt(
     surfaceId: Int,
@@ -35,7 +37,7 @@ private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
       surfaceId,
       tag,
       delivered.map { it.first }.toIntArray(),
-      delivered.map { it.second }.toTypedArray(),
+      delivered.map { transportState(it.second) ?: return null }.toTypedArray(),
     )
   }
 
@@ -56,7 +58,7 @@ private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
         surfaceId,
         tag,
         delivered.map { it.first }.toIntArray(),
-        delivered.map { it.second }.toTypedArray(),
+        delivered.map { transportState(it.second) ?: return null }.toTypedArray(),
       )
       ?.toList()
   }
@@ -72,7 +74,7 @@ private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
     return isolationNative(
       surfaceId,
       delivered.map { it.first }.toIntArray(),
-      delivered.map { it.second }.toTypedArray(),
+      delivered.map { transportState(it.second) ?: return null }.toTypedArray(),
       nativeParents.flatMap { (child, parent) -> listOf(child, parent) }.toIntArray(),
       retainedByHost
         .map { (host, presentations) -> intArrayOf(host, *presentations.toIntArray()) }
@@ -82,15 +84,24 @@ private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
 
   @DoNotStrip private external fun bootstrapNative()
 
-  @DoNotStrip
-  private external fun sheetTagsNative(surfaceId: Int, tag: Int, state: StateWrapper?): IntArray?
+  private fun transportState(state: StateWrapper?): Any? {
+    if (directStateAccess) return state
+    val data = state?.stateData ?: return null
+    val key = "portalStateId"
+    return if (data.hasKey(key) && data.getType(key) == ReadableType.String) data.getString(key)
+    else null
+  }
+
+  @DoNotStrip private external fun usesDirectStateNative(): Boolean
+
+  @DoNotStrip private external fun sheetTagsNative(surfaceId: Int, tag: Int, state: Any?): IntArray?
 
   @DoNotStrip
   private external fun receiptNative(
     surfaceId: Int,
     tag: Int,
     tags: IntArray,
-    states: Array<StateWrapper?>,
+    states: Array<Any>,
   ): FabricPortalReceipt?
 
   @DoNotStrip
@@ -98,14 +109,14 @@ private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
     surfaceId: Int,
     tag: Int,
     tags: IntArray,
-    states: Array<StateWrapper?>,
+    states: Array<Any>,
   ): IntArray?
 
   @DoNotStrip
   private external fun isolationNative(
     surfaceId: Int,
     tags: IntArray,
-    states: Array<StateWrapper?>,
+    states: Array<Any>,
     nativeParents: IntArray,
     retainedGroups: Array<IntArray>,
   ): FabricPortalIsolationProjection?

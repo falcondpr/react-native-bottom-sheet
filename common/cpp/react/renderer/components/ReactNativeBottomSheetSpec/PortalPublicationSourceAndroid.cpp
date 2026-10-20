@@ -3,7 +3,9 @@
 #include <fbjni/fbjni.h>
 #include <react/fabric/Binding.h>
 #include <react/fabric/JFabricUIManager.h>
+#ifdef BOTTOM_SHEET_DIRECT_STATE_ACCESS
 #include <react/fabric/StateWrapperImpl.h>
+#endif
 #include <react/renderer/scheduler/Scheduler.h>
 
 namespace facebook::react::bottomsheet {
@@ -71,6 +73,7 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
     registerHybrid({
         makeNativeMethod("initHybrid", FabricPortalPublication::initHybrid),
         makeNativeMethod("bootstrapNative", FabricPortalPublication::bootstrapNative),
+        makeNativeMethod("usesDirectStateNative", FabricPortalPublication::usesDirectStateNative),
         makeNativeMethod("sheetTagsNative", FabricPortalPublication::sheetTagsNative),
         makeNativeMethod("receiptNative", FabricPortalPublication::receiptNative),
         makeNativeMethod("contextPathNative", FabricPortalPublication::contextPathNative),
@@ -94,37 +97,47 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
     source_.bootstrap();
   }
 
-  static State::Shared deliveredState(jni::alias_ref<StateWrapper::javaobject> object) {
+  jboolean usesDirectStateNative() {
+#ifdef BOTTOM_SHEET_DIRECT_STATE_ACCESS
+    return true;
+#else
+    return false;
+#endif
+  }
+
+  State::Shared deliveredState([[maybe_unused]] jint surface, jni::alias_ref<jobject> object) {
+#ifdef BOTTOM_SHEET_DIRECT_STATE_ACCESS
     if (!object || !object->isInstanceOf(StateWrapperImpl::javaClassStatic())) return nullptr;
-    StateWrapperImpl* wrapper;
     try {
-      wrapper = jni::static_ref_cast<StateWrapperImpl::jhybridobject>(object)->cthis();
+      return jni::static_ref_cast<StateWrapperImpl::jhybridobject>(object)->cthis()->getState();
     } catch (const jni::JniException& exception) {
-      // fbjni reports a reset hybrid pointer as NPE. Other JNI failures surface.
       if (!exception.getThrowable()->isInstanceOf(jni::findClassLocal("java/lang/NullPointerException"))) throw;
       return nullptr;
     }
-    // The delivered State must not be replaced by the family's newest State.
-    return wrapper->getState();
+#else
+    if (!object || !object->isInstanceOf(jni::JString::javaClassStatic())) return nullptr;
+    return source_.stateForToken(surface, jni::static_ref_cast<jstring>(object)->toStdString());
+#endif
   }
 
-  static std::optional<std::map<Tag, State::Shared>> deliveredStates(
+  std::optional<std::map<Tag, State::Shared>> deliveredStates(
+      jint surface,
       jni::alias_ref<jintArray> tags,
-      jni::alias_ref<jni::JArrayClass<StateWrapper::javaobject>::javaobject> objects) {
+      jni::alias_ref<jni::JArrayClass<jobject>::javaobject> objects) {
     if (!tags || !objects || tags->size() == 0 || tags->size() != objects->size()) return std::nullopt;
     std::vector<jint> values(tags->size());
     tags->getRegion(0, values.size(), values.data());
     std::map<Tag, State::Shared> states;
     for (size_t index = 0; index < values.size(); ++index) {
-      auto state = deliveredState(objects->getElement(index));
+      auto state = deliveredState(surface, objects->getElement(index));
       if (!state || !states.emplace(values[index], std::move(state)).second) return std::nullopt;
     }
     return states;
   }
 
   jni::local_ref<jintArray> sheetTagsNative(
-      jint surface, jint tag, jni::alias_ref<StateWrapper::javaobject> object) {
-    auto tags = source_.sheetTagsForState(surface, tag, deliveredState(object));
+      jint surface, jint tag, jni::alias_ref<jobject> object) {
+    auto tags = source_.sheetTagsForState(surface, tag, deliveredState(surface, object));
     if (!tags) return nullptr;
     auto result = jni::JArrayInt::newArray(tags->size());
     result->setRegion(0, tags->size(), tags->data());
@@ -133,8 +146,8 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
 
   jni::local_ref<JFabricPortalReceipt> receiptNative(
       jint surface, jint tag, jni::alias_ref<jintArray> tags,
-      jni::alias_ref<jni::JArrayClass<StateWrapper::javaobject>::javaobject> objects) {
-    auto states = deliveredStates(tags, objects);
+      jni::alias_ref<jni::JArrayClass<jobject>::javaobject> objects) {
+    auto states = deliveredStates(surface, tags, objects);
     if (!states) return nullptr;
     auto selected = states->find(tag);
     if (selected == states->end() || !source_.rootForStates(surface, *states)) return nullptr;
@@ -145,8 +158,8 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
 
   jni::local_ref<jintArray> contextPathNative(
       jint surface, jint tag, jni::alias_ref<jintArray> tags,
-      jni::alias_ref<jni::JArrayClass<StateWrapper::javaobject>::javaobject> objects) {
-    auto states = deliveredStates(tags, objects);
+      jni::alias_ref<jni::JArrayClass<jobject>::javaobject> objects) {
+    auto states = deliveredStates(surface, tags, objects);
     if (!states) return nullptr;
     auto path = source_.contextPathForStates(surface, *states, tag);
     if (!path) return nullptr;
@@ -157,10 +170,10 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
 
   jni::local_ref<JFabricPortalIsolationProjection> isolationNative(
       jint surface, jni::alias_ref<jintArray> tags,
-      jni::alias_ref<jni::JArrayClass<StateWrapper::javaobject>::javaobject> objects,
+      jni::alias_ref<jni::JArrayClass<jobject>::javaobject> objects,
       jni::alias_ref<jintArray> parentPairs,
       jni::alias_ref<jni::JArrayClass<jintArray>::javaobject> retainedGroups) {
-    auto states = deliveredStates(tags, objects);
+    auto states = deliveredStates(surface, tags, objects);
     if (!states || !parentPairs || parentPairs->size() % 2 != 0 || !retainedGroups) return nullptr;
     std::vector<jint> parents(parentPairs->size());
     parentPairs->getRegion(0, parents.size(), parents.data());

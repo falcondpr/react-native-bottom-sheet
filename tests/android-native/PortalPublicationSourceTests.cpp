@@ -672,6 +672,22 @@ int main() {
     f.manager->unregisterCommitHook(later);
   }
 
+  {
+    Fixture f;
+    auto& tree = f.tree();
+    auto mount = f.commit(tree, {f.make(11, false, "relative", {
+        f.make(13, true, "absolute", {f.make(14, true, "relative", {}, true)}, false, true)})});
+    auto state = delivered(mount, 14);
+    const auto& concrete = static_cast<const BottomSheetViewShadowNode::ConcreteState&>(*state);
+    auto payload = concrete.getDynamic();
+    auto token = payload["portalStateId"].asString();
+    expect("serialized delivered identity resolves the exact retained State",
+           !token.empty() && f.source->stateForToken(1, token) == state &&
+           f.source->rootForState(1, 14, f.source->stateForToken(1, token)) ==
+               tree.getCurrentRevision().rootShadowNode &&
+           !f.source->stateForToken(1, "unknown-state"));
+  }
+
   std::cout << "STATE RESULT tests=" << tests << " failures=" << failures << '\n';
   return failures ? 1 : 0;
 }

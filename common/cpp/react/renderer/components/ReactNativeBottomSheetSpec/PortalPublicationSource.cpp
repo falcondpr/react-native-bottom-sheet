@@ -50,16 +50,40 @@ void PortalPublicationSource::rememberFinalRoot(const RootShadowNode::Shared& ro
   auto index = indexPortalShadowNodes(*root);
   if (!index) return;
   std::lock_guard lock(mutex_);
-  std::erase_if(finalRoots_, [](const auto& entry) { return entry.first.expired(); });
+  std::erase_if(finalRoots_, [](const auto& entry) { return entry.second.state.expired(); });
   for (const auto& [tag, node] : *index) {
     auto state = node->getState();
     auto concrete = dynamic_cast<const BottomSheetViewShadowNode::ConcreteState*>(state.get());
     if (!concrete || !concrete->getData().portalPublicationId.starts_with(prefix_)) continue;
-    auto [entry, inserted] = finalRoots_.try_emplace(std::weak_ptr<const State>{state}, FinalRoot{root});
+    auto [entry, inserted] = finalRoots_.try_emplace(concrete->portalStateId(), FinalRoot{state, root});
     if (!inserted && (entry->second.root.owner_before(root) || root.owner_before(entry->second.root))) {
       entry->second.ambiguous = true;
     }
   }
+}
+
+State::Shared PortalPublicationSource::stateForToken(
+    SurfaceId surface, const std::string& token) const {
+  if (token.empty()) return nullptr;
+  auto retained = [&]() -> State::Shared {
+    std::lock_guard lock(mutex_);
+    auto entry = finalRoots_.find(token);
+    if (entry == finalRoots_.end() || entry->second.ambiguous) return nullptr;
+    auto root = entry->second.root.lock();
+    return root && root->getSurfaceId() == surface ? entry->second.state.lock() : nullptr;
+  };
+  if (auto state = retained()) return state;
+  auto manager = manager_.lock();
+  if (!manager) return nullptr;
+  RootShadowNode::Shared live;
+  RootShadowNode::Shared base;
+  manager->getShadowTreeRegistry().visit(surface, [&](const ShadowTree& tree) {
+    live = tree.getCurrentRevision().rootShadowNode;
+    base = tree.getMountingCoordinator()->getBaseRevision().rootShadowNode;
+  });
+  if (live) rememberFinalRoot(live);
+  if (base && base != live) rememberFinalRoot(base);
+  return retained();
 }
 
 RootShadowNode::Unshared PortalPublicationSource::shadowTreeWillCommit(
@@ -86,7 +110,7 @@ RootShadowNode::Unshared PortalPublicationSource::shadowTreeWillCommit(
   for (const auto& [tag, node] : *index) {
     auto sheet = dynamic_cast<const BottomSheetViewShadowNode*>(node);
     if (!sheet) continue;
-    const auto& previous = static_cast<const BottomSheetViewShadowNode::ConcreteState&>(*sheet->getState());
+    const auto& previous = static_cast<const ConcreteState<BottomSheetViewState>&>(*sheet->getState());
     auto stamped = std::make_shared<BottomSheetViewState>(previous.getData());
     stamped->portalPublicationId = id;
     auto state = std::make_shared<const BottomSheetViewShadowNode::ConcreteState>(stamped, previous);
@@ -116,8 +140,8 @@ RootShadowNode::Shared PortalPublicationSource::rootForState(
   RootShadowNode::Shared result;
   {
     std::lock_guard lock(mutex_);
-    auto entry = finalRoots_.find(std::weak_ptr<const State>{state});
-    if (entry == finalRoots_.end() || entry->second.ambiguous) return nullptr;
+    auto entry = finalRoots_.find(concrete->portalStateId());
+    if (entry == finalRoots_.end() || entry->second.ambiguous || entry->second.state.lock() != state) return nullptr;
     result = entry->second.root.lock();
     if (!result || (result != liveRoot && result != baseRoot &&
         std::find(history_.begin(), history_.end(), result) == history_.end())) return nullptr;

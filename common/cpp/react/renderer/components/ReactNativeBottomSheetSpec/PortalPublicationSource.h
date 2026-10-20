@@ -37,6 +37,10 @@ class PortalPublicationSource final : private UIManagerCommitHook {
   // Called outside a mounting stack, after installing the source.
   void bootstrap();
 
+  // Resolves an identity serialized by the installed wrapper. Callers must
+  // still validate the exact root/inventory through the State-based methods.
+  State::Shared stateForToken(SurfaceId surface, const std::string& token) const;
+
   RootShadowNode::Shared rootForState(
       SurfaceId surface, Tag tag, const State::Shared& state) const;
 
@@ -74,6 +78,7 @@ class PortalPublicationSource final : private UIManagerCommitHook {
 
   void rememberFinalRoot(const RootShadowNode::Shared& root) const;
   struct FinalRoot {
+    std::weak_ptr<const State> state;
     std::weak_ptr<const RootShadowNode> root;
     bool ambiguous{false};
   };
@@ -84,7 +89,7 @@ class PortalPublicationSource final : private UIManagerCommitHook {
   uint64_t next_{0};
   std::deque<RootShadowNode::Shared> history_;
   // Entries follow live State identities, without retaining States or trees.
-  mutable std::map<std::weak_ptr<const State>, FinalRoot, std::owner_less<>> finalRoots_;
+  mutable std::map<std::string, FinalRoot> finalRoots_;
 };
 
 } // namespace facebook::react::bottomsheet
