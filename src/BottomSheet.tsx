@@ -49,6 +49,15 @@ const SCROLLABLE_NEGOTIATION_LEVEL: Record<ScrollableNegotiationMode, number> =
     handoff: 2,
   };
 
+// Identifies the zero-height marker appended after the content so the native
+// hosts can measure the content height from its position. They look it up by
+// this nativeID rather than by sibling index, because Fabric mounts siblings
+// sorted by zIndex and a z-indexed child would otherwise take the marker's
+// place. Mirrored in `BottomSheetHostingView.swift` and
+// `BottomSheetHostView.kt`; keep the three in sync.
+const CONTENT_HEIGHT_MARKER_NATIVE_ID =
+  'swm-bottom-sheet-content-height-marker';
+
 const DEFAULT_SCROLLABLE_NEGOTIATION = {
   expand: 'handoff',
   collapse: 'initial',
@@ -333,15 +342,20 @@ export const BottomSheet = (props: BottomSheetProps) => {
           <View
             collapsable={false}
             // The wrapper fills the sheet's content region exactly: the native
-            // side reports the region's top inset (the gap between the sheet
-            // top and the detent cap) into the shadow tree, where it is
-            // applied as Yoga top padding on the sheet node — so this in-flow
-            // flex: 1 child resolves to the region the sheet can actually
-            // show, on every device and in every mode.
+            // side reports the region's inset (the gap between the sheet's
+            // height and the tallest detent, clamped to the detent cap) into
+            // the shadow tree, where it is applied as Yoga bottom padding on
+            // the sheet node — so this in-flow flex: 1 child resolves to the
+            // region the sheet can actually show, on every device and in
+            // every mode.
             style={styles.contentWrapper}
           >
             {children}
-            <View collapsable={false} pointerEvents="none" />
+            <View
+              collapsable={false}
+              nativeID={CONTENT_HEIGHT_MARKER_NATIVE_ID}
+              pointerEvents="none"
+            />
           </View>
         </NativeView>
       </View>

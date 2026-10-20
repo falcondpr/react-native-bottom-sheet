@@ -4,7 +4,7 @@ import XCTest
 
 @MainActor
 final class BottomSheetHostingViewLifecycleTests: XCTestCase {
-  func testScrollOnlyPanCompletionRetriesDeferredPresentationReconciliation() {
+  func testScrollOnlyPanCompletionRetriesDeferredPresentationReconciliation() throws {
     let host = BottomSheetHostingView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
     host.modal = true
     host.animateIn = false
@@ -32,11 +32,11 @@ final class BottomSheetHostingViewLifecycleTests: XCTestCase {
       let pan = LifecyclePanGesture()
       pan.probeState = .began
       host.perform(NSSelectorFromString("handlePan:"), with: pan)
-      XCTAssertTrue(host.value(forKey: "isAccessibilityTransitionRunning") as! Bool)
+      XCTAssertTrue(try XCTUnwrap(host.value(forKey: "isAccessibilityTransitionRunning") as? Bool))
       pan.probeState = terminal
       let before = stationaryNotifications
       host.perform(NSSelectorFromString("handlePan:"), with: pan)
-      XCTAssertFalse(host.value(forKey: "isAccessibilityTransitionRunning") as! Bool)
+      XCTAssertFalse(try XCTUnwrap(host.value(forKey: "isAccessibilityTransitionRunning") as? Bool))
       XCTAssertEqual(stationaryNotifications, before + 1, "terminal pan state: \(terminal)")
     }
   }
@@ -84,8 +84,8 @@ final class BottomSheetHostingViewLifecycleTests: XCTestCase {
 
     host.setDetentIndex(1)
     XCTAssertNotNil(host.sheetContainer.layer.animation(forKey: "bottomSheetSettle"))
-    BottomSheetAccessibilityObservation.begin(
-      forDismiss: try XCTUnwrap(host.subviews.first { $0.accessibilityLabel == "Dismiss" }),
+    try BottomSheetAccessibilityObservation.begin(
+      forDismiss: XCTUnwrap(host.subviews.first { $0.accessibilityLabel == "Dismiss" }),
       voiceOverRunning: true,
       focused: false
     )
@@ -197,7 +197,7 @@ final class BottomSheetHostingViewLifecycleTests: XCTestCase {
     defer { fixture.tearDown() }
     let host = fixture.host
     let content = UIView(frame: host.bounds)
-    let contentHeightMarker = UIView(frame: CGRect(x: 0, y: 320, width: 1, height: 0))
+    let contentHeightMarker = ContentHeightMarker(frame: CGRect(x: 0, y: 320, width: 1, height: 0))
     content.addSubview(contentHeightMarker)
     host.mountChildComponentView(content, atIndex: 0)
     host.animateContentHeight = false
@@ -205,6 +205,8 @@ final class BottomSheetHostingViewLifecycleTests: XCTestCase {
       ["value": 0.0, "kind": "points", "programmatic": false],
       ["value": 0.0, "kind": "content", "programmatic": false],
     ])
+    host.contentRegionStateDidCommit(host.contentRegionInset)
+    host.contentRegionLayoutDidApply()
     host.layoutIfNeeded()
     let dismiss = try XCTUnwrap(findDismiss(in: host))
     BottomSheetAccessibilityObservation.begin(
@@ -255,7 +257,7 @@ final class BottomSheetHostingViewLifecycleTests: XCTestCase {
     rootViewController.view.frame = window.bounds
     rootViewController.view.addSubview(host)
     let content = UIView(frame: host.bounds)
-    content.addSubview(UIView(frame: CGRect(x: 0, y: 780, width: 1, height: 0)))
+    content.addSubview(ContentHeightMarker(frame: CGRect(x: 0, y: 780, width: 1, height: 0)))
     host.mountChildComponentView(content, atIndex: 0)
     host.modal = true
     host.animateIn = false
@@ -400,7 +402,13 @@ final class BottomSheetHostingViewLifecycleTests: XCTestCase {
     XCTAssertEqual(events.positionSamples.last?.position ?? .nan, 0, accuracy: 0.5)
     XCTAssertEqual(events.positionSamples.last?.isModalScrimVisible, false)
   }
+}
 
+private final class ContentHeightMarker: UIView {
+  /// Match the nativeID exposed by Fabric's content-height marker.
+  @objc var nativeId: String {
+    "swm-bottom-sheet-content-height-marker"
+  }
 }
 
 private final class BottomSheetSafeAreaWindow: UIWindow {
@@ -419,11 +427,11 @@ private final class LifecyclePanGesture: UIPanGestureRecognizer {
     set { probeState = newValue }
   }
 
-  override func location(in view: UIView?) -> CGPoint {
+  override func location(in _: UIView?) -> CGPoint {
     CGPoint(x: 20, y: 20)
   }
 
-  override func velocity(in view: UIView?) -> CGPoint {
+  override func velocity(in _: UIView?) -> CGPoint {
     CGPoint(x: 0, y: -100)
   }
 }

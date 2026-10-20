@@ -1,6 +1,6 @@
 {
   "name": "@swmansion/react-native-bottom-sheet",
-  "version": "0.17.0-next.2",
+  "version": "0.17.0",
   "description": "Provides bottom-sheet components for React Native.",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
@@ -73,26 +73,24 @@
     "registry": "https://registry.npmjs.org"
   },
   "devDependencies": {
-    "@eslint/compat": "2.1.0",
-    "@eslint/eslintrc": "3.3.5",
-    "@eslint/js": "9.39.4",
-    "@react-native/babel-preset": "0.85.3",
-    "@react-native/eslint-config": "0.85.3",
-    "@react-native/metro-config": "0.85.3",
+    "@eslint/compat": "2.1.1",
+    "@eslint/eslintrc": "3.3.7",
+    "@eslint/js": "9.39.5",
+    "@react-native/babel-preset": "0.88.0",
+    "@react-native/eslint-config": "0.88.0",
     "@types/bun": "1.3.14",
-    "@types/react": "19.2.15",
+    "@types/react": "19.3.0",
     "babel-plugin-react-compiler": "1.0.0",
-    "del-cli": "6.0.0",
-    "eslint": "9.39.4",
+    "del-cli": "8.0.1",
+    "eslint": "9.39.5",
     "eslint-config-prettier": "10.1.8",
-    "eslint-plugin-prettier": "5.5.6",
-    "lefthook": "2.1.9",
-    "metro": "0.84.4",
-    "prettier": "3.8.3",
-    "react": "19.2.3",
-    "react-native": "0.85.3",
-    "react-native-builder-bob": "0.41.0",
-    "typescript": "5.9.3"
+    "eslint-plugin-prettier": "5.5.7",
+    "lefthook": "2.2.2",
+    "prettier": "3.9.10",
+    "react": "19.3.0",
+    "react-native": "0.88.0",
+    "react-native-builder-bob": "0.43.2",
+    "typescript": "6.0.3"
   },
   "peerDependencies": {
     "react": ">=18.0.0",
@@ -101,7 +99,7 @@
   "workspaces": [
     "example"
   ],
-  "packageManager": "bun@1.3.14",
+  "packageManager": "bun@1.4.3",
   "react-native-builder-bob": {
     "source": "src",
     "output": "lib",

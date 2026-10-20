@@ -33,12 +33,14 @@ import java.lang.reflect.Method
  */
 private val onChildStartedNativeGestureWithContext: Method? =
   try {
-    JSTouchDispatcher::class.java.getMethod(
-      "onChildStartedNativeGesture",
-      MotionEvent::class.java,
-      EventDispatcher::class.java,
-      ReactContext::class.java,
-    )
+    JSTouchDispatcher::class
+      .java
+      .getMethod(
+        "onChildStartedNativeGesture",
+        MotionEvent::class.java,
+        EventDispatcher::class.java,
+        ReactContext::class.java,
+      )
   } catch (e: NoSuchMethodException) {
     null
   }

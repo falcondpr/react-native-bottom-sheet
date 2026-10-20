@@ -112,8 +112,10 @@ using namespace facebook::react;
       }];
     }
     [_sheetView setDetents:detentsArray];
+    // The tallest detent bounds the content region, so a detents change can
+    // move the pushed inset without any native re-layout; dedups when not.
+    [self pushNativeGeometry];
   }
-
 
   if (_needsIndexSyncAfterRecycle || newViewProps.index != oldViewProps.index) {
     [_sheetView setDetentIndex:newViewProps.index];
@@ -151,11 +153,13 @@ using namespace facebook::react;
     [_sheetView setExtendUnderStatusBar:newViewProps.extendUnderStatusBar];
   }
 
-  if (newViewProps.scrollableExpandNegotiation != oldViewProps.scrollableExpandNegotiation) {
+  // Compare against native state: codegen defaults to 0 (none), while the
+  // hosting view defaults to handoff/initial, so a props diff can skip none.
+  if (newViewProps.scrollableExpandNegotiation != _sheetView.scrollableExpandNegotiation) {
     _sheetView.scrollableExpandNegotiation = newViewProps.scrollableExpandNegotiation;
   }
 
-  if (newViewProps.scrollableCollapseNegotiation != oldViewProps.scrollableCollapseNegotiation) {
+  if (newViewProps.scrollableCollapseNegotiation != _sheetView.scrollableCollapseNegotiation) {
     _sheetView.scrollableCollapseNegotiation = newViewProps.scrollableCollapseNegotiation;
   }
 
@@ -179,6 +183,11 @@ using namespace facebook::react;
 - (void)updateState:(const State::Shared &)state oldState:(const State::Shared &)oldState
 {
   _sheetState = state;
+  // The committed state carries the content-region inset the content is laid
+  // out against in this very transaction; the host uses it to tell a fresh
+  // content measurement from one taken against a previous region.
+  const auto &data = std::static_pointer_cast<const BottomSheetViewShadowNode::ConcreteState>(state)->getData();
+  [_sheetView contentRegionStateDidCommit:data.contentRegionInset];
 }
 
 - (void)updateLayoutMetrics:(const LayoutMetrics &)layoutMetrics
@@ -247,6 +256,9 @@ using namespace facebook::react;
     _portalMountingObserver = BottomSheetPortalObserverForView(self);
   }
   [_portalMountingObserver didMount:transaction owner:self];
+  // Every content frame now reflects the committed region. Resolve held content
+  // detents before reconciling ownership and closing the hierarchy batch.
+  [_sheetView contentRegionLayoutDidApply];
   [self reconcilePresentationOwnership];
   if (!_presentationMountTransactionOpen) {
     return;
@@ -334,7 +346,8 @@ using namespace facebook::react;
 /// sheet's frame size (consumed by the component descriptor only in overlay
 /// mode, where the sheet is hoisted out of its in-tree slot) and the content
 /// region's inset (applied as Yoga bottom padding in every mode, so in-flow
-/// content resolves exactly to the detent cap). Yoga then lays the sheet
+/// content resolves exactly to the tallest height the sheet can reach — the
+/// tallest detent, clamped to the detent cap). Yoga then lays the sheet
 /// subtree out against measured window geometry instead of JS-provided
 /// dimensions. Driven by the hosting view's didLayout delegate.
 - (void)pushNativeGeometry

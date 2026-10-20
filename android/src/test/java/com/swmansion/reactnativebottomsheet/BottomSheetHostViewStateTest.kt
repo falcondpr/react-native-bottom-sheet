@@ -83,7 +83,7 @@ class BottomSheetHostViewStateTest {
       shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(5))
       assertTrue(latest.updates.isNotEmpty())
       assertTrue(
-        latest.updates.last().getValue("contentOffsetY") < resized.getValue("contentOffsetY")
+        latest.updates.last().getValue("contentOffsetY") < resized.getValue("contentOffsetY"),
       )
       latest.updates.forEach {
         assertEquals(resized["frameWidth"], it["frameWidth"])
@@ -165,7 +165,7 @@ private class RecordingStateWrapper : StateWrapper {
     updates.add(
       listOf("contentOffsetY", "frameWidth", "frameHeight", "contentRegionInset").associateWith {
         map.getDouble(it)
-      }
+      },
     )
   }
 

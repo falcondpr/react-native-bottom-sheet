@@ -11,6 +11,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
+import com.swmansion.reactnativebottomsheet.TestViewUtilShadow
 import com.swmansion.reactnativebottomsheet.presentation.PortalPresentationController
 import com.swmansion.reactnativebottomsheet.presentation.TestReactRoot
 import org.junit.Assert.assertEquals
@@ -22,7 +23,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [35], shadows = [TestWindowBackDispatcher::class])
+@Config(sdk = [35], shadows = [TestWindowBackDispatcher::class, TestViewUtilShadow::class])
 class PortalLocalInputRoutingTest {
   @Test
   fun `ending an independent global proxy does not suppress the eligible captured local owner`() {
@@ -252,7 +253,7 @@ class PortalLocalInputRoutingTest {
   }
 
   private class Fixture(
-    activityClass: Class<out ComponentActivity> = ComponentActivity::class.java
+    activityClass: Class<out ComponentActivity> = ComponentActivity::class.java,
   ) : AutoCloseable {
     private val activityController =
       Robolectric.buildActivity(activityClass)
@@ -277,14 +278,14 @@ class PortalLocalInputRoutingTest {
           addView(rootA)
           addView(rootB)
           addView(toolbar)
-        }
+        },
       )
       activity.onBackPressedDispatcher.addCallback(
         object : OnBackPressedCallback(true) {
           override fun handleOnBackPressed() {
             hostBackCount++
           }
-        }
+        },
       )
       a = Portal(this, parentA)
       b = Portal(this, rootB)
@@ -297,7 +298,7 @@ class PortalLocalInputRoutingTest {
       root.addView(
         object : View(activity) {
           override fun isAccessibilityFocused() = true
-        }
+        },
       )
     }
 

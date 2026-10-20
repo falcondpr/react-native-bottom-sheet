@@ -1,4 +1,5 @@
 export type CaseKey =
+  | 'scrim-pressables'
   | 'basic-modal'
   | 'lazy-mounted-modal'
   | 'native-overlay-modal'
@@ -11,7 +12,9 @@ export type CaseKey =
   | 'portal-local-contexts'
   | 'portal-composed-contexts'
   | 'modal-scroll-view'
+  | 'draggable-grabber'
   | 'modal-flat-list'
+  | 'fixed-detent-scroll-view'
   | 'keyboard-content-detent'
   | 'keyboard-aware-list'
   | 'scrim-opacity'
@@ -26,6 +29,7 @@ export type CaseKey =
   | 'percentage-detents'
   | 'dynamic-detents'
   | 'dynamic-content-height'
+  | 'z-indexed-content'
   | 'snap-callbacks'
   | 'no-animate-in'
   | 'ui-thread-position'
@@ -48,6 +52,11 @@ export const DEMO_CASES: DemoCase[] = [
     key: 'portal-local-contexts',
     title: 'Local portal contexts',
     href: '/portal-local-contexts',
+  },
+  {
+    key: 'scrim-pressables',
+    title: 'Scrim press isolation',
+    href: '/scrim-pressables',
   },
   {
     key: 'basic-modal',
@@ -100,9 +109,19 @@ export const DEMO_CASES: DemoCase[] = [
     href: '/modal-scroll-view',
   },
   {
+    key: 'draggable-grabber',
+    title: 'Draggable grabber',
+    href: '/draggable-grabber',
+  },
+  {
     key: 'modal-flat-list',
     title: 'Modal with FlatList',
     href: '/modal-flat-list',
+  },
+  {
+    key: 'fixed-detent-scroll-view',
+    title: 'Fixed detent ScrollView',
+    href: '/fixed-detent-scroll-view',
   },
   {
     key: 'keyboard-content-detent',
@@ -174,6 +193,11 @@ export const DEMO_CASES: DemoCase[] = [
     key: 'dynamic-content-height',
     title: 'Dynamic content height',
     href: '/dynamic-content-height',
+  },
+  {
+    key: 'z-indexed-content',
+    title: 'Content with zIndex children',
+    href: '/z-indexed-content',
   },
   {
     key: 'snap-callbacks',

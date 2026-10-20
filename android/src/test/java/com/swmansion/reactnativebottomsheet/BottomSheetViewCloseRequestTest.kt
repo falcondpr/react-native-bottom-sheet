@@ -24,6 +24,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.facebook.react.R
 import com.facebook.react.bridge.BridgeReactContext
 import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsForTests
 import com.facebook.react.uimanager.ThemedReactContext
@@ -104,13 +105,13 @@ class BottomSheetViewCloseRequestTest {
       val downTime = 90L
       assertTrue(
         focusedView.dispatchKeyEvent(
-          KeyEvent(downTime, downTime, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_A, 0)
-        )
+          KeyEvent(downTime, downTime, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_A, 0),
+        ),
       )
       assertTrue(
         focusedView.dispatchKeyEvent(
-          KeyEvent(downTime, downTime + 1, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_A, 0)
-        )
+          KeyEvent(downTime, downTime + 1, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_A, 0),
+        ),
       )
       assertEquals(2, focusedView.ordinaryEventCount)
       assertEquals(0, listener.closeRequestCount)
@@ -184,7 +185,7 @@ class BottomSheetViewCloseRequestTest {
       layoutPortal(sheet)
       // A view-tree tag does not connect a custom host dispatcher to the native window by itself.
       owner.onBackPressedDispatcher.setOnBackInvokedDispatcher(
-        requireNotNull(activity.window.decorView.findOnBackInvokedDispatcher())
+        requireNotNull(activity.window.decorView.findOnBackInvokedDispatcher()),
       )
       activity.systemBack { owner.onBackPressedDispatcher.onBackPressed() }
       assertEscape(activity::dispatchKeyEvent, expectedHandled = true)
@@ -239,7 +240,7 @@ class BottomSheetViewCloseRequestTest {
         listOf(
           mapOf("value" to 0.0, "kind" to "points", "programmatic" to true),
           mapOf("value" to 300.0, "kind" to "points", "programmatic" to false),
-        )
+        ),
       )
       lowerSheet.elevation = 10f
       root.addView(lowerSheet)
@@ -252,7 +253,7 @@ class BottomSheetViewCloseRequestTest {
       assertEquals(2, lowerListener.closeRequestCount)
       assertEquals(0, upperListener.closeRequestCount)
       lowerSheet.setDetents(
-        listOf(mapOf("value" to 300.0, "kind" to "points", "programmatic" to false))
+        listOf(mapOf("value" to 300.0, "kind" to "points", "programmatic" to false)),
       )
       activity.systemBack()
       assertEscape(activity::dispatchKeyEvent, expectedHandled = true)
@@ -282,7 +283,7 @@ class BottomSheetViewCloseRequestTest {
               mapOf("value" to 0.0, "kind" to "points", "programmatic" to false),
               mapOf("value" to 0.0, "kind" to "points", "programmatic" to false),
               mapOf("value" to 300.0, "kind" to "points", "programmatic" to false),
-            )
+            ),
           )
           setIndex(2)
         }
@@ -554,7 +555,7 @@ class BottomSheetViewCloseRequestTest {
         listOf(
           mapOf("value" to 0.0, "kind" to "points", "programmatic" to false),
           mapOf("value" to 300.0, "kind" to "points", "programmatic" to false),
-        )
+        ),
       )
       setIndex(1)
     }
@@ -730,7 +731,10 @@ private class CountingBottomSheetListener : BottomSheetViewListener {
 }
 
 private class MutableContentHeightView(context: Context) : ViewGroup(context) {
-  private val marker = View(context)
+  private val marker =
+    View(context).apply {
+      setTag(R.id.view_tag_native_id, BottomSheetHostView.CONTENT_HEIGHT_MARKER_NATIVE_ID)
+    }
   var contentHeight = 0
     set(value) {
       field = value

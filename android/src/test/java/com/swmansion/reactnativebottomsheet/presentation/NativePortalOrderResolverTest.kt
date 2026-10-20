@@ -119,6 +119,10 @@ class NativePortalOrderResolverTest {
       root.addView(parent)
       activity.get().setContentView(root)
       assertEquals(NativePortalOrder.ABOVE, compare(second, first))
+      parent.bringChildToFront(first)
+      assertEquals(NativePortalOrder.BELOW, compare(second, first))
+      second.translationZ = 10f
+      assertEquals(NativePortalOrder.ABOVE, compare(second, first))
     } finally {
       activity.close()
     }

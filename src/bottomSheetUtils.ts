@@ -6,8 +6,7 @@ export type DetentValue = number | `${number}%` | 'content';
 
 /** A draggable detent or an object form that can mark a detent as programmatic-only. */
 export type Detent =
-  | DetentValue
-  | { value: DetentValue; programmatic?: boolean };
+  DetentValue | { value: DetentValue; programmatic?: boolean };
 
 /** Marks a detent as reachable only via controlled `index` updates, not dragging. */
 export const programmatic = (value: DetentValue): Detent => ({

@@ -1,6 +1,6 @@
 {
   "name": "@swmansion/react-native-bottom-sheet-example",
-  "version": "0.17.0-next.2",
+  "version": "0.17.0",
   "main": "index.js",
   "scripts": {
     "start": "expo start",
@@ -8,28 +8,29 @@
     "ios": "expo run:ios"
   },
   "dependencies": {
-    "@expo/metro-runtime": "~56.0.13",
-    "@expo/vector-icons": "^15.0.2",
-    "expo": "56.0.8",
-    "expo-constants": "~56.0.16",
-    "expo-linking": "~56.0.13",
-    "expo-router": "~56.2.8",
-    "expo-status-bar": "~56.0.4",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "react-native": "0.85.3",
-    "react-native-gesture-handler": "~2.31.1",
-    "react-native-keyboard-controller": "1.21.6",
-    "react-native-reanimated": "~4.3.1",
-    "react-native-safe-area-context": "~5.7.0",
-    "react-native-screens": "~4.25.2",
-    "react-native-web": "~0.21.0",
-    "react-native-worklets": "0.8.3"
+    "@expo/metro-runtime": "~58.0.14",
+    "@expo/vector-icons": "^15.1.1",
+    "expo": "58.0.13",
+    "expo-constants": "~58.0.12",
+    "expo-linking": "~58.0.13",
+    "expo-router": "~58.0.21",
+    "expo-splash-screen": "~58.0.10",
+    "expo-status-bar": "~58.0.3",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-native": "0.88.0",
+    "react-native-gesture-handler": "~3.3.0",
+    "react-native-keyboard-controller": "1.22.7",
+    "react-native-reanimated": "~4.7.1",
+    "react-native-safe-area-context": "~5.10.1",
+    "react-native-screens": "~4.30.0",
+    "react-native-web": "~0.21.4",
+    "react-native-worklets": "0.13.0"
   },
   "private": true,
   "devDependencies": {
-    "@babel/core": "^7.29.0",
-    "@types/babel__core": "^7",
-    "react-native-builder-bob": "0.41.0"
+    "@babel/core": "^7.29.7",
+    "@types/babel__core": "^7.20.5",
+    "react-native-builder-bob": "0.43.2"
   }
 }

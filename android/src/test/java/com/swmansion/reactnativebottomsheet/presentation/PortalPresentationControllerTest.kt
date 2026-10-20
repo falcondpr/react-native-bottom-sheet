@@ -6,6 +6,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.swmansion.reactnativebottomsheet.TestViewUtilShadow
 import com.swmansion.reactnativebottomsheet.accessibility.PortalAccessibilityIsolationCoordinator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -17,7 +18,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [35])
+@Config(sdk = [35], shadows = [TestViewUtilShadow::class])
 class PortalPresentationControllerTest {
   @Test
   fun `clear restores isolation cancels pending sync and dispose makes later updates inert`() {

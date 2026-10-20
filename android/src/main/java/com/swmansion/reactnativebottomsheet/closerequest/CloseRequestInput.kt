@@ -45,7 +45,7 @@ internal data class CloseRequestInputState(
 }
 
 internal fun resolveCloseRequestInputAction(
-  state: CloseRequestInputState
+  state: CloseRequestInputState,
 ): CloseRequestInputAction {
   if (
     !state.isAttached ||

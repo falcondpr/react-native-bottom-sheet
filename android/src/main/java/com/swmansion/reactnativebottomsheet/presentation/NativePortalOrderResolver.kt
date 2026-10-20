@@ -59,17 +59,10 @@ internal object NativePortalOrderResolver {
     if (!firstZ.isFinite() || !secondZ.isFinite()) return NativePortalOrder.UNKNOWN
     if (firstZ > secondZ) return NativePortalOrder.ABOVE
     if (firstZ < secondZ) return NativePortalOrder.BELOW
-    val order =
-      (0 until parent.childCount).map {
-        // Older RN versions expose Paper zIndex here; Fabric supplies ordered native children.
-        if (parent is ReactViewGroup) parent.getZIndexMappedChildIndex(it) else it
-      }
-    if (order.toSet().size != parent.childCount || order.any { it !in 0 until parent.childCount }) {
-      return NativePortalOrder.UNKNOWN
-    }
+    // Fabric applies zIndex by ordering the native children; no Paper drawing-order map is needed.
     return if (
-      order.indexOf(parent.indexOfChild(first.windowPath[commonLength])) >
-        order.indexOf(parent.indexOfChild(second.windowPath[commonLength]))
+      parent.indexOfChild(first.windowPath[commonLength]) >
+        parent.indexOfChild(second.windowPath[commonLength])
     ) {
       NativePortalOrder.ABOVE
     } else {

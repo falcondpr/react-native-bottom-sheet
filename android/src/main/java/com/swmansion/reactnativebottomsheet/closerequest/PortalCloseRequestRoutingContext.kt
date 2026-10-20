@@ -24,7 +24,7 @@ internal data class PortalCloseRequestRoutingContext(
  * Activity lifecycle.
  */
 internal fun View.resolvePortalCloseRequestRoutingContext(
-  currentActivity: Activity?
+  currentActivity: Activity?,
 ): PortalCloseRequestRoutingContext? {
   if (!isAttachedToWindow) return null
 

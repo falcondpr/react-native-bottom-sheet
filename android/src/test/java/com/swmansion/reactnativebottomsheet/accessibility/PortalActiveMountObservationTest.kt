@@ -38,7 +38,15 @@ import org.robolectric.annotation.Implements
 import org.robolectric.util.ReflectionHelpers
 
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [35], shadows = [ActiveRootsUIManagerHelperShadow::class, TestArgumentsShadow::class])
+@Config(
+  sdk = [35],
+  shadows =
+    [
+      ActiveRootsUIManagerHelperShadow::class,
+      TestArgumentsShadow::class,
+      com.swmansion.reactnativebottomsheet.TestViewUtilShadow::class,
+    ],
+)
 class PortalActiveMountObservationTest {
   @Before fun useLocalFlags() = ReactNativeFeatureFlagsForTests.setUp()
 
@@ -275,7 +283,7 @@ class PortalActiveMountObservationTest {
       listOf(
         mapOf("value" to 0.0, "kind" to "points", "programmatic" to false),
         mapOf("value" to 300.0, "kind" to "points", "programmatic" to false),
-      )
+      ),
     )
     sheet.measure(
       View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),
@@ -370,7 +378,7 @@ class PortalActiveMountObservationTest {
         (if (index == 0) manager else secondManager)
           .registry
           .putAll(
-            listOf(surface.root, surface.area, surface.host, surface.sheet).associateBy { it.id }
+            listOf(surface.root, surface.area, surface.host, surface.sheet).associateBy { it.id },
           )
       }
       activity.get().setContentView(window)

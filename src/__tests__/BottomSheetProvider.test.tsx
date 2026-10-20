@@ -1,3 +1,5 @@
+/// <reference types="bun" />
+
 import { Children, isValidElement, type ReactNode } from 'react';
 import { expect, mock, test } from 'bun:test';
 

@@ -5,6 +5,7 @@ import android.content.Context
 import android.view.View
 import android.widget.FrameLayout
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.swmansion.reactnativebottomsheet.TestViewUtilShadow
 import com.swmansion.reactnativebottomsheet.presentation.PortalPresentationCoordinator
 import com.swmansion.reactnativebottomsheet.presentation.TestReactRoot
 import java.lang.ref.WeakReference
@@ -17,7 +18,7 @@ import org.robolectric.Robolectric
 import org.robolectric.annotation.Config
 
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [35])
+@Config(sdk = [35], shadows = [TestViewUtilShadow::class])
 class PortalAccessibilityIsolationCoordinatorTest {
   @Test
   fun `releasing the last lease during a mask write restores the complete window`() {
@@ -281,7 +282,7 @@ class PortalAccessibilityIsolationCoordinatorTest {
   }
 
   private fun registerAndDetachRoot(
-    activity: Activity
+    activity: Activity,
   ): Pair<PortalPresentationCoordinator.Registration, WeakReference<TestReactRoot>> {
     val window = FrameLayout(activity)
     val root = TestReactRoot(activity)

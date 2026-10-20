@@ -36,7 +36,7 @@ class CloseRequestAnimationInstrumentedTest {
             override fun handleOnBackPressed() {
               fallbackCount.incrementAndGet()
             }
-          }
+          },
         )
         sheet =
           BottomSheetView(activity).apply {
@@ -61,7 +61,7 @@ class CloseRequestAnimationInstrumentedTest {
               listOf(
                 mapOf("value" to 0.0, "kind" to "points", "programmatic" to false),
                 mapOf("value" to 300.0, "kind" to "points", "programmatic" to false),
-              )
+              ),
             )
             setIndex(1)
           }

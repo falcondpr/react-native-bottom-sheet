@@ -34,7 +34,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.util.ReflectionHelpers
 
 @RunWith(AndroidJUnit4::class)
-@Config(sdk = [35])
+@Config(sdk = [35], shadows = [TestViewUtilShadow::class])
 class BottomSheetViewPortalAccessibilityTest {
   @Before
   fun useLocalReactNativeFeatureFlags() {
@@ -126,7 +126,7 @@ class BottomSheetViewPortalAccessibilityTest {
           listOf(
             mapOf("value" to 0.0, "kind" to "points", "programmatic" to false),
             mapOf("value" to 300.0, "kind" to "points", "programmatic" to false),
-          )
+          ),
         )
         setIndex(1)
         addSheetChild(sheetContent, 0)
@@ -192,7 +192,7 @@ class BottomSheetViewPortalAccessibilityTest {
           listOf(
             mapOf("value" to 0.0, "kind" to "points", "programmatic" to true),
             mapOf("value" to 300.0, "kind" to "points", "programmatic" to false),
-          )
+          ),
         )
         setIndex(1)
         addSheetChild(sheetContent, 0)
@@ -287,7 +287,7 @@ class BottomSheetViewPortalAccessibilityTest {
       listOf(
         mapOf("value" to 0.0, "kind" to "points", "programmatic" to false),
         mapOf("value" to 300.0, "kind" to "points", "programmatic" to false),
-      )
+      ),
     )
     setIndex(index)
     addSheetChild(content, 0)
