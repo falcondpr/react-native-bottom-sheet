@@ -17,6 +17,30 @@ Tag parentTag(const Mutation& mutation) {
   if constexpr (requires { mutation.parentTag; }) return mutation.parentTag;
   else return mutation.parentShadowView.tag; // RN 0.76 mounting representation.
 }
+
+std::shared_ptr<const ShadowNode> stampPublication(
+    const std::shared_ptr<const ShadowNode>& node, const std::string& id) {
+  using Children = std::vector<std::shared_ptr<const ShadowNode>>;
+  std::shared_ptr<Children> children;
+  for (size_t i = 0; i < node->getChildren().size(); ++i) {
+    const auto& child = node->getChildren()[i];
+    auto stamped = stampPublication(child, id);
+    if (stamped == child) continue;
+    if (!children) children = std::make_shared<Children>(node->getChildren());
+    (*children)[i] = std::move(stamped);
+  }
+  State::Shared state;
+  if (auto sheet = dynamic_cast<const BottomSheetViewShadowNode*>(node.get())) {
+    const auto& previous = static_cast<const ConcreteState<BottomSheetViewState>&>(*sheet->getState());
+    auto data = std::make_shared<BottomSheetViewState>(previous.getData());
+    data->portalPublicationId = id;
+    state = std::make_shared<const BottomSheetViewShadowNode::ConcreteState>(data, previous);
+  }
+  if (!children && !state) return node;
+  // Clone shared ancestors once. RN 0.76 otherwise adopts previously stamped
+  // siblings again and replaces their State with the family's older State.
+  return node->clone({.children = children, .state = state});
+}
 }
 
 PortalPublicationSource::PortalPublicationSource(
@@ -106,18 +130,8 @@ RootShadowNode::Unshared PortalPublicationSource::shadowTreeWillCommit(
     }
     id = prefix_ + std::to_string(++next_);
   }
-  auto result = proposal;
-  for (const auto& [tag, node] : *index) {
-    auto sheet = dynamic_cast<const BottomSheetViewShadowNode*>(node);
-    if (!sheet) continue;
-    const auto& previous = static_cast<const ConcreteState<BottomSheetViewState>&>(*sheet->getState());
-    auto stamped = std::make_shared<BottomSheetViewState>(previous.getData());
-    stamped->portalPublicationId = id;
-    auto state = std::make_shared<const BottomSheetViewShadowNode::ConcreteState>(stamped, previous);
-    result = std::static_pointer_cast<RootShadowNode>(result->cloneTree(
-        sheet->getFamily(), [&](const ShadowNode& current) { return current.clone({.state = state}); }));
-  }
-  return result;
+  return std::static_pointer_cast<RootShadowNode>(
+      std::const_pointer_cast<ShadowNode>(stampPublication(proposal, id)));
 }
 
 RootShadowNode::Shared PortalPublicationSource::rootForState(

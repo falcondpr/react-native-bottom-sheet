@@ -56,7 +56,11 @@ const ShadowNode* containingBlock(
     const auto& node = it->first.get();
     auto layoutable = dynamic_cast<const LayoutableShadowNode*>(&node);
     if (!layoutable) continue;
-    auto props = dynamic_cast<const ViewProps*>(node.getProps().get());
+    // ViewKind guarantees ConcreteViewShadowNode's ViewProps contract without
+    // relying on Props RTTI identity across Android shared libraries.
+    auto props = node.getTraits().check(ShadowNodeTraits::Trait::ViewKind)
+        ? static_cast<const ViewProps*>(node.getProps().get())
+        : nullptr;
     if (!props || props->yogaStyle.display() == yoga::Display::None) {
       return nullptr;
     }
