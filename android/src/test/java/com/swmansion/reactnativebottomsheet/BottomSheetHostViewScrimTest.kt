@@ -176,6 +176,7 @@ class BottomSheetHostViewScrimTest {
   }
 
   @Test
+  @Config(sdk = [24, 35])
   fun `confirm keys on focused Dismiss control each snap closed exactly once`() {
     val confirmKeys =
       listOf(KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_DPAD_CENTER)
@@ -186,14 +187,115 @@ class BottomSheetHostViewScrimTest {
         activity.setContentView(host)
         layout(host)
         val dismiss = dismissAccessibilityView(host)
+        assertTrue(dismiss.isClickable)
         assertTrue(dismiss.requestFocus())
+        assertSame(dismiss, host.findFocus())
+        assertFalse(host.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_A)))
+        assertFalse(host.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_A)))
 
-        assertTrue(host.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode)))
-        assertTrue(host.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode)))
+        host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_DOWN, keyCode, repeatCount = 1))
+        host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_UP, keyCode))
+        assertTrue(listener.indexChanges.isEmpty())
+
+        assertTrue(host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_DOWN, keyCode)))
+        host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_DOWN, keyCode, repeatCount = 1))
+        assertTrue(listener.indexChanges.isEmpty())
+        assertTrue(host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_UP, keyCode)))
+        host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_UP, keyCode))
 
         assertEquals(listOf(0), listener.indexChanges)
         assertEquals(0, listener.closeRequestCount)
+        assertFalse(dismiss.performClick())
+        assertFalse(dismiss.performAccessibilityAction(AccessibilityNodeInfo.ACTION_CLICK, null))
+        assertFalse(dismiss.performAccessibilityAction(AccessibilityNodeInfo.ACTION_DISMISS, null))
+        assertEquals(listOf(0), listener.indexChanges)
       }
+    }
+  }
+
+  @Test
+  @Config(sdk = [24, 35])
+  fun `cancelled Enter leaves Dismiss open and the next press dismisses once`() {
+    withFocusedDismiss { host, dismiss, listener ->
+      assertTrue(host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_DOWN)))
+      host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_UP, flags = KeyEvent.FLAG_CANCELED))
+
+      assertTrue(listener.indexChanges.isEmpty())
+      assertEquals(0, listener.closeRequestCount)
+      assertFalse(dismiss.isPressed)
+      host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_UP))
+      assertTrue(listener.indexChanges.isEmpty())
+
+      assertTrue(host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_DOWN)))
+      assertTrue(host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_UP)))
+      assertEquals(listOf(0), listener.indexChanges)
+      assertEquals(0, listener.closeRequestCount)
+    }
+  }
+
+  @Test
+  @Config(sdk = [24, 35])
+  fun `modified confirm down does not arm Dismiss even when released without modifiers`() {
+    listOf(
+        KeyEvent.KEYCODE_SPACE to KeyEvent.META_CTRL_ON,
+        KeyEvent.KEYCODE_ENTER to KeyEvent.META_SHIFT_ON,
+        KeyEvent.KEYCODE_DPAD_CENTER to KeyEvent.META_ALT_ON,
+      )
+      .forEach { (keyCode, modifiers) ->
+        withFocusedDismiss { host, dismiss, listener ->
+          assertFalse(
+            host.dispatchKeyEvent(
+              confirmKeyEvent(KeyEvent.ACTION_DOWN, keyCode, metaState = modifiers),
+            ),
+          )
+          assertFalse(
+            host.dispatchKeyEvent(
+              confirmKeyEvent(KeyEvent.ACTION_UP, keyCode, metaState = modifiers),
+            ),
+          )
+          assertTrue("Modified key $keyCode must not dismiss", listener.indexChanges.isEmpty())
+          assertFalse(dismiss.isPressed)
+
+          host.dispatchKeyEvent(
+            confirmKeyEvent(KeyEvent.ACTION_DOWN, keyCode, metaState = modifiers),
+          )
+          host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_UP, keyCode))
+          assertTrue(listener.indexChanges.isEmpty())
+          assertFalse(dismiss.isPressed)
+
+          host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_DOWN, keyCode))
+          host.dispatchKeyEvent(
+            confirmKeyEvent(KeyEvent.ACTION_DOWN, keyCode, repeatCount = 1, metaState = modifiers),
+          )
+          host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_UP, keyCode))
+          assertTrue(listener.indexChanges.isEmpty())
+          assertFalse(dismiss.isPressed)
+
+          host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_DOWN, keyCode))
+          host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_UP, keyCode))
+          assertEquals(listOf(0), listener.indexChanges)
+          assertEquals(0, listener.closeRequestCount)
+        }
+      }
+  }
+
+  @Test
+  @Config(sdk = [24, 35])
+  fun `modifier introduced at confirm key up cancels Dismiss and clears the press`() {
+    withFocusedDismiss { host, dismiss, listener ->
+      host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_DOWN))
+      host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_UP, metaState = KeyEvent.META_CTRL_ON))
+
+      assertTrue(listener.indexChanges.isEmpty())
+      assertEquals(0, listener.closeRequestCount)
+      assertFalse(dismiss.isPressed)
+      host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_UP))
+      assertTrue(listener.indexChanges.isEmpty())
+
+      host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_DOWN))
+      host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_UP))
+      assertEquals(listOf(0), listener.indexChanges)
+      assertEquals(0, listener.closeRequestCount)
     }
   }
 
@@ -271,7 +373,7 @@ class BottomSheetHostViewScrimTest {
       assertTrue(listener.indexChanges.isEmpty())
       assertFalse(visualScrim(host).onTouchEvent(motionEvent(MotionEvent.ACTION_DOWN, 100f)))
       assertFalse(
-        dismissAccessibilityView(host).onTouchEvent(motionEvent(MotionEvent.ACTION_DOWN, 100f))
+        dismissAccessibilityView(host).onTouchEvent(motionEvent(MotionEvent.ACTION_DOWN, 100f)),
       )
     }
   }
@@ -388,7 +490,7 @@ class BottomSheetHostViewScrimTest {
           scrollView,
           ViewCompat.SCROLL_AXIS_VERTICAL,
           ViewCompat.TYPE_TOUCH,
-        )
+        ),
       )
       host.onNestedScrollAccepted(
         scrollView,
@@ -491,7 +593,7 @@ class BottomSheetHostViewScrimTest {
         listOf(
           mapOf("value" to 0.0, "kind" to "points", "programmatic" to false),
           mapOf("value" to 200.0, "kind" to "points", "programmatic" to false),
-        )
+        ),
       )
       activeAnimationDriver(host).finish()
 
@@ -568,12 +670,13 @@ class BottomSheetHostViewScrimTest {
   @Test
   fun `disabling Dismiss clears focus and pressed state without removing private children`() {
     withActivity { activity ->
-      val host = configuredHost(activity)
+      val listener = RecordingListener()
+      val host = configuredHost(activity, listener = listener)
       activity.setContentView(host)
       layout(host)
       val dismiss = dismissAccessibilityView(host)
       assertTrue(dismiss.requestFocus())
-      dismiss.isPressed = true
+      assertTrue(host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_DOWN)))
 
       host.modal = false
 
@@ -583,6 +686,9 @@ class BottomSheetHostViewScrimTest {
       assertFalse(dismiss.isClickable)
       assertEquals(View.INVISIBLE, dismiss.visibility)
       assertEquals(3, host.childCount)
+      host.dispatchKeyEvent(confirmKeyEvent(KeyEvent.ACTION_UP))
+      assertTrue(listener.indexChanges.isEmpty())
+      assertEquals(0, listener.closeRequestCount)
     }
   }
 
@@ -611,7 +717,7 @@ class BottomSheetHostViewScrimTest {
               "value" to 0.0,
               "kind" to "points",
               "programmatic" to closedDetentProgrammatic,
-            )
+            ),
           )
         } else {
           emptyList()
@@ -622,7 +728,7 @@ class BottomSheetHostViewScrimTest {
             "value" to openDetent,
             "kind" to openDetentKind,
             "programmatic" to false,
-          )
+          ),
       )
       setIndex(index)
     }
@@ -637,7 +743,7 @@ class BottomSheetHostViewScrimTest {
           mapOf("value" to 0.0, "kind" to "points", "programmatic" to false),
           mapOf("value" to 100.0, "kind" to "points", "programmatic" to false),
           mapOf("value" to 300.0, "kind" to "points", "programmatic" to false),
-        )
+        ),
       )
       setIndex(1)
     }
@@ -656,6 +762,28 @@ class BottomSheetHostViewScrimTest {
 
   private fun sheetTop(host: BottomSheetHostView): Float =
     sheetContainer(host).top + sheetContainer(host).translationY
+
+  private fun withFocusedDismiss(block: (BottomSheetHostView, View, RecordingListener) -> Unit) {
+    withActivity { activity ->
+      val listener = RecordingListener()
+      val host = configuredHost(activity, listener = listener)
+      activity.setContentView(host)
+      layout(host)
+      val dismiss = dismissAccessibilityView(host)
+      assertTrue(dismiss.isClickable)
+      assertTrue(dismiss.requestFocus())
+      assertSame(dismiss, host.findFocus())
+      block(host, dismiss, listener)
+    }
+  }
+
+  private fun confirmKeyEvent(
+    action: Int,
+    keyCode: Int = KeyEvent.KEYCODE_ENTER,
+    repeatCount: Int = 0,
+    metaState: Int = 0,
+    flags: Int = 0,
+  ): KeyEvent = KeyEvent(1L, 2L, action, keyCode, repeatCount, metaState, -1, 0, flags)
 
   private fun activeAnimationDriver(host: BottomSheetHostView) = AnimationDriver(host)
 

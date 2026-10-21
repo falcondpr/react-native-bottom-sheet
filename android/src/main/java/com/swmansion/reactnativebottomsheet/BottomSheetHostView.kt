@@ -158,6 +158,11 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
 
       override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (!isDismissConfirmKey(keyCode)) return super.onKeyDown(keyCode, event)
+        if (!event.hasNoModifiers()) {
+          isPressed = false
+          // Older View implementations can arm modified confirm keys too.
+          return false
+        }
 
         if (event.repeatCount == 0) isPressed = true
         return true
@@ -174,7 +179,8 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
 
         val shouldClick = isPressed
         isPressed = false
-        return shouldClick && performClick()
+        if (!event.hasNoModifiers()) return false
+        return shouldClick && !event.isCanceled && performClick()
       }
     }
   private var activeAnimation: SpringAnimation? = null
