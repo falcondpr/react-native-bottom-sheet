@@ -4,6 +4,7 @@
 #import <math.h>
 
 #import "../../../ios/BottomSheetPresentationOwnership.h"
+#import "Support/BottomSheetAccessibilityObservation.h"
 #import "Support/BottomSheetTestComponentFactory.h"
 
 @interface BottomSheetPresentationOwnershipTests : XCTestCase
@@ -43,6 +44,38 @@ static void BottomSheetLayoutViewTree(UIView *root)
 }
 
 @implementation BottomSheetPresentationOwnershipTests
+
+- (void)testForegroundNativeOverlayRoutesEscapeRegardlessOfActionOrigin
+{
+  UIWindow *window = BottomSheetMakeTestWindow();
+  UIView *outside = [UIView new];
+  UIView *portalAnchor = [UIView new];
+  UIView *overlayAnchor = [UIView new];
+  [window.rootViewController.view addSubview:outside];
+  [window.rootViewController.view addSubview:portalAnchor];
+  [window.rootViewController.view addSubview:overlayAnchor];
+  BottomSheetPresentationController *portal =
+      BottomSheetActivateCandidate(portalAnchor, BottomSheetPresentationModePortal);
+  BottomSheetPresentationController *overlay =
+      BottomSheetActivateCandidate(overlayAnchor, BottomSheetPresentationModeNativeOverlay);
+  [BottomSheetAccessibilityObservation beginAccessibilityObservationForDismiss:outside
+      voiceOverRunning:YES focused:NO];
+  @try {
+    // The window-modal branch precedes local source/origin mapping, including
+    // when the portal's Fabric source is unavailable in this controller test.
+    for (id origin in @[outside, portalAnchor, NSNull.null, [NSObject new]]) {
+      [BottomSheetAccessibilityObservation setVoiceOverFocusedElement:
+          origin == NSNull.null ? nil : origin];
+      XCTAssertEqual([portal routeForVoiceOverEscape], BottomSheetPresentationEscapeRouteConsume);
+      XCTAssertEqual([overlay routeForVoiceOverEscape], BottomSheetPresentationEscapeRouteAttemptLocal);
+    }
+  } @finally {
+    [BottomSheetAccessibilityObservation endAccessibilityObservation];
+    [overlay invalidate];
+    [portal invalidate];
+    BottomSheetTearDownWindow(window);
+  }
+}
 
 - (void)testOneActiveCandidateBecomesTop
 {

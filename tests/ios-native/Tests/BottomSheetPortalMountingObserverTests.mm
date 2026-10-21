@@ -544,6 +544,21 @@ struct RuntimeFixture {
       actionOrigin:fixture.view(2) presentations:presentations orderProvider:globalOrder],
       BottomSheetPresentationEscapeRoutePassThrough);
 
+  // Missing or unsupported UIKit origins cannot select another panel's Top.
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
+      actionOrigin:nil presentations:presentations orderProvider:globalOrder],
+      BottomSheetPresentationEscapeRoutePassThrough);
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
+      actionOrigin:[NSObject new] presentations:presentations orderProvider:globalOrder],
+      BottomSheetPresentationEscapeRoutePassThrough);
+  NSArray *inactivePresentations = @[
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:identityA owner:fixture.view(14)
+        observer:observer active:NO eligible:YES],
+    presentations[1]];
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
+      actionOrigin:fixture.view(14) presentations:inactivePresentations orderProvider:globalOrder],
+      BottomSheetPresentationEscapeRoutePassThrough);
+
   [fixture.view(14) addSubview:nativeChild];
   reads = 0;
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
