@@ -56,6 +56,10 @@ export default function RootLayout() {
               }}
             />
             <Stack.Screen
+              name="native-overlay-modality"
+              options={{ title: 'Native overlay modality', headerShown: false }}
+            />
+            <Stack.Screen
               name="native-overlay-full-height-list"
               options={{
                 title: 'Native overlay full-height list',
