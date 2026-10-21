@@ -6,8 +6,17 @@
 #import <React/RCTMountingTransactionObserving.h>
 #import <ReactCodegen/RCTThirdPartyComponentsProvider.h>
 #import <react/renderer/components/ReactNativeBottomSheetSpec/ShadowNodes.h>
+#import <objc/runtime.h>
 
 using namespace facebook::react;
+
+static id BottomSheetReadPresentationIvar(id object, const char *name)
+{
+  if (object == nil) return nil;
+  Ivar ivar = class_getInstanceVariable(object_getClass(object), name);
+  NSCAssert(ivar != NULL, @"Expected existing presentation ivar %s", name);
+  return object_getIvar(object, ivar);
+}
 
 static std::shared_ptr<BottomSheetViewProps> BottomSheetMakeTestProps(
     BOOL nativeOverlay,
@@ -140,6 +149,27 @@ static std::shared_ptr<BottomSheetViewProps> BottomSheetMakeTestProps(
 + (void)invalidateProductionComponent:(UIView *)component
 {
   [(UIView<RCTComponentViewProtocol> *)component invalidate];
+}
+
++ (BottomSheetPresentationController *)presentationControllerForComponent:(UIView *)component
+{
+  BottomSheetPresentationController *controller =
+      BottomSheetReadPresentationIvar(component, "_presentationController");
+  NSCAssert(controller != nil, @"The production component must have a presentation controller");
+  return controller;
+}
+
++ (nullable UIWindow *)registeredWindowForController:(BottomSheetPresentationController *)controller
+{
+  id coordinator = BottomSheetReadPresentationIvar(controller, "_coordinator");
+  return BottomSheetReadPresentationIvar(coordinator, "_window");
+}
+
++ (nullable BottomSheetPresentationIdentity *)windowEscapeOwnerForController:
+    (BottomSheetPresentationController *)controller
+{
+  id coordinator = BottomSheetReadPresentationIvar(controller, "_coordinator");
+  return BottomSheetReadPresentationIvar(coordinator, "_escapeOwnerIdentity");
 }
 
 @end

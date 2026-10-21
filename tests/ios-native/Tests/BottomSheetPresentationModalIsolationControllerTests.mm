@@ -331,8 +331,6 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   [upperController updateModal:YES active:YES mode:BottomSheetPresentationModeNativeOverlay];
 
   XCTAssertTrue(didRemoveNewTop);
-  XCTAssertTrue(lowerController.isTopPresentation);
-  XCTAssertFalse(upperController.isTopPresentation);
   XCTAssertFalse(lowerBranch.accessibilityElementsHidden);
   XCTAssertTrue(upperBranch.accessibilityElementsHidden);
   XCTAssertTrue(lower.accessibilityViewIsModal);
@@ -582,9 +580,6 @@ static void BottomSheetTearDownModalIsolationTestWindow(UIWindow *window)
   XCTAssertEqualObjects(writeLog, (@[ @"upper:true", @"lower:false" ]));
   XCTAssertFalse(lower.accessibilityViewIsModal);
   XCTAssertTrue(upper.accessibilityViewIsModal);
-  XCTAssertEqualObjects(
-      [BottomSheetPresentationCoordinator topPresentationIdentityInWindow:window],
-      upperController.identity);
 
   lower.afterWrite = nil;
   [upperController invalidate];

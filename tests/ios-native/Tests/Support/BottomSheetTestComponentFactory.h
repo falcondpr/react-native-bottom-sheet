@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import "../../../../ios/BottomSheetPresentationOwnership.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -16,6 +17,13 @@ NS_ASSUME_NONNULL_BEGIN
                                          mutation:(void (^)(void))mutation;
 + (void)prepareForRecycle:(UIView *)component;
 + (void)invalidateProductionComponent:(UIView *)component;
+
+// Passive inspection of existing runtime authority. These reads never register
+// candidates, resolve order, apply masks, or route an accessibility action.
++ (BottomSheetPresentationController *)presentationControllerForComponent:(UIView *)component;
++ (nullable UIWindow *)registeredWindowForController:(BottomSheetPresentationController *)controller;
++ (nullable BottomSheetPresentationIdentity *)windowEscapeOwnerForController:
+    (BottomSheetPresentationController *)controller;
 
 @end
 

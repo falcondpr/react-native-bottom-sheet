@@ -99,7 +99,6 @@ static void BottomSheetAssertMainThread(void)
 
 @interface BottomSheetPresentationController ()
 @property (nonatomic, strong, readwrite) BottomSheetPresentationIdentity *identity;
-@property (nonatomic, readwrite, getter=isTopPresentation) BOOL topPresentation;
 @property (nonatomic, weak) UIView *anchor;
 @property (nonatomic, weak) BottomSheetPresentationCoordinator *coordinator;
 @property (nonatomic) BottomSheetPresentationMode mode;
@@ -235,7 +234,6 @@ static void BottomSheetAssertMainThread(void)
 @interface BottomSheetPresentationCoordinator ()
 @property (nonatomic, weak) UIWindow *window;
 @property (nonatomic, strong) NSMutableDictionary<BottomSheetPresentationIdentity *, BottomSheetPresentationCandidateRecord *> *records;
-@property (nonatomic, strong, nullable) BottomSheetPresentationIdentity *topPresentationIdentity;
 @property (nonatomic, strong, nullable) BottomSheetPresentationIdentity *escapeOwnerIdentity;
 @property (nonatomic, strong) BottomSheetPresentationModalIsolationAdapter *modalIsolationAdapter;
 @property (nonatomic) NSInteger hierarchyMutationDepth;
@@ -294,15 +292,6 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
   return coordinator;
 }
 
-+ (nullable BottomSheetPresentationIdentity *)topPresentationIdentityInWindow:(UIWindow *)window
-{
-  BottomSheetAssertMainThread();
-  BottomSheetPresentationCoordinator *coordinator =
-      [self coordinatorForWindow:window createIfNeeded:NO];
-  [coordinator recomputeTopPresentation];
-  return coordinator.topPresentationIdentity;
-}
-
 + (void)retireNativeViewDeletion:(BottomSheetNativeViewDeletion *)deletion
 {
   BottomSheetAssertMainThread();
@@ -346,7 +335,6 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
   if (anchor != nil) {
     [self.modalIsolationAdapter unregisterBoundary:anchor];
   }
-  record.controller.topPresentation = NO;
   [self.records removeObjectForKey:controller.identity];
 
   [self recomputeTopPresentation];
@@ -418,7 +406,6 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
   if (window == nil) {
     self.escapeOwnerIdentity = nil;
     [self.modalIsolationAdapter reconcileTopBoundary:nil];
-    self.topPresentationIdentity = nil;
     self.accessiblePresentations = @{};
     return;
   }
@@ -430,7 +417,6 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
       if (anchor != nil) {
         [self.modalIsolationAdapter unregisterBoundary:anchor];
       }
-      record.controller.topPresentation = NO;
       [self.records removeObjectForKey:identity];
     }
   }
@@ -438,7 +424,6 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
   if (self.records.count == 0) {
     self.escapeOwnerIdentity = nil;
     [self.modalIsolationAdapter reconcileTopBoundary:nil];
-    self.topPresentationIdentity = nil;
     self.accessiblePresentations = @{};
     if (objc_getAssociatedObject(window, BottomSheetPresentationCoordinatorAssociationKey) == self) {
       objc_setAssociatedObject(
@@ -543,16 +528,6 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
     }
   }
 
-  NSArray<BottomSheetPresentationCandidateRecord *> *records = self.records.allValues;
-  for (BottomSheetPresentationCandidateRecord *record in records) {
-    if (record.identity != nextTopIdentity) {
-      record.controller.topPresentation = NO;
-    }
-  }
-  self.topPresentationIdentity = nextTopIdentity;
-  if (nextTopIdentity != nil) {
-    self.records[nextTopIdentity].controller.topPresentation = YES;
-  }
   self.escapeOwnerIdentity = nextTopIdentity;
 }
 
@@ -560,9 +535,6 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
 {
   self.escapeOwnerIdentity = nil;
   [self.modalIsolationAdapter invalidate];
-  for (BottomSheetPresentationCandidateRecord *record in self.records.objectEnumerator) {
-    record.controller.topPresentation = NO;
-  }
 }
 
 - (BottomSheetPresentationEscapeRoute)escapeRouteForController:
@@ -667,8 +639,6 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
 
   if (nextCoordinator != nil && anchor != nil) {
     [nextCoordinator updateController:self anchor:anchor active:self.isActive];
-  } else {
-    self.topPresentation = NO;
   }
 }
 
@@ -764,7 +734,6 @@ static NSHashTable<BottomSheetPresentationCoordinator *> *BottomSheetLivePresent
   if (mutationCoordinator != nil) {
     [mutationCoordinator endHierarchyMutation];
   }
-  self.topPresentation = NO;
   self.anchor = nil;
 }
 

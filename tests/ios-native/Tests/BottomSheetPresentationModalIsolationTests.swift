@@ -103,9 +103,6 @@ final class BottomSheetPresentationModalIsolationTests: XCTestCase {
     XCTAssertFalse(secondBoundary.accessibilityViewIsModal)
     XCTAssertFalse(firstBranch.accessibilityElementsHidden)
     XCTAssertFalse(secondBranch.accessibilityElementsHidden)
-    XCTAssertNotNil(
-      BottomSheetPresentationCoordinator.topPresentationIdentity(in: fixture.window)
-    )
   }
 
   func testRemovingUnmappedLowerPortalDoesNotCreateWindowBoundary() throws {
@@ -153,9 +150,6 @@ final class BottomSheetPresentationModalIsolationTests: XCTestCase {
     XCTAssertTrue(dynamicTopContent.isDescendant(of: topBoundary))
     XCTAssertFalse(lowerBoundary.accessibilityViewIsModal)
     XCTAssertFalse(topBoundary.accessibilityViewIsModal)
-    XCTAssertNotNil(
-      BottomSheetPresentationCoordinator.topPresentationIdentity(in: fixture.window)
-    )
 
     dynamicTopContent.removeFromSuperview()
     XCTAssertFalse(topBoundary.accessibilityViewIsModal)

@@ -29,7 +29,6 @@ typedef NS_ENUM(NSInteger, BottomSheetPresentationMode) {
 - (instancetype)init NS_UNAVAILABLE;
 
 @property (nonatomic, strong, readonly) BottomSheetPresentationIdentity *identity;
-@property (nonatomic, readonly, getter=isTopPresentation) BOOL topPresentation;
 
 - (void)updateModal:(BOOL)modal
              active:(BOOL)active
@@ -43,8 +42,6 @@ typedef NS_ENUM(NSInteger, BottomSheetPresentationMode) {
 @end
 
 @interface BottomSheetPresentationCoordinator : NSObject
-
-+ (nullable BottomSheetPresentationIdentity *)topPresentationIdentityInWindow:(UIWindow *)window;
 
 // Retire exact verified instances from existing ledgers before native Delete.
 // This does not select ownership or establish a new presentation boundary.

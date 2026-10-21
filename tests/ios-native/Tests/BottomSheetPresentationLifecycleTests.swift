@@ -153,19 +153,21 @@ final class BottomSheetPresentationLifecycleTests: XCTestCase {
     XCTAssertEqual(fixture.eventRecorders[1].settledIndices, [])
   }
 
-  func testRecyclingCurrentTopDestroysItsIdentityAndPromotesLower() throws {
+  func testRecyclingCurrentTopRejectsItsDismissalAndPromotesLower() throws {
     let fixture = BottomSheetHostFixture(presentations: [.nativeOverlay, .nativeOverlay])
     defer { fixture.tearDown() }
     let lowerBoundary = try XCTUnwrap(fixture.hosts[0].superview)
     let upperBoundary = try XCTUnwrap(fixture.hosts[1].superview)
+    let upperDismiss = try XCTUnwrap(findDismiss(in: fixture.hosts[1]))
 
     fixture.recycleComponent(at: 1)
 
     XCTAssertTrue(lowerBoundary.accessibilityViewIsModal)
     XCTAssertFalse(upperBoundary.accessibilityViewIsModal)
-    XCTAssertNotNil(
-      BottomSheetPresentationCoordinator.topPresentationIdentity(in: fixture.window)
-    )
+    XCTAssertFalse(upperDismiss.accessibilityActivate())
+    XCTAssertTrue(fixture.hosts[0].accessibilityPerformEscape())
+    XCTAssertEqual(fixture.eventRecorders[0].changedIndices, [0])
+    XCTAssertEqual(fixture.eventRecorders[1].changedIndices, [])
   }
 
   private func findDismiss(in view: UIView) -> UIView? {

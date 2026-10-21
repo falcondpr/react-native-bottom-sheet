@@ -126,9 +126,6 @@ final class BottomSheetAccessibleDismissalTests: XCTestCase {
     let events = fixture.events
     let boundary = try XCTUnwrap(host.superview)
     let dismiss = try XCTUnwrap(findDismiss(in: host))
-    let topIdentity = try XCTUnwrap(
-      BottomSheetPresentationCoordinator.topPresentationIdentity(in: fixture.window)
-    )
     let settle = expectation(description: "second zero detent settles through the real spring")
     settle.assertForOverFulfill = true
     events.didSettleExpectation = settle
@@ -152,9 +149,6 @@ final class BottomSheetAccessibleDismissalTests: XCTestCase {
     XCTAssertEqual(events.changedIndices, [], "Escape must not emit an additional index event")
     XCTAssertTrue(host.sheetContainer.layer.animation(forKey: "bottomSheetSettle") === closingAnimation)
     XCTAssertEqual(events.settledIndices, [])
-    XCTAssertTrue(
-      BottomSheetPresentationCoordinator.topPresentationIdentity(in: fixture.window) === topIdentity
-    )
 
     await fulfillment(of: [settle], timeout: 2.0)
 
@@ -165,7 +159,6 @@ final class BottomSheetAccessibleDismissalTests: XCTestCase {
     XCTAssertFalse(boundary.accessibilityViewIsModal)
     XCTAssertFalse(dismiss.accessibilityActivate())
     XCTAssertFalse(host.accessibilityPerformEscape())
-    XCTAssertNil(BottomSheetPresentationCoordinator.topPresentationIdentity(in: fixture.window))
     XCTAssertGreaterThan(events.positionSamples.count, 1)
     XCTAssertTrue(events.positionSamples.dropLast().allSatisfy(\.isModalScrimVisible))
     XCTAssertTrue(events.positionSamples.allSatisfy { $0.isPresentationBoundaryModal == true })
