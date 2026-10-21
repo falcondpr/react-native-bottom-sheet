@@ -1,5 +1,12 @@
 import { type ReactNode, useState } from 'react';
-import { Button, Platform, StyleSheet, Text, View } from 'react-native';
+import {
+  Button,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import {
   BottomSheetProvider,
   ModalBottomSheet,
@@ -70,7 +77,11 @@ export const LocalPortalContextsScreen = () => {
   const [outsideCount, setOutsideCount] = useState(0);
 
   return (
-    <View style={styles.screen}>
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={styles.content}
+      contentInsetAdjustmentBehavior="automatic"
+    >
       <Text>
         {Platform.OS === 'ios'
           ? 'With VoiceOver, Escape in A closes A while B stays open. Each open panel hides its own background.'
@@ -105,12 +116,13 @@ export const LocalPortalContextsScreen = () => {
           extraBackground={extraBackground}
         />
       </View>
-    </View>
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, padding: 12, gap: 8, backgroundColor: 'white' },
+  screen: { flex: 1, backgroundColor: 'white' },
+  content: { padding: 12, gap: 8 },
   openButtons: { flexDirection: 'row', justifyContent: 'space-around' },
   panels: { flexDirection: 'row', gap: 8 },
   panel: { flex: 1, height: 300, borderWidth: 1, borderColor: '#999' },
