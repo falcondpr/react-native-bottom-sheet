@@ -95,7 +95,7 @@ class FabricPortalRegistryTest {
   @Test
   fun `missing logical context rejects the complete group without substituting a native root`() {
     Fixture().use { f ->
-      val receipt = requireNotNull(f.read(f.a.rootView)).getValue(f.a)
+      val receipt = f.receipt(f.a)
       f.receiptOverrides[14] =
         FabricPortalReceipt(
           receipt.publicationId,
@@ -112,15 +112,14 @@ class FabricPortalRegistryTest {
   }
 
   @Test
-  fun `every supplied owner must be attached before any window receipt is accepted`() {
+  fun `every supplied owner must be attached before any window cut is accepted`() {
     Fixture().use { f ->
       val window = f.a.rootView
-      assertEquals(setOf(f.a, f.b), f.read(window)?.keys)
+      assertEquals(listOf(f.a, f.b), f.read(window)?.get(2)?.retainedOwners)
       f.root.removeView(f.modalContent)
-      assertNotNull(f.source.receiptFromRegistry(f.manager, 2, f.a))
       assertNull(f.read(window))
       f.root.addView(f.modalContent)
-      assertEquals(setOf(f.a, f.b), f.read(window)?.keys)
+      assertEquals(listOf(f.a, f.b), f.read(window)?.get(2)?.retainedOwners)
     }
   }
 
@@ -130,7 +129,7 @@ class FabricPortalRegistryTest {
       val next = f.newState()
       f.a.stateWrapper = next
       f.b.stateWrapper = next
-      assertEquals(setOf(f.a, f.b), f.read(f.a.rootView)?.keys)
+      assertEquals(listOf(f.a, f.b), f.read(f.a.rootView)?.get(2)?.retainedOwners)
     }
   }
 
@@ -138,7 +137,7 @@ class FabricPortalRegistryTest {
   fun `coalesced reconciliation reads the states delivered when queued work executes`() {
     Fixture().use { f ->
       val window = f.a.rootView
-      var result: Map<BottomSheetView, FabricPortalReceipt>? = null
+      var result: Map<Int, PortalAccessibilityCut>? = null
       val observation = f.adapter.observe(f.boundary) { result = f.read(window) }
       try {
         val earlier = f.newState()
@@ -155,12 +154,14 @@ class FabricPortalRegistryTest {
         assertEquals(1, f.posted.size)
         f.posted.removeAt(0).run()
 
-        assertEquals(setOf(f.a, f.b), result?.keys)
+        assertEquals(listOf(f.a, f.b), result?.get(2)?.retainedOwners)
         assertEquals(2, f.readStates.size)
         f.readStates.forEach { states ->
           assertSame(current, states[14])
           assertSame(current, states[24])
         }
+        assertSame(current, f.projectionStates?.get(14))
+        assertSame(current, f.projectionStates?.get(24))
         assertEquals(0, f.posted.size)
       } finally {
         observation.remove()
@@ -169,22 +170,21 @@ class FabricPortalRegistryTest {
   }
 
   @Test
-  fun `queued observation reads all supplied owners from its own current source`() {
+  fun `queued input reads all supplied owners from its observed managers current source`() {
     Fixture().use { f ->
       val window = f.a.rootView
-      var result: Map<BottomSheetView, FabricPortalReceipt>? = null
-      lateinit var observation: ReactNativeMountReconciliationAdapter.Observation
-      observation =
+      var result: FabricPortalInputContexts? = null
+      val observation =
         f.adapter.observe(f.boundary) {
-          result = observation.readPortalReceipts(window, listOf(f.a, f.b))
+          result =
+            f.adapter.readPortalInputContexts(f.boundary, 2, listOf(f.a, f.b), window, f.areaA)
         }
       try {
         f.mountListener?.didMountItems(f.manager)
         assertNull(result)
         f.posted.removeAt(0).run()
-        assertEquals(setOf(f.a, f.b), result?.keys)
-        assertEquals(listOf(11), result?.get(f.a)?.contexts)
-        assertEquals(listOf(21), result?.get(f.b)?.contexts)
+        assertEquals(mapOf(11 to listOf(f.a), 21 to listOf(f.b)), result?.contextOwners)
+        assertEquals(listOf(11), result?.focusContexts)
       } finally {
         observation.remove()
       }
@@ -196,25 +196,25 @@ class FabricPortalRegistryTest {
     Fixture().use { f ->
       val window = f.a.rootView
       var owners = listOf(f.a)
-      var result: Map<BottomSheetView, FabricPortalReceipt>? = null
+      var result: Map<Int, PortalAccessibilityCut>? = null
       lateinit var observation: ReactNativeMountReconciliationAdapter.Observation
       observation =
         f.adapter.observe(f.boundary) {
-          result = observation.readPortalReceipts(window, owners)
+          result = observation.readPortalIsolationCuts(window, owners)
         }
       observation.requestReconciliation()
       owners = listOf(f.a, f.b)
       observation.requestReconciliation()
       assertNull(result)
       while (f.posted.isNotEmpty()) f.posted.removeAt(0).run()
-      assertEquals(setOf(f.a, f.b), result?.keys)
+      assertEquals(listOf(f.a, f.b), result?.get(2)?.retainedOwners)
 
       result = null
       observation.requestReconciliation()
       observation.remove()
       while (f.posted.isNotEmpty()) f.posted.removeAt(0).run()
       assertNull(result)
-      assertNull(observation.readPortalReceipts(window, emptyList()))
+      assertNull(observation.readPortalIsolationCuts(window, emptyList()))
       observation.requestReconciliation()
       assertEquals(0, f.posted.size)
     }
@@ -267,7 +267,7 @@ class FabricPortalRegistryTest {
   fun `local cuts keep complete source state checks without requiring unrelated branches to be attached`() {
     Fixture().use { f ->
       val window = f.a.rootView
-      val receipts = requireNotNull(f.read(window))
+      val receipts = listOf(f.a, f.b).associateWith(f::receipt)
       val outside = View(f.activity.get()).apply { id = 40 }
       FrameLayout(f.activity.get()).addView(outside)
       f.registry[40] = outside
@@ -340,31 +340,27 @@ class FabricPortalRegistryTest {
       f.observation.remove()
       val replacement = f.adapter.observe(f.boundary) {}
       try {
-        assertNull(replacement.readPortalReceipts(window, listOf(f.a, f.b)))
         assertNull(replacement.readPortalIsolationCuts(window, listOf(f.a)))
+        assertNull(f.adapter.readPortalInputContexts(f.boundary, 2, listOf(f.a), window, null))
         while (f.posted.isNotEmpty()) f.posted.removeAt(0).run()
         assertEquals(
-          setOf(f.a, f.b),
-          replacement.readPortalReceipts(window, listOf(f.a, f.b))?.keys,
-        )
-        assertEquals(
-          emptyMap<BottomSheetView, FabricPortalReceipt>(),
-          replacement.readPortalReceipts(window, emptyList()),
+          listOf(f.a, f.b),
+          replacement.readPortalIsolationCuts(window, listOf(f.a, f.b))?.get(2)?.retainedOwners,
         )
         assertEquals(
           emptyMap<Int, PortalAccessibilityCut>(),
           replacement.readPortalIsolationCuts(window, emptyList()),
         )
         assertNotNull(replacement.readPortalIsolationCuts(window, listOf(f.a)))
-        assertNull(f.observation.readPortalReceipts(window, listOf(f.a)))
+        assertNotNull(f.adapter.readPortalInputContexts(f.boundary, 2, listOf(f.a), window, null))
+        assertNull(f.observation.readPortalIsolationCuts(window, listOf(f.a)))
         assertNull(f.observation.readPortalIsolationCuts(window, emptyList()))
       } finally {
         replacement.remove()
       }
-      assertNull(replacement.readPortalReceipts(window, listOf(f.a, f.b)))
-      assertNull(replacement.readPortalReceipts(window, emptyList()))
       assertNull(replacement.readPortalIsolationCuts(window, listOf(f.a)))
       assertNull(replacement.readPortalIsolationCuts(window, emptyList()))
+      assertNull(f.adapter.readPortalInputContexts(f.boundary, 2, listOf(f.a), window, null))
     }
   }
 
@@ -436,25 +432,16 @@ class FabricPortalRegistryTest {
           }
         }
       val owners = surfaces.map { it.sheet }
-      assertEquals(
-        setOf(owners[0], owners[1]),
-        source.attachedReceiptsFromRegistry(manager, owners, window.rootView)?.keys,
-      )
-      assertEquals(setOf(2, 4), requestedSurfaces)
       val projections = source.attachedIsolationCutsFromRegistry(manager, owners, window.rootView)
       assertEquals(setOf(2, 4), projections?.keys)
+      assertEquals(setOf(2, 4), requestedSurfaces)
       assertEquals(setOf(chrome[0]), projections?.get(2)?.branches)
       assertEquals(setOf(chrome[1]), projections?.get(4)?.branches)
       assertEquals(listOf(owners[0]), projections?.get(2)?.retainedOwners)
       assertEquals(listOf(owners[1]), projections?.get(4)?.retainedOwners)
       window.removeView(surfaces[1].root)
-      assertNull(source.attachedReceiptsFromRegistry(manager, owners, window.rootView))
       assertNull(source.attachedIsolationCutsFromRegistry(manager, owners, window.rootView))
       window.addView(surfaces[1].root)
-      assertEquals(
-        setOf(owners[0], owners[1]),
-        source.attachedReceiptsFromRegistry(manager, owners, window.rootView)?.keys,
-      )
       assertEquals(
         setOf(2, 4),
         source.attachedIsolationCutsFromRegistry(manager, owners, window.rootView)?.keys,
@@ -469,7 +456,7 @@ class FabricPortalRegistryTest {
   fun `queued reconciliation rejects the hierarchy as it exists when work executes`() {
     Fixture().use { f ->
       val window = f.a.rootView
-      var result: Map<BottomSheetView, FabricPortalReceipt>? = emptyMap()
+      var result: Map<Int, PortalAccessibilityCut>? = emptyMap()
       val observation = f.adapter.observe(f.boundary) { result = f.read(window) }
       try {
         f.mountListener?.didMountItems(f.manager)
@@ -481,7 +468,7 @@ class FabricPortalRegistryTest {
         f.root.addView(f.modalContent)
         f.mountListener?.didMountItems(f.manager)
         f.posted.removeAt(0).run()
-        assertEquals(setOf(f.a, f.b), result?.keys)
+        assertEquals(listOf(f.a, f.b), result?.get(2)?.retainedOwners)
       } finally {
         observation.remove()
       }
@@ -680,7 +667,12 @@ class FabricPortalRegistryTest {
     }
 
     fun read(window: View, owners: Collection<BottomSheetView> = listOf(a, b)) =
-      source.attachedReceiptsFromRegistry(manager, 2, owners, window)
+      observation.readPortalIsolationCuts(window, owners)
+
+    fun receipt(owner: BottomSheetView) =
+      requireNotNull(
+        source.receipt(2, owner.id, mapOf(a.id to a.stateWrapper, b.id to b.stateWrapper)),
+      )
 
     fun newState() =
       Proxy.newProxyInstance(

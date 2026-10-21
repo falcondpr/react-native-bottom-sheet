@@ -46,12 +46,6 @@ internal class ReactNativeMountReconciliationAdapter(
     /** Presentation lifecycle changes use the same coalesced queue as mount events. */
     fun requestReconciliation()
 
-    /** Read current supplied owners from queued reconciliation, using this manager's source. */
-    fun readPortalReceipts(
-      windowRoot: View,
-      presentations: Collection<BottomSheetView>,
-    ): Map<BottomSheetView, FabricPortalReceipt>?
-
     /**
      * Source cuts for all supplied Active owners, retaining Top or all Active per local context.
      * Compose and consume in the same UI work; this does not discover Active membership.
@@ -158,17 +152,6 @@ internal class ReactNativeMountReconciliationAdapter(
 
       override fun requestReconciliation() {
         if (active) state.scheduleReconciliation()
-      }
-
-      override fun readPortalReceipts(
-        windowRoot: View,
-        presentations: Collection<BottomSheetView>,
-      ): Map<BottomSheetView, FabricPortalReceipt>? {
-        if (!active || !state.active) return null
-        if (presentations.isEmpty()) return emptyMap()
-        val source = state.publicationSource ?: return null
-        val manager = state.boundary.identity as? UIManager ?: return null
-        return source.attachedReceiptsFromRegistry(manager, presentations, windowRoot)
       }
 
       override fun readPortalIsolationCuts(

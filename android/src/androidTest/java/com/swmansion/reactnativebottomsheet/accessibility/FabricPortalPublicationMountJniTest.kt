@@ -78,7 +78,7 @@ class FabricPortalPublicationMountJniTest {
     var lease: FabricPublicationLease? = null
     val adapter =
       ReactNativeMountReconciliationAdapter(
-        acquirePublicationSource = { FabricPortalPublication.acquire(it).also { lease = it } }
+        acquirePublicationSource = { FabricPortalPublication.acquire(it).also { lease = it } },
       )
     var observation: ReactNativeMountReconciliationAdapter.Observation? = null
     var deliveredState: StateWrapper? = null
@@ -152,7 +152,7 @@ class FabricPortalPublicationMountJniTest {
             }
             assertNotNull(
               "Hoisted descendants must follow source mount parents instead of every painted logical ancestor",
-              requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet),
+              receipt.nativePath(manager::resolveView, sheet),
             )
             assertTrue(receipt.publicationId.isNotEmpty())
             assertEquals(portalHost.id, receipt.hostTag)
@@ -173,21 +173,20 @@ class FabricPortalPublicationMountJniTest {
             )
             assertNull(receipt.attachedNativePath(manager::resolveView, sheet, root.rootView))
             assertNull(
-              requireNotNull(lease)
-                .attachedReceiptsFromRegistry(
-                  manager,
-                  surface.surfaceID,
-                  listOf(sheet),
-                  root.rootView,
-                )
+              adapter.readPortalInputContexts(
+                boundary,
+                surface.surfaceID,
+                listOf(sheet),
+                root.rootView,
+                content,
+              ),
             )
-            assertNull(requireNotNull(observation).readPortalReceipts(root.rootView, listOf(sheet)))
             assertNull(
               requireNotNull(observation)
                 .readPortalIsolationCuts(
                   root.rootView,
                   listOf(sheet),
-                )
+                ),
             )
             publicationId = receipt.publicationId
             awaitedPublication.countDown()
@@ -214,7 +213,13 @@ class FabricPortalPublicationMountJniTest {
             as FabricUIManager
         val sheet = requireNotNull(mountedSheet)
         val receipt =
-          requireNotNull(firstSource.receiptFromRegistry(manager, surface.surfaceID, sheet))
+          requireNotNull(
+            firstSource.receipt(
+              surface.surfaceID,
+              sheet.id,
+              deliveredStates(firstSource, manager, surface.surfaceID, sheet),
+            ),
+          )
         val flatTag = receipt.ancestors.first { it !in receipt.nativeParents }
         val beforePreallocation = sheet.stateWrapper
         // Exercise the SDK's real preallocation without mounting the flattened ancestor.
@@ -229,7 +234,7 @@ class FabricPortalPublicationMountJniTest {
           requireNotNull(
             mounting.javaClass
               .getMethod("getSurfaceManager", Int::class.javaPrimitiveType)
-              .invoke(mounting, surface.surfaceID)
+              .invoke(mounting, surface.surfaceID),
           )
         surfaceManager.javaClass
           .getMethod(
@@ -247,7 +252,7 @@ class FabricPortalPublicationMountJniTest {
         assertSame(beforePreallocation, sheet.stateWrapper)
         assertNotNull(
           "Preallocation must not invalidate the mounted source path",
-          firstSource.receiptFromRegistry(manager, surface.surfaceID, sheet),
+          receipt.nativePath(manager::resolveView, sheet),
         )
       }
       onMain {
@@ -277,9 +282,6 @@ class FabricPortalPublicationMountJniTest {
       val beforeQueuedUpdates = requireNotNull(publicationId)
       InstrumentationRegistry.getInstrumentation().waitForIdleSync()
       onMain {
-        val manager =
-          requireNotNull(ReactNativeMountReconciliationAdapter.resolve(root)).identity
-            as FabricUIManager
         val sheet = requireNotNull(mountedSheet)
         val previousState = requireNotNull(sheet.stateWrapper)
         // The fixture reports each generation from its React layout effect, after completeRoot.
@@ -289,7 +291,7 @@ class FabricPortalPublicationMountJniTest {
             Bundle().apply {
               putInt("generation", generation)
               putBoolean("contextInWrapper", generation == 2)
-            }
+            },
           )
           assertTrue(
             "React did not commit queued generation $generation",
@@ -297,8 +299,16 @@ class FabricPortalPublicationMountJniTest {
           )
         }
         assertSame(previousState, sheet.stateWrapper)
+        val source = requireNotNull(lease)
+        val manager =
+          requireNotNull(ReactNativeMountReconciliationAdapter.resolve(root)).identity
+            as FabricUIManager
         val stillMounted =
-          requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet)
+          source.receipt(
+            surface.surfaceID,
+            sheet.id,
+            deliveredStates(source, manager, surface.surfaceID, sheet),
+          )
         assertNotNull(stillMounted)
         assertEquals(beforeQueuedUpdates, stillMounted?.publicationId)
         expectedWrapperContext = true
@@ -312,29 +322,46 @@ class FabricPortalPublicationMountJniTest {
           requireNotNull(ReactNativeMountReconciliationAdapter.resolve(root)).identity
             as FabricUIManager
         val sheet = requireNotNull(mountedSheet)
+        val source = requireNotNull(lease)
+        val states = deliveredStates(source, manager, surface.surfaceID, sheet)
+        val receipt = requireNotNull(source.receipt(surface.surfaceID, sheet.id, states))
+        val retained = mapOf(receipt.hostTag to listOf(sheet.id))
+        val projection =
+          requireNotNull(
+            source.isolation(surface.surfaceID, states, receipt.nativeParents, retained),
+          )
+        val scope =
+          projection.hiddenBranches +
+            projection.retainedChildren.keys +
+            projection.retainedChildren.values.flatten()
+        assertNotNull(receipt.nativeMembers(manager::resolveView, scope))
         val sourceParent = sheet.parent as ViewGroup
         val sourceIndex = sourceParent.indexOfChild(sheet)
         sourceParent.removeView(sheet)
         root.addView(sheet)
         try {
-          assertNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
+          assertNull(receipt.nativePath(manager::resolveView, sheet))
+          assertNull(receipt.nativeMembers(manager::resolveView, scope))
         } finally {
           root.removeView(sheet)
           sourceParent.addView(sheet, sourceIndex)
         }
-        assertNotNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
+        assertNotNull(receipt.nativePath(manager::resolveView, sheet))
+        assertNotNull(receipt.nativeMembers(manager::resolveView, scope))
         val background = descendants(root).single { it.tag == "local-background" }
+        // Generation 2 moves the logical context into the wrapper, excluding this sibling.
+        assertFalse(background.id in scope)
         val backgroundParent = background.parent as ViewGroup
         val backgroundIndex = backgroundParent.indexOfChild(background)
         backgroundParent.removeView(background)
         root.addView(background)
         try {
-          assertNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
+          assertNotNull(receipt.nativeMembers(manager::resolveView, scope))
         } finally {
           root.removeView(background)
           backgroundParent.addView(background, backgroundIndex)
         }
-        assertNotNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
+        assertNotNull(receipt.nativeMembers(manager::resolveView, scope))
         val inactive =
           descendants(root).filterIsInstance<BottomSheetView>().single {
             it.tag == "inactive-nonportal-sheet"
@@ -344,20 +371,34 @@ class FabricPortalPublicationMountJniTest {
         parent.removeView(inactive)
         try {
           assertSame(inactive, manager.resolveView(inactive.id))
-          assertNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
+          assertNotNull(
+            source.receipt(
+              surface.surfaceID,
+              sheet.id,
+              deliveredStates(source, manager, surface.surfaceID, sheet),
+            ),
+          )
+          assertNotNull(receipt.nativePath(manager::resolveView, sheet))
+          assertNotNull(receipt.nativeMembers(manager::resolveView, scope))
         } finally {
           parent.addView(inactive, index)
         }
-        assertNotNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
+        assertNotNull(receipt.nativeMembers(manager::resolveView, scope))
         val state = requireNotNull(inactive.stateWrapper)
         inactive.stateWrapper = null
         try {
-          assertNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
+          val missing = deliveredStates(source, manager, surface.surfaceID, sheet)
+          assertNull(source.receipt(surface.surfaceID, sheet.id, missing))
+          assertNull(source.isolation(surface.surfaceID, missing, receipt.nativeParents, retained))
         } finally {
           inactive.stateWrapper = state
         }
-        // Restoring the exact State is readable when the complete source/structure agrees again.
-        assertNotNull(requireNotNull(lease).receiptFromRegistry(manager, surface.surfaceID, sheet))
+        val restored = deliveredStates(source, manager, surface.surfaceID, sheet)
+        assertSame(state, restored[inactive.id])
+        assertNotNull(source.receipt(surface.surfaceID, sheet.id, restored))
+        assertNotNull(
+          source.isolation(surface.surfaceID, restored, receipt.nativeParents, retained),
+        )
       }
       var stoppedStates = emptyMap<Int, StateWrapper?>()
       onMain {
@@ -385,6 +426,17 @@ class FabricPortalPublicationMountJniTest {
       }
     }
   }
+
+  /** Fixture assembly only: validation remains in the real lease and native-path primitives. */
+  private fun deliveredStates(
+    source: FabricPublicationLease,
+    manager: FabricUIManager,
+    surfaceId: Int,
+    sheet: BottomSheetView,
+  ): Map<Int, StateWrapper?> =
+    requireNotNull(source.sheetTags(surfaceId, sheet.id, sheet.stateWrapper)).associateWith { tag ->
+      (manager.resolveView(tag) as? BottomSheetView)?.stateWrapper
+    }
 
   private fun descendants(view: View): List<View> =
     listOf(view) +
@@ -415,7 +467,8 @@ class FabricPortalPublicationMountJniTest {
     @JvmStatic
     fun initializeSdk() {
       assumeTrue(
-        InstrumentationRegistry.getArguments().getString("bottomSheetPublicationMountJni") == "true"
+        InstrumentationRegistry.getArguments().getString("bottomSheetPublicationMountJni") ==
+          "true",
       )
       SoLoader.init(InstrumentationRegistry.getInstrumentation().context, OpenSourceMergedSoMapping)
       DefaultNewArchitectureEntryPoint.load()

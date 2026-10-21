@@ -12,27 +12,6 @@ import com.swmansion.reactnativebottomsheet.presentation.NativePortalOrderResolv
 import com.swmansion.reactnativebottomsheet.presentation.resolvePortalPresentationContext
 import com.swmansion.reactnativebottomsheet.presentation.resolvePresentationOwnership
 
-/**
- * Reads exact delivered States from the SDK registry, including sheets outside this native branch.
- * Source native edges and queried ancestry must agree. Callers reconcile from queued
- * mount/lifecycle work, not inline during State delivery. This validates the available source and
- * structure, not successful execution of every RN mount instruction or attachment/window
- * membership.
- */
-@UiThread
-internal fun FabricPublicationLease.receiptFromRegistry(
-  manager: UIManager,
-  surfaceId: Int,
-  presentation: BottomSheetView,
-): FabricPortalReceipt? {
-  val states = deliveredStatesFromRegistry(manager, surfaceId, presentation) ?: return null
-  val receipt = receipt(surfaceId, presentation.id, states) ?: return null
-  return receipt.takeIf {
-    it.nativeMembers(manager::resolveView) != null &&
-      it.nativePath(manager::resolveView, presentation) != null
-  }
-}
-
 @UiThread
 private fun FabricPublicationLease.deliveredStatesFromRegistry(
   manager: UIManager,
@@ -54,29 +33,6 @@ private fun FabricPublicationLease.deliveredStatesFromRegistry(
     states[tag] = state
   }
   return states
-}
-
-/**
- * Requires every supplied owner in one surface/window or rejects the group. Ownership comes from
- * the caller; source discovery still includes all sheets. Empty input returns an empty release
- * result. This adds current owner attachment/window checks, not full applied-root/family
- * acceptance.
- */
-@UiThread
-internal fun FabricPublicationLease.attachedReceiptsFromRegistry(
-  manager: UIManager,
-  surfaceId: Int,
-  presentations: Collection<BottomSheetView>,
-  windowRoot: View,
-): Map<BottomSheetView, FabricPortalReceipt>? {
-  val receipts = mutableMapOf<BottomSheetView, FabricPortalReceipt>()
-  for (presentation in presentations) {
-    val receipt = receiptFromRegistry(manager, surfaceId, presentation) ?: return null
-    if (receipt.attachedNativePath(manager::resolveView, presentation, windowRoot) == null)
-      return null
-    receipts[presentation] = receipt
-  }
-  return receipts
 }
 
 /** Ephemeral input facts for one exact surface, supplied Active owners, and optional origin. */
@@ -163,20 +119,4 @@ internal fun FabricPublicationLease.attachedIsolationCutsFromRegistry(
     cutsBySurface[surface] = PortalAccessibilityCut(branches, retainedPresentations)
   }
   return cutsBySurface
-}
-
-/** Reads every supplied owner across this manager's surfaces, or rejects the complete group. */
-@UiThread
-internal fun FabricPublicationLease.attachedReceiptsFromRegistry(
-  manager: UIManager,
-  presentations: Collection<BottomSheetView>,
-  windowRoot: View,
-): Map<BottomSheetView, FabricPortalReceipt>? {
-  val receipts = mutableMapOf<BottomSheetView, FabricPortalReceipt>()
-  for ((surface, owners) in presentations.groupBy(UIManagerHelper::getSurfaceId)) {
-    if (surface <= 0) return null
-    val group = attachedReceiptsFromRegistry(manager, surface, owners, windowRoot) ?: return null
-    receipts.putAll(group)
-  }
-  return receipts
 }

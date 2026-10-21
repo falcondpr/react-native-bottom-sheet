@@ -100,7 +100,7 @@ class FabricPortalPublicationFailureJniTest {
       ReactNativeMountReconciliationAdapter(
         acquirePublicationSource = {
           FabricPortalPublication.acquire(it).also { source -> lease = source }
-        }
+        },
       )
     var started = false
     try {
@@ -140,14 +140,31 @@ class FabricPortalPublicationFailureJniTest {
                 views.filterIsInstance<BottomSheetView>().singleOrNull() ?: return@callback
               val source = lease ?: return@callback
               val state = sheet.stateWrapper ?: return@callback
-              val receipt = source.receiptFromRegistry(manager, surface.surfaceID, sheet)
-              if (phase == 0 && receipt == null) return@callback
+              val states =
+                views.filterIsInstance<BottomSheetView>().associate { it.id to it.stateWrapper }
+              val raw = source.receipt(surface.surfaceID, sheet.id, states)
+              if (phase == 0 && raw == null) return@callback
               if (phase == 1 && failures.get() != 1) return@callback
-              if (phase == 2 && (receipt == null || receipt.publicationId == previousPublication))
+              if (phase == 2 && (raw == null || raw.publicationId == previousPublication))
                 return@callback
               val tags = source.sheetTags(surface.surfaceID, sheet.id, state)
-              val raw = source.receipt(surface.surfaceID, sheet.id, mapOf(sheet.id to state))
               if (phase > 0 && raw?.publicationId == previousPublication) return@callback
+              val projection = raw?.let {
+                source.isolation(
+                  surface.surfaceID,
+                  states,
+                  it.nativeParents,
+                  mapOf(it.hostTag to listOf(sheet.id)),
+                )
+              }
+              val members = projection?.let {
+                raw?.nativeMembers(
+                  manager::resolveView,
+                  it.hiddenBranches +
+                    it.retainedChildren.keys +
+                    it.retainedChildren.values.flatten(),
+                )
+              }
               val area = views.single { it.tag == "local-area" }
               val row =
                 JSONObject()
@@ -155,7 +172,9 @@ class FabricPortalPublicationFailureJniTest {
                   .put("phase", phase)
                   .put("faults", failures.get())
                   .put("rawReceipt", raw != null)
-                  .put("registryReceipt", receipt != null)
+                  .put("projection", projection != null)
+                  .put("nativePath", raw?.nativePath(manager::resolveView, sheet) != null)
+                  .put("localMembers", members != null)
                   .put("publication", raw?.publicationId)
                   .put("inventory", tags?.toList().toString())
                   .put("contexts", raw?.contexts.toString())
@@ -184,7 +203,7 @@ class FabricPortalPublicationFailureJniTest {
       started = true
       assertTrue("Initial real receipt timed out", observed.getValue(0).await(20, TimeUnit.SECONDS))
       crash.get()?.let { throw it }
-      assertTrue(results.first().getBoolean("registryReceipt"))
+      assertTrue(results.first().getBoolean("rawReceipt"))
       for (generation in 1..2) {
         InstrumentationRegistry.getInstrumentation().waitForIdleSync()
         onMain {
@@ -197,7 +216,7 @@ class FabricPortalPublicationFailureJniTest {
           (surface as ReactSurfaceImpl).updateInitProps(
             Bundle().apply {
               putInt("generation", generation)
-            }
+            },
           )
           assertTrue(
             "React generation not committed",
@@ -215,7 +234,12 @@ class FabricPortalPublicationFailureJniTest {
       val recovery = results.single { it.getInt("phase") == 2 }
       assertTrue(partial.getBoolean("rawReceipt"))
       // Matching source/structure is not proof that every layout instruction succeeded.
-      assertTrue(partial.getBoolean("registryReceipt"))
+      for (row in results) {
+        val message = "phase ${row.getInt("phase")}"
+        assertTrue(message, row.getBoolean("projection"))
+        assertTrue(message, row.getBoolean("nativePath"))
+        assertTrue(message, row.getBoolean("localMembers"))
+      }
       assertTrue(partial.getString("events").contains("start:"))
       assertNotNull(batchAtFault)
       assertFalse(partial.getString("events").split(',').contains("end:$batchAtFault"))
@@ -223,7 +247,7 @@ class FabricPortalPublicationFailureJniTest {
       assertTrue(partial.getBoolean("newStateAtFault"))
       assertEquals(partial.getString("faultPublication"), partial.getString("publication"))
       assertTrue(recovery.getString("events").contains("end:"))
-      assertTrue(recovery.getBoolean("registryReceipt"))
+      assertTrue(recovery.getBoolean("rawReceipt"))
       InstrumentationRegistry.getInstrumentation()
         .sendStatus(
           0,
@@ -273,7 +297,7 @@ class FabricPortalPublicationFailureJniTest {
     fun initializeSdk() {
       assumeTrue(
         InstrumentationRegistry.getArguments().getString("bottomSheetPublicationFailureJni") ==
-          "true"
+          "true",
       )
       SoLoader.init(InstrumentationRegistry.getInstrumentation().context, OpenSourceMergedSoMapping)
       DefaultNewArchitectureEntryPoint.load()
@@ -304,13 +328,13 @@ private class MountFailureProbePackage(
                 atFault()
                 Log.i("MountFailureProbe", "FAULT after State, during native layout")
                 throw ReactIgnorableMountingException(
-                  "intentional publication probe layout failure"
+                  "intentional publication probe layout failure",
                 )
               }
               super.onMeasure(width, height)
             }
           }
-      }
+      },
     )
 }
 
