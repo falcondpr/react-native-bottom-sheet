@@ -47,11 +47,13 @@ command = ['xcrun', 'clang++', '-std=c++20', '-DANDROID', '-target', platform.ma
            '-isysroot', str(sdk), '-F', str(sdk / 'System/iOSSupport/System/Library/Frameworks'),
            '-DREACT_NATIVE_TARGET_PLATFORM_IOS=1', '-DFOLLY_MOBILE=1',
            '-DFOLLY_USE_LIBCPP=1', '-DFOLLY_CFG_NO_COROUTINES=1']
+# Prefer headers shipped with the linked prebuilt SDK. Its JSI ABI can differ
+# from the JS package's source headers (including Runtime versus IRuntime).
+for path in (react / 'React.framework/Headers').iterdir():
+    command += ['-I', str(path)]
 for path in [root / 'common/cpp', generated, rn, rn / 'yoga', rn / 'jsi',
              pods / 'ReactNativeDependencies/Headers', pods / 'hermes-engine/destroot/include',
              rn / 'react/renderer/components/view/platform/cxx'] + list(rn.rglob('platform/ios')):
-    command += ['-I', str(path)]
-for path in (react / 'React.framework/Headers').iterdir():
     command += ['-I', str(path)]
 for path in [react, deps, hermes]:
     command += ['-F', str(path), '-Wl,-rpath,' + str(path)]

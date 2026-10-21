@@ -4,6 +4,7 @@
 #import <React/RCTMountingManager.h>
 #import <React/RCTViewComponentView.h>
 #import <objc/runtime.h>
+#include <algorithm>
 #include <cstring>
 
 using namespace facebook::react;
@@ -14,6 +15,36 @@ struct MountedIdentity {
   __weak UIView<RCTComponentViewProtocol> *view;
   ShadowNodeFamily::Weak family;
 };
+
+template <typename Node>
+ShadowNodeFamily::Weak familyIdentity(const Node& node, const RootShadowNode::Shared& root) {
+  if constexpr (requires { node.getFamilyShared(); }) {
+    return node.getFamilyShared();
+  } else {
+    // Older RN exposes only a reference. The applied root owns this family.
+    return ShadowNodeFamily::Shared(root, &node.getFamily());
+  }
+}
+
+template <typename Root>
+void advanceFamilyIdentities(MountedIdentity& rootIdentity,
+    std::map<Tag, MountedIdentity>& identities, const std::shared_ptr<const Root>& root,
+    const PortalShadowNodeIndex& nodes) {
+  if constexpr (!requires { root->getFamilyShared(); }) {
+    // Compare while the previous root still keeps its families alive, then
+    // advance only unchanged identities to the new root's lifetime.
+    auto advance = [&](MountedIdentity& identity, const ShadowNode* node) {
+      if (node && identity.family.lock().get() == &node->getFamily()) {
+        identity.family = familyIdentity(*node, root);
+      }
+    };
+    advance(rootIdentity, root.get());
+    for (auto& [tag, identity] : identities) {
+      auto node = nodes.find(tag);
+      advance(identity, node != nodes.end() ? node->second : nullptr);
+    }
+  }
+}
 
 bool hasConcreteComponentDescriptor(UIView *view) {
   // RN's UIView category supplies the protocol to every UIKit view. Concrete
@@ -60,10 +91,10 @@ Tag parentTag(const Mutation& mutation) {
     [self invalidate];
     return;
   }
-  if (_root && _root->getFamilyShared() != root->getFamilyShared()) [self invalidate];
+  if (_root && &_root->getFamily() != &root->getFamily()) [self invalidate];
   if (!_root) {
     _rootIdentity = {[_manager.componentViewRegistry findComponentViewWithTag:root->getTag()],
-                     root->getFamilyShared()};
+                     familyIdentity(*root, root)};
   }
   for (const auto& mutation : mutations) {
     switch (mutation.type) {
@@ -74,7 +105,7 @@ Tag parentTag(const Mutation& mutation) {
         if (node != nodes->end()) {
           _identities[tag] = {
               [_manager.componentViewRegistry findComponentViewWithTag:tag],
-              node->second->getFamilyShared()};
+              familyIdentity(*node->second, root)};
         }
         break;
       }
@@ -95,6 +126,7 @@ Tag parentTag(const Mutation& mutation) {
         break;
     }
   }
+  advanceFamilyIdentities(_rootIdentity, _identities, root, *nodes);
   _root = root;
 }
 
@@ -131,11 +163,11 @@ Tag parentTag(const Mutation& mutation) {
   UIView *view = [self mounted:tag];
   if (&node == _root.get()) {
     if (!view || _rootIdentity.view != view ||
-        _rootIdentity.family.lock() != node.getFamilyShared()) return NO;
+        _rootIdentity.family.lock().get() != &node.getFamily()) return NO;
   } else if (_members.alive.contains(tag)) {
     auto identity = _identities.find(tag);
     if (!view || identity == _identities.end() || identity->second.view != view ||
-        identity->second.family.lock() != node.getFamilyShared()) return NO;
+        identity->second.family.lock().get() != &node.getFamily()) return NO;
     auto parent = _members.parents.find(tag);
     if (parent == _members.parents.end()) return NO;
     if (parent->second != [self registeredParentOf:view hierarchy:hierarchy]) {
@@ -233,7 +265,10 @@ Tag parentTag(const Mutation& mutation) {
   std::set<Tag> scopes;
   for (const auto& request : requests) {
     if (!request.host) return nil;
-    auto host = graph->hostContexts.find(request.host->getTag());
+    auto host = std::find_if(graph->hostContexts.begin(), graph->hostContexts.end(),
+        [&](const auto& entry) {
+          return &graph->nodes.at(entry.first)->getFamily() == request.host;
+        });
     if (host == graph->hostContexts.end()) return nil;
     auto view = [self mounted:host->first];
     if (![view isKindOfClass:RCTViewComponentView.class] ||
@@ -341,13 +376,13 @@ Tag parentTag(const Mutation& mutation) {
     }
     if (node->second == root.get()) {
       if (_rootIdentity.view != current ||
-          _rootIdentity.family.lock() != node->second->getFamilyShared()) return std::nullopt;
+          _rootIdentity.family.lock().get() != &node->second->getFamily()) return std::nullopt;
     } else {
       auto identity = _identities.find(tag);
       auto parent = _members.parents.find(tag);
       if (!_members.alive.contains(tag) || identity == _identities.end() ||
           identity->second.view != current ||
-          identity->second.family.lock() != node->second->getFamilyShared() ||
+          identity->second.family.lock().get() != &node->second->getFamily() ||
           parent == _members.parents.end() ||
           parent->second != [self registeredParentOf:current hierarchy:hierarchy]) return std::nullopt;
     }
@@ -374,7 +409,7 @@ Tag parentTag(const Mutation& mutation) {
     UIView *view = [self mounted:tag];
     if (!view || !_members.alive.contains(tag) || identity == _identities.end() ||
         identity->second.view != view || node == nodes->end() ||
-        identity->second.family.lock() != node->second->getFamilyShared()) return nil;
+        identity->second.family.lock().get() != &node->second->getFamily()) return nil;
     [deleted addObject:view];
   }
   NSMutableSet<UIView *> *survivors = [NSMutableSet new];

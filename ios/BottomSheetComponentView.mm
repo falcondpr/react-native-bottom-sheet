@@ -11,6 +11,7 @@
 #import <React/RCTFabricComponentsPlugins.h>
 #import <React/RCTMountingTransactionObserving.h>
 #import <React/RCTSurfaceTouchHandler.h>
+#import <objc/runtime.h>
 #import <react/renderer/components/ReactNativeBottomSheetSpec/EventEmitters.h>
 #import <react/renderer/components/ReactNativeBottomSheetSpec/Props.h>
 #import <react/renderer/components/ReactNativeBottomSheetSpec/RCTComponentViewHelpers.h>
@@ -513,7 +514,12 @@ using namespace facebook::react;
 - (void)invalidate
 {
   [self tearDownPresentationLifecycle];
-  [super invalidate];
+  // Older RN has no component invalidation hook; preserve super cleanup when
+  // the SDK provides it without sending an unknown selector to older UIKit views.
+  Method method = class_getInstanceMethod(RCTViewComponentView.class, _cmd);
+  if (method) {
+    ((void (*)(id, SEL))method_getImplementation(method))(self, _cmd);
+  }
 }
 
 - (void)dealloc

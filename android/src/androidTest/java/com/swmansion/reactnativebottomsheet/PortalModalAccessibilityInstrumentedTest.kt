@@ -7,105 +7,80 @@ import androidx.activity.ComponentActivity
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsForTests
+import com.swmansion.reactnativebottomsheet.accessibility.PortalAccessibilityCut
+import com.swmansion.reactnativebottomsheet.accessibility.PortalAccessibilityReconciler
 import java.util.Collections
 import java.util.IdentityHashMap
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class PortalModalAccessibilityInstrumentedTest {
-  @Before
-  fun useLocalReactNativeFeatureFlags() {
-    ReactNativeFeatureFlagsForTests.setUp()
-  }
-
   @Test
-  fun portalExcludesApplicationThroughClosingAndRestoresItOnlyAfterSettle() {
-    val closeSettled = CountDownLatch(1)
-    lateinit var root: InstrumentedReactRoot
+  fun projectedPortalMasksControlAndroidAccessibilityTraversalAndRestoreBackground() {
+    lateinit var root: FrameLayout
     lateinit var background: View
+    lateinit var outside: View
     lateinit var sheetContent: View
     lateinit var dismiss: View
-    lateinit var sheet: BottomSheetView
-    var sheetCreated = false
+    lateinit var owner: FrameLayout
+    lateinit var reconciler: PortalAccessibilityReconciler
 
     ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
-      try {
-        scenario.onActivity { activity ->
-          root = InstrumentedReactRoot(activity)
-          background =
-            View(activity).apply {
-              importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
-              contentDescription = "Application control"
-            }
-          sheetContent =
-            View(activity).apply {
-              importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
-              contentDescription = "Sheet content"
-            }
-          sheet =
-            BottomSheetView(activity).apply {
-              listener =
-                object : BottomSheetViewListener {
-                  override fun onIndexChange(index: Int) = Unit
+      scenario.onActivity { activity ->
+        root = FrameLayout(activity)
+        background =
+          View(activity).apply {
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            contentDescription = "Application control"
+          }
+        sheetContent =
+          View(activity).apply {
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            contentDescription = "Sheet content"
+          }
+        dismiss =
+          View(activity).apply {
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            contentDescription = "Dismiss"
+          }
+        outside =
+          View(activity).apply {
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            contentDescription = "Outside toolbar"
+          }
+        owner =
+          FrameLayout(activity).apply {
+            addView(sheetContent, matchParent())
+            addView(dismiss, matchParent())
+          }
+        val area =
+          FrameLayout(activity).apply {
+            addView(background, matchParent())
+            addView(owner, matchParent())
+          }
+        root.addView(area, matchParent())
+        root.addView(outside, matchParent())
+        activity.setContentView(root)
+        reconciler = PortalAccessibilityReconciler(root)
+      }
 
-                  override fun onSettle(index: Int) {
-                    if (index == 0) closeSettled.countDown()
-                  }
-
-                  override fun onPositionChange(position: Double, index: Double) = Unit
-
-                  override fun onCloseRequest() = Unit
-                }
-              animateIn = false
-              modal = true
-              setDetents(
-                listOf(
-                  mapOf("value" to 0.0, "kind" to "points", "programmatic" to false),
-                  mapOf("value" to 300.0, "kind" to "points", "programmatic" to false),
-                )
-              )
-              setIndex(1)
-              addSheetChild(sheetContent, 0)
-            }
-          sheetCreated = true
-          val portalWrapper = FrameLayout(activity)
-          portalWrapper.addView(sheet, matchParent())
-          root.addView(background, matchParent())
-          root.addView(portalWrapper, matchParent())
-          activity.setContentView(root)
-          dismiss = (sheet.getChildAt(0) as ViewGroup).getChildAt(1)
-        }
-
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        instrumentation.waitForIdleSync()
-        scenario.onActivity {
-          val activeTree = accessibleTree(root)
-          assertFalse(activeTree.contains(background))
-          assertTrue(activeTree.contains(sheetContent))
-          assertTrue(activeTree.contains(dismiss))
-
-          sheet.setIndex(0)
-          val closingTree = accessibleTree(root)
-          assertFalse(closingTree.contains(background))
-          assertTrue(closingTree.contains(sheetContent))
-        }
-
-        assertTrue("close animation did not settle", closeSettled.await(5, TimeUnit.SECONDS))
-        instrumentation.waitForIdleSync()
-        scenario.onActivity {
-          assertTrue(accessibleTree(root).contains(background))
-        }
-      } finally {
-        scenario.onActivity {
-          if (sheetCreated) sheet.destroy()
-        }
+      val instrumentation = InstrumentationRegistry.getInstrumentation()
+      instrumentation.waitForIdleSync()
+      scenario.onActivity {
+        // Source discovery is covered by Fabric/JNI tests; lifecycle retention by
+        // controller tests. This seam verifies the actual Android traversal.
+        val cut = PortalAccessibilityCut(listOf(background), listOf(owner))
+        assertTrue(reconciler.reconcileCuts(listOf(cut)))
+        val activeTree = accessibleTree(root)
+        assertFalse(activeTree.contains(background))
+        assertTrue(activeTree.contains(sheetContent))
+        assertTrue(activeTree.contains(dismiss))
+        assertTrue(activeTree.contains(outside))
+        assertTrue(reconciler.reconcileCuts(emptyList()))
+        assertTrue(accessibleTree(root).contains(background))
       }
     }
   }

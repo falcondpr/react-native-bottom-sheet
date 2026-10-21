@@ -8,6 +8,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import com.facebook.react.ReactActivity
 import com.swmansion.reactnativebottomsheet.presentation.PortalPresentationAssignment
 import com.swmansion.reactnativebottomsheet.presentation.PortalPresentationContext
@@ -41,15 +42,13 @@ internal class PortalCloseRequestController(
   private var backInput: PortalBackInput? = null
   private var appliedImeVisible: Boolean? = null
 
-  private val lifecycleObserver: LifecycleEventObserver =
-    LifecycleEventObserver { lifecycleOwner, event ->
-      if (disposed || lifecycleOwner !== closeRequestRoutingContext?.lifecycleOwner) {
-        return@LifecycleEventObserver
+  private val lifecycleObserver =
+    object : LifecycleEventObserver {
+      override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
+        if (disposed || source !== closeRequestRoutingContext?.lifecycleOwner) return
+        if (event == Lifecycle.Event.ON_DESTROY) source.lifecycle.removeObserver(this)
+        reconcileInputHandling()
       }
-      if (event == Lifecycle.Event.ON_DESTROY) {
-        lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
-      }
-      reconcileInputHandling()
     }
 
   private val unhandledKeyEventListener = ViewCompat.OnUnhandledKeyEventListenerCompat { _, event ->

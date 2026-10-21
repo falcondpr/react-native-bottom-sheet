@@ -11,6 +11,10 @@ using namespace facebook::react;
 using Children = std::vector<std::shared_ptr<const ShadowNode>>;
 
 namespace {
+struct JFixtureStateWrapper : jni::JavaClass<JFixtureStateWrapper> {
+  static constexpr auto kJavaDescriptor = "Lcom/facebook/react/uimanager/StateWrapper;";
+};
+
 class FabricPublicationJniFixture final : public jni::HybridClass<FabricPublicationJniFixture> {
  public:
   static constexpr auto kJavaDescriptor =
@@ -66,7 +70,7 @@ class FabricPublicationJniFixture final : public jni::HybridClass<FabricPublicat
 
   void commit(const ShadowTreeCommitTransaction& transaction) {
     auto status = tree_->commit(transaction, {});
-    if (status != ShadowTreeCommitStatus::Succeeded) {
+    if (status != decltype(status)::Succeeded) {
       throw std::runtime_error("Fixture commit failed");
     }
   }
@@ -75,7 +79,18 @@ class FabricPublicationJniFixture final : public jni::HybridClass<FabricPublicat
     return bottomsheet::FabricPortalPublication::newObjectCxxArgs(manager_);
   }
 
-  jni::local_ref<StateWrapper::jhybridobject> takeDeliveredPublicationState() {
+  jni::local_ref<JFixtureStateWrapper::javaobject> wrapState(const State::Shared& state) {
+    // Match FabricMountingManager's SDK construction without requiring a C++
+    // interface base/getter that did not exist in the minimum supported RN.
+    auto wrapper = StateWrapperImpl::newObjectJavaArgs();
+    wrapper->cthis()->setState(state);
+    jni::alias_ref<jni::JObject> base = wrapper;
+    auto object = jni::dynamic_ref_cast<JFixtureStateWrapper::javaobject>(base);
+    wrappers_.emplace_back(jni::make_global(object), state);
+    return jni::make_local(object);
+  }
+
+  jni::local_ref<JFixtureStateWrapper::javaobject> takeDeliveredPublicationState() {
     auto transaction = tree_->getMountingCoordinator()->pullTransaction(true);
     if (!transaction) return nullptr;
     for (const auto& mutation : transaction->getMutations()) {
@@ -83,10 +98,7 @@ class FabricPublicationJniFixture final : public jni::HybridClass<FabricPublicat
       const auto* state =
           dynamic_cast<const BottomSheetViewShadowNode::ConcreteState*>(child.state.get());
       if (child.tag == 14 && state && !state->getData().portalPublicationId.empty()) {
-        // Same SDK construction and State assignment as FabricMountingManager.
-        auto wrapper = StateWrapperImpl::newObjectJavaArgs();
-        wrapper->cthis()->setState(child.state);
-        return jni::static_ref_cast<StateWrapper::jhybridobject>(wrapper);
+        return wrapState(child.state);
       }
     }
     return nullptr;
@@ -102,7 +114,7 @@ class FabricPublicationJniFixture final : public jni::HybridClass<FabricPublicat
     });
   }
 
-  jni::local_ref<jni::JArrayClass<StateWrapper::javaobject>::javaobject>
+  jni::local_ref<jni::JArrayClass<JFixtureStateWrapper::javaobject>::javaobject>
   addSecondSheetAndTakeDeliveredStates() {
     auto second = make(15, "relative", {}, true);
     commit([&](const RootShadowNode& root) {
@@ -125,23 +137,25 @@ class FabricPublicationJniFixture final : public jni::HybridClass<FabricPublicat
       }
     }
     if (states.size() != 2) throw std::runtime_error("Missing two delivered sheet States");
-    auto result = jni::JArrayClass<StateWrapper::javaobject>::newArray(states.size());
+    auto result = jni::JArrayClass<JFixtureStateWrapper::javaobject>::newArray(states.size());
     size_t index = 0;
     for (const auto& [tag, state] : states) {
-      auto wrapper = StateWrapperImpl::newObjectJavaArgs();
-      wrapper->cthis()->setState(state);
-      result->setElement(index++, jni::static_ref_cast<StateWrapper::jhybridobject>(wrapper).get());
+      result->setElement(index++, wrapState(state).get());
     }
     return result;
   }
 
   jboolean hasNewerStateInSameFamily(
-      jni::alias_ref<StateWrapper::javaobject> delivered,
-      jni::alias_ref<StateWrapper::javaobject> current) {
-    auto oldState =
-        jni::static_ref_cast<StateWrapperImpl::jhybridobject>(delivered)->cthis()->getState();
-    auto newState =
-        jni::static_ref_cast<StateWrapperImpl::jhybridobject>(current)->cthis()->getState();
+      jni::alias_ref<JFixtureStateWrapper::javaobject> delivered,
+      jni::alias_ref<JFixtureStateWrapper::javaobject> current) {
+    auto supplied = [&](jni::alias_ref<JFixtureStateWrapper::javaobject> wrapper) -> State::Shared {
+      for (const auto& [object, state] : wrappers_) {
+        if (jni::Environment::current()->IsSameObject(object.get(), wrapper.get())) return state.lock();
+      }
+      return nullptr;
+    };
+    auto oldState = supplied(delivered);
+    auto newState = supplied(current);
     return oldState && newState && oldState != newState && oldState->getMostRecentState() == newState;
   }
 
@@ -150,6 +164,7 @@ class FabricPublicationJniFixture final : public jni::HybridClass<FabricPublicat
   ViewComponentDescriptor views_{{.eventDispatcher = {}, .contextContainer = context_, .flavor = nullptr}};
   BottomSheetViewComponentDescriptor sheets_{{.eventDispatcher = {}, .contextContainer = context_, .flavor = nullptr}};
   ShadowTree* tree_ = nullptr;
+  std::vector<std::pair<jni::global_ref<JFixtureStateWrapper::javaobject>, std::weak_ptr<const State>>> wrappers_;
 };
 } // namespace
 

@@ -147,7 +147,7 @@ RootShadowNode::Shared PortalPublicationSource::rootForState(
         std::find(history_.begin(), history_.end(), result) == history_.end())) return nullptr;
   }
   if (result->getSurfaceId() != surface ||
-      result->getFamilyShared() != liveRoot->getFamilyShared()) return nullptr;
+      &result->getFamily() != &liveRoot->getFamily()) return nullptr;
   auto index = indexPortalShadowNodes(*result);
   return index && index->contains(tag) && index->at(tag)->getState() == state ? result : nullptr;
 }

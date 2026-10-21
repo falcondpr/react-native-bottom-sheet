@@ -37,8 +37,9 @@ internal class ReactNativeMountReconciliationAdapter(
     Handler(Looper.getMainLooper()).post(it)
     Unit
   },
-  private val acquirePublicationSource: (Any) -> FabricPublicationLease? =
-    FabricPortalPublication::acquire,
+  private val acquirePublicationSource: (Any) -> FabricPublicationLease? = {
+    FabricPortalPublication.acquire(it)
+  },
 ) {
   @UiThread
   internal interface Observation {
@@ -112,7 +113,7 @@ internal class ReactNativeMountReconciliationAdapter(
             reconciliationRequested = false
             callbacks.toList().forEach { it() }
           }
-        }
+        },
       )
     }
   }

@@ -1817,8 +1817,8 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
   }
 
   private fun clearNestedScrollState() {
-    val touchTarget = nestedTouchTarget
-    val shouldRestoreDisabled = touchTarget is ScrollView && !nestedTouchWasEnabled
+    val touchTarget = nestedTouchTarget as? ScrollView
+    val shouldRestoreDisabled = !nestedTouchWasEnabled
 
     // Restoring nested scrolling to false calls View.stopNestedScroll(), which
     // synchronously re-enters onStopNestedScroll(). Clear ownership first so
@@ -1831,7 +1831,7 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
     nestedSheetMoved = false
     nestedPanSettled = false
 
-    if (shouldRestoreDisabled) {
+    if (touchTarget != null && shouldRestoreDisabled) {
       ViewCompat.setNestedScrollingEnabled(touchTarget, false)
     }
   }

@@ -13,6 +13,24 @@ bool isPortalNativePresentationRoot(const ShadowNode& node) {
 }
 
 namespace {
+template <typename Family>
+const ShadowNode* currentNodeForFamily(
+    const PortalShadowNodeIndex& nodes, const Family* family) {
+  if (!family) return nullptr;
+  if constexpr (requires { family->getTag(); }) {
+    auto found = nodes.find(family->getTag());
+    return found != nodes.end() && &found->second->getFamily() == family
+        ? found->second
+        : nullptr;
+  } else {
+    // RN 0.76 exposes family identity without a public tag getter.
+    for (const auto& [tag, node] : nodes) {
+      if (&node->getFamily() == family) return node;
+    }
+    return nullptr;
+  }
+}
+
 bool indexNodes(const ShadowNode& node, PortalShadowNodeIndex& nodes) {
   if (!nodes.emplace(node.getTag(), &node).second) return false;
   for (const auto& child : node.getChildren()) {
@@ -96,10 +114,9 @@ std::optional<Tag> PortalContextGraph::hostForPresentation(
     const ShadowNodeFamily& presentation,
     const ShadowNode& root) const {
   auto currentRoot = nodes.find(root.getTag());
-  auto currentNode = nodes.find(presentation.getTag());
+  auto currentNode = currentNodeForFamily(nodes, &presentation);
   if (currentRoot == nodes.end() || currentRoot->second != &root ||
-      currentNode == nodes.end() ||
-      &currentNode->second->getFamily() != &presentation) {
+      !currentNode) {
     return std::nullopt;
   }
   auto ancestors = presentation.getAncestors(root);
@@ -147,11 +164,7 @@ std::optional<PortalIsolationProjection> projectPortalIsolation(
     }
   }
   auto currentNode = [&](const ShadowNodeFamily* family) -> const ShadowNode* {
-    if (!family) return nullptr;
-    auto found = graph.nodes.find(family->getTag());
-    return found != graph.nodes.end() && &found->second->getFamily() == family
-        ? found->second
-        : nullptr;
+    return currentNodeForFamily(graph.nodes, family);
   };
   using RetainedEdges = std::map<Tag, std::set<Tag>>;
   std::map<Tag, RetainedEdges> contextEdges;
