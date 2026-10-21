@@ -176,16 +176,16 @@ edge-to-edge, transparent dialog.
 `BottomSheetProvider`, not where `ModalBottomSheet` appears in your tree.
 Content inside the sheet can read context from providers above
 `BottomSheetProvider`, but not from providers between `BottomSheetProvider` and
-the sheet. This also applies to navigation context: with `BottomSheetProvider`
+the sheet. This also applies to navigation context: With `BottomSheetProvider`
 at the app root, `useNavigation()` inside the sheet does not see the screen that
 opened it.
 
 ```tsx
 <ThemeContext.Provider value={theme}>
-  {/* Available inside sheets */}
+  {/* Available inside sheets. */}
   <BottomSheetProvider>
     <UserContext.Provider value={user}>
-      {/* Not available inside sheets */}
+      {/* Not available inside sheets. */}
       <Screen />
     </UserContext.Provider>
   </BottomSheetProvider>
@@ -214,11 +214,11 @@ const SheetOwner = () => {
 };
 ```
 
-The sheet stays in sync: when the value changes, `SheetOwner` re-renders and
+The sheet stays in sync: When the value changes, `SheetOwner` re-renders and
 passes the updated content to the portal.
 
 Navigation context is internal to the navigation library, so pass what the sheet
-needs instead: call `useNavigation()` in `SheetOwner` and hand the sheet content
+needs instead: Call `useNavigation()` in `SheetOwner` and hand the sheet content
 props or callbacks, such as `onSelect={() => navigation.goBack()}`.
 
 With `nativeOverlay`, the sheet stays where it is rendered in the React tree and
