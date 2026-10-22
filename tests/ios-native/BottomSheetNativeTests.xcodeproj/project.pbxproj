@@ -29,6 +29,7 @@
 		A20000000000000000000019 /* BottomSheetPortalContextGraphTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000025 /* BottomSheetPortalContextGraphTests.mm */; };
 		A20000000000000000000020 /* BottomSheetMountedPortalContextGraphTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000026 /* BottomSheetMountedPortalContextGraphTests.mm */; };
 		A20000000000000000000021 /* BottomSheetPortalMountingObserverTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000027 /* BottomSheetPortalMountingObserverTests.mm */; };
+		A20000000000000000000022 /* BottomSheetPortalIsolationIntegrationTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000028 /* BottomSheetPortalIsolationIntegrationTests.mm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -74,6 +75,8 @@
 		A30000000000000000000025 /* BottomSheetPortalContextGraphTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = BottomSheetPortalContextGraphTests.mm; sourceTree = "<group>"; };
 		A30000000000000000000026 /* BottomSheetMountedPortalContextGraphTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = BottomSheetMountedPortalContextGraphTests.mm; sourceTree = "<group>"; };
 		A30000000000000000000027 /* BottomSheetPortalMountingObserverTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = BottomSheetPortalMountingObserverTests.mm; sourceTree = "<group>"; };
+		A30000000000000000000028 /* BottomSheetPortalIsolationIntegrationTests.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = BottomSheetPortalIsolationIntegrationTests.mm; sourceTree = "<group>"; };
+		A30000000000000000000029 /* BottomSheetPortalRuntimeFixture.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BottomSheetPortalRuntimeFixture.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -156,6 +159,7 @@
 				A30000000000000000000025 /* BottomSheetPortalContextGraphTests.mm */,
 				A30000000000000000000026 /* BottomSheetMountedPortalContextGraphTests.mm */,
 				A30000000000000000000027 /* BottomSheetPortalMountingObserverTests.mm */,
+				A30000000000000000000028 /* BottomSheetPortalIsolationIntegrationTests.mm */,
 				A30000000000000000000009 /* BottomSheetPresentationOwnershipTests.mm */,
 				A30000000000000000000010 /* BottomSheetAccessibleDismissalTests.swift */,
 				A30000000000000000000011 /* BottomSheetNativeOverlayAccessibilityTests.mm */,
@@ -173,6 +177,7 @@
 			isa = PBXGroup;
 			children = (
 				A30000000000000000000020 /* BottomSheetAccessibilityObservation.mm */,
+				A30000000000000000000029 /* BottomSheetPortalRuntimeFixture.h */,
 				A30000000000000000000021 /* BottomSheetAccessibilityObservation.h */,
 				A30000000000000000000005 /* BottomSheetHostFixture.swift */,
 				A30000000000000000000006 /* BottomSheetEventRecorder.swift */,
@@ -381,6 +386,7 @@
 				A20000000000000000000019 /* BottomSheetPortalContextGraphTests.mm in Sources */,
 				A20000000000000000000020 /* BottomSheetMountedPortalContextGraphTests.mm in Sources */,
 				A20000000000000000000021 /* BottomSheetPortalMountingObserverTests.mm in Sources */,
+				A20000000000000000000022 /* BottomSheetPortalIsolationIntegrationTests.mm in Sources */,
 				A20000000000000000000006 /* BottomSheetPresentationOwnershipTests.mm in Sources */,
 				A20000000000000000000007 /* BottomSheetAccessibleDismissalTests.swift in Sources */,
 				A20000000000000000000008 /* BottomSheetNativeOverlayAccessibilityTests.mm in Sources */,
