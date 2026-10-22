@@ -132,6 +132,28 @@ int main() {
     Fixture f;
     auto& tree = f.tree();
     auto sheet = f.make(14, true, "relative", {}, true);
+    auto first = delivered(f.commit(tree, {sheet}), 14);
+    auto oldRoot = tree.getCurrentRevision().rootShadowNode;
+    auto duplicate = std::static_pointer_cast<RootShadowNode>(oldRoot->ShadowNode::clone(
+        {.children = std::make_shared<const Children>(Children{
+            sheet, f.make(31, false, "relative", {f.make(14, true, "relative")})})}));
+    auto repeated = std::static_pointer_cast<RootShadowNode>(oldRoot->ShadowNode::clone(
+        {.children = std::make_shared<const Children>(Children{sheet, sheet})}));
+    expect("duplicate tags and repeated families leave a proposal unstamped without invalidating the delivered source",
+           f.manager->shadowTreeWillCommit(tree, oldRoot, duplicate, {}) == duplicate &&
+           f.manager->shadowTreeWillCommit(tree, oldRoot, repeated, {}) == repeated &&
+           data(sheet->getState()).portalPublicationId.empty() &&
+           f.source->rootForState(1, 14, first) == oldRoot);
+    auto next = delivered(f.commit(tree, {sheet, f.make(31, false, "relative")}), 14);
+    expect("a valid proposal after rejected duplicates still publishes a fresh exact source",
+           next && next != first && data(next).portalPublicationId != data(first).portalPublicationId &&
+           f.source->rootForState(1, 14, next) == tree.getCurrentRevision().rootShadowNode);
+  }
+
+  {
+    Fixture f;
+    auto& tree = f.tree();
+    auto sheet = f.make(14, true, "relative", {}, true);
     auto host = f.make(13, true, "absolute", {sheet}, false, true);
     auto area = f.make(11, false, "relative", {f.make(12, true, "relative"), host});
     auto mutation = f.commit(tree, {area});

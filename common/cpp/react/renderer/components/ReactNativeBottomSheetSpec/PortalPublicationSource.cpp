@@ -7,10 +7,19 @@
 #include <algorithm>
 #include <atomic>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace facebook::react::bottomsheet {
 namespace {
 std::atomic<uint64_t> nextSource{0};
+
+bool hasUniqueTags(const ShadowNode& node, std::unordered_set<Tag>& tags) {
+  if (!tags.insert(node.getTag()).second) return false;
+  for (const auto& child : node.getChildren()) {
+    if (!hasUniqueTags(*child, tags)) return false;
+  }
+  return true;
+}
 
 template <typename Mutation>
 Tag parentTag(const Mutation& mutation) {
@@ -114,8 +123,11 @@ RootShadowNode::Unshared PortalPublicationSource::shadowTreeWillCommit(
     const ShadowTree&,
     const RootShadowNode::Shared& oldRoot,
     const RootShadowNode::Unshared& proposal) noexcept {
-  auto index = indexPortalShadowNodes(*proposal);
-  if (!index) return proposal;
+  {
+    // The proposal only needs duplicate validation, not a retained node lookup.
+    std::unordered_set<Tag> tags;
+    if (!hasUniqueTags(*proposal, tags)) return proposal;
+  }
   rememberFinalRoot(oldRoot);
   std::string id;
   {
