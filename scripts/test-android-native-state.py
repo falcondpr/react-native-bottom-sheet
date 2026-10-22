@@ -49,6 +49,9 @@ command = ['xcrun', 'clang++', '-std=c++20', '-DANDROID', '-target', platform.ma
            '-DFOLLY_USE_LIBCPP=1', '-DFOLLY_CFG_NO_COROUTINES=1']
 # Prefer headers shipped with the linked prebuilt SDK. Its JSI ABI can differ
 # from the JS package's source headers (including Runtime versus IRuntime).
+structured_headers = react.parents[1] / 'Headers'
+if structured_headers.is_dir():
+    command += ['-I', str(structured_headers)]
 for path in (react / 'React.framework/Headers').iterdir():
     command += ['-I', str(path)]
 for path in [root / 'common/cpp', generated, rn, rn / 'yoga', rn / 'jsi',
