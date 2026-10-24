@@ -398,6 +398,10 @@ Tag parentTag(const Mutation& mutation) {
 {
   NSCAssert(NSThread.isMainThread, @"Native portal retirement is main-thread only");
   if (!_root || !_manager) return nil;
+  // Without Delete, no native instance needs pre-mount retirement.
+  if (std::none_of(mutations.begin(), mutations.end(), [](const auto& mutation) {
+        return mutation.type == ShadowViewMutation::Delete;
+      })) return nil;
   auto nodes = indexPortalShadowNodes(*_root);
   if (!nodes) return nil;
   NSMutableSet<UIView *> *deleted = [NSMutableSet new];
