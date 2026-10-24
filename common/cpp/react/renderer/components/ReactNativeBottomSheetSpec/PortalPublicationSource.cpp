@@ -148,8 +148,13 @@ RootShadowNode::Unshared PortalPublicationSource::shadowTreeWillCommit(
 
 RootShadowNode::Shared PortalPublicationSource::rootForState(
     SurfaceId surface, Tag tag, const State::Shared& state) const {
-  auto concrete = dynamic_cast<const BottomSheetViewShadowNode::ConcreteState*>(state.get());
-  if (!concrete || !concrete->getData().portalPublicationId.starts_with(prefix_)) return nullptr;
+  return rootForDeliveredStates(surface, {{tag, state}}, false);
+}
+
+RootShadowNode::Shared PortalPublicationSource::rootForDeliveredStates(
+    SurfaceId surface, const std::map<Tag, State::Shared>& states,
+    bool requireCompleteSource) const {
+  if (states.empty()) return nullptr;
   auto manager = manager_.lock();
   if (!manager) return nullptr;
   RootShadowNode::Shared liveRoot;
@@ -166,16 +171,38 @@ RootShadowNode::Shared PortalPublicationSource::rootForState(
   RootShadowNode::Shared result;
   {
     std::lock_guard lock(mutex_);
-    auto entry = finalRoots_.find(concrete->portalStateId());
-    if (entry == finalRoots_.end() || entry->second.ambiguous || entry->second.state.lock() != state) return nullptr;
-    result = entry->second.root.lock();
-    if (!result || (result != liveRoot && result != baseRoot &&
-        std::find(history_.begin(), history_.end(), result) == history_.end())) return nullptr;
+    for (const auto& [tag, state] : states) {
+      auto concrete = dynamic_cast<const BottomSheetViewShadowNode::ConcreteState*>(state.get());
+      if (!concrete || !concrete->getData().portalPublicationId.starts_with(prefix_)) return nullptr;
+      auto entry = finalRoots_.find(concrete->portalStateId());
+      if (entry == finalRoots_.end() || entry->second.ambiguous || entry->second.state.lock() != state) return nullptr;
+      auto root = entry->second.root.lock();
+      if (!root || (result && result != root)) return nullptr;
+      result = std::move(root);
+    }
+    if (result != liveRoot && result != baseRoot &&
+        std::find(history_.begin(), history_.end(), result) == history_.end()) return nullptr;
   }
   if (result->getSurfaceId() != surface ||
       &result->getFamily() != &liveRoot->getFamily()) return nullptr;
-  auto index = indexPortalShadowNodes(*result);
-  return index && index->contains(tag) && index->at(tag)->getState() == state ? result : nullptr;
+  // Share tree acquisition and indexing only within this query. Every supplied
+  // State still needs its own exact identity, root and tag agreement.
+  auto nodes = indexPortalShadowNodes(*result);
+  if (!nodes) return nullptr;
+  for (const auto& [tag, state] : states) {
+    auto node = nodes->find(tag);
+    if (node == nodes->end() || node->second->getState() != state) return nullptr;
+  }
+  if (requireCompleteSource) {
+    size_t sheetCount = 0;
+    for (const auto& [tag, node] : *nodes) {
+      if (!dynamic_cast<const BottomSheetViewShadowNode*>(node)) continue;
+      if (!states.contains(tag)) return nullptr;
+      ++sheetCount;
+    }
+    if (sheetCount != states.size()) return nullptr;
+  }
+  return result;
 }
 
 std::optional<std::vector<Tag>> PortalPublicationSource::sheetTagsForState(
@@ -193,22 +220,7 @@ std::optional<std::vector<Tag>> PortalPublicationSource::sheetTagsForState(
 
 RootShadowNode::Shared PortalPublicationSource::rootForStates(
     SurfaceId surface, const std::map<Tag, State::Shared>& states) const {
-  RootShadowNode::Shared result;
-  for (const auto& [tag, state] : states) {
-    auto root = rootForState(surface, tag, state);
-    if (!root || (result && result != root)) return nullptr;
-    result = std::move(root);
-  }
-  if (!result) return nullptr;
-  auto nodes = indexPortalShadowNodes(*result);
-  if (!nodes) return nullptr;
-  size_t sheetCount = 0;
-  for (const auto& [tag, node] : *nodes) {
-    if (!dynamic_cast<const BottomSheetViewShadowNode*>(node)) continue;
-    if (!states.contains(tag)) return nullptr;
-    ++sheetCount;
-  }
-  return sheetCount == states.size() ? result : nullptr;
+  return rootForDeliveredStates(surface, states, true);
 }
 
 std::optional<PortalSourceReceipt> PortalPublicationSource::receiptForState(

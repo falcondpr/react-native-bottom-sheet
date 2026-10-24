@@ -77,6 +77,9 @@ class PortalPublicationSource final : private UIManagerCommitHook {
       const RootShadowNode::Unshared& proposal) noexcept override;
 
   void rememberFinalRoot(const RootShadowNode::Shared& root) const;
+  RootShadowNode::Shared rootForDeliveredStates(
+      SurfaceId surface, const std::map<Tag, State::Shared>& states,
+      bool requireCompleteSource) const;
   struct FinalRoot {
     std::weak_ptr<const State> state;
     std::weak_ptr<const RootShadowNode> root;

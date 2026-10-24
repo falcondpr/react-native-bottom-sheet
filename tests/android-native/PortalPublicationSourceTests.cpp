@@ -95,6 +95,7 @@ class LaterLayoutHook final : public UIManagerCommitHook {
  public:
   bool relative = false;
   State::Shared restoredState;
+  Tag restoredTag = 14;
   const ViewComponentDescriptor& descriptor;
   const ContextContainer& context;
   LaterLayoutHook(const ViewComponentDescriptor& descriptor, const ContextContainer& context)
@@ -110,7 +111,7 @@ class LaterLayoutHook final : public UIManagerCommitHook {
     auto result = std::static_pointer_cast<RootShadowNode>(root->cloneTree(wrapper.getFamily(),
         [&](const ShadowNode& node) { return node.clone({.props = props}); }));
     if (restoredState) {
-      const auto& sheet = *indexPortalShadowNodes(*result)->at(14);
+      const auto& sheet = *indexPortalShadowNodes(*result)->at(restoredTag);
       result = std::static_pointer_cast<RootShadowNode>(result->cloneTree(sheet.getFamily(),
           [&](const ShadowNode& node) { return node.clone({.state = restoredState}); }));
     }
@@ -476,6 +477,35 @@ int main() {
            !f.source->rootForStates(1, {{14, a}, {24, b}}) &&
            !f.source->rootForStates(1, {{24, b}, {34, nonportal}}) &&
            !f.source->rootForStates(1, {{14, a}, {24, b}, {34, nonportal}, {99, nonportal}}));
+    auto copied = std::make_shared<BottomSheetViewState>(data(b));
+    auto forged = std::make_shared<const BottomSheetViewShadowNode::ConcreteState>(copied, *b);
+    expect("complete source validates exact identity and tag agreement for every nonfirst State",
+           !f.source->rootForStates(1, {{14, a}, {24, nullptr}, {34, nonportal}}) &&
+           !f.source->rootForStates(1, {{14, a}, {24, forged}, {34, nonportal}}) &&
+           !f.source->rootForStates(1, {{14, a}, {24, b}, {34, b}}));
+  }
+
+  {
+    Fixture f;
+    auto& tree = f.tree();
+    auto a = f.make(14, true, "relative", {}, true);
+    auto b = f.make(24, true, "relative", {}, true);
+    auto area = f.make(11, false, "relative", {
+        f.make(31, false, "static", {f.make(13, true, "absolute", {a}, false, true)}),
+        f.make(23, true, "absolute", {b}, false, true)});
+    LaterLayoutHook later(f.views, *f.context);
+    f.manager->registerCommitHook(later);
+    auto first = f.commit(tree, {area});
+    auto reused = delivered(first, 24);
+    later.relative = true;
+    later.restoredTag = 24;
+    later.restoredState = reused;
+    auto current = delivered(f.commit(tree, {area}), 14);
+    expect("one valid first State cannot hide ambiguity of a later State reused by a subsequent hook",
+           current && reused &&
+           f.source->rootForState(1, 14, current) == tree.getCurrentRevision().rootShadowNode &&
+           !f.source->rootForStates(1, {{14, current}, {24, reused}}));
+    f.manager->unregisterCommitHook(later);
   }
 
   {
