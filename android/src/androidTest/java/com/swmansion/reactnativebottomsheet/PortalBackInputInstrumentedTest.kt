@@ -26,6 +26,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -52,6 +53,52 @@ class PortalBackInputInstrumentedTest {
   @Test
   fun optedOutWindowKeepsLegacyKeyBackAndAsyncHostDefaultWorking() =
     exerciseNativeBack(LegacyRecordingReactActivity::class.java)
+
+  @Test
+  fun systemBackWithoutHandlerEntersReactNativeOnce() =
+    exerciseBackWithoutHandler(RecordingReactActivity::class.java)
+
+  @Test
+  fun legacyBackWithoutHandlerEntersReactNativeOnce() =
+    exerciseBackWithoutHandler(LegacyRecordingReactActivity::class.java)
+
+  // Use a fresh host without an extra dispatcher callback: modern Back may invoke that callback
+  // directly, and the async-default fixture used by exerciseNativeBack only forwards its first
+  // Back.
+  private fun exerciseBackWithoutHandler(activityClass: Class<out ReactActivity>) {
+    val focused = CountDownLatch(1)
+    val laidOut = CountDownLatch(1)
+    val requests = AtomicInteger()
+    lateinit var sheet: BottomSheetView
+    ActivityScenario.launch(activityClass).use { scenario ->
+      scenario.onActivity { activity ->
+        val root = PortalBackTestRoot(activity)
+        activity.setContentView(root)
+        sheet =
+          mountedPortal(activity, root, laidOut, hasCloseRequestHandler = false) {
+            requests.incrementAndGet()
+          }
+        val decor = activity.window.decorView
+        decor.viewTreeObserver.addOnWindowFocusChangeListener { if (it) focused.countDown() }
+        if (decor.hasWindowFocus()) focused.countDown()
+      }
+      try {
+        assertTrue("Testhost did not receive focus", focused.await(5, TimeUnit.SECONDS))
+        assertTrue("Portal did not receive layout", laidOut.await(5, TimeUnit.SECONDS))
+        scenario.onActivity { assertTrue(sheet.requestFocus()) }
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        instrumentation.waitForIdleSync()
+        scenario.onActivity { activity ->
+          assertEquals(1, RecordingReactActivityDelegate.backEntryCount.get())
+          assertEquals(0, requests.get())
+          assertFalse(activity.isFinishing)
+        }
+      } finally {
+        scenario.onActivity { sheet.destroy() }
+      }
+    }
+  }
 
   @Test
   fun aHostCallbackEnabledAfterMountCannotBypassThePortalCloseRequest() {
@@ -187,15 +234,6 @@ class PortalBackInputInstrumentedTest {
         assertEquals(2, requests.get())
         assertEquals(1, defaults.get())
         assertEquals(1, RecordingReactActivityDelegate.backEntryCount.get())
-        scenario.onActivity { sheet.setHasCloseRequestHandler(false) }
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-        assertTrue(
-          "Back without a handler did not reach the host",
-          hostDefault.tryAcquire(5, TimeUnit.SECONDS),
-        )
-        assertEquals(2, requests.get())
-        assertEquals(2, defaults.get())
-        assertEquals(2, RecordingReactActivityDelegate.backEntryCount.get())
       } finally {
         scenario.onActivity { sheet.destroy() }
       }
@@ -206,6 +244,7 @@ class PortalBackInputInstrumentedTest {
     context: Context,
     root: FrameLayout,
     laidOut: CountDownLatch,
+    hasCloseRequestHandler: Boolean = true,
     onRequest: () -> Unit,
   ) =
     BottomSheetView(context)
@@ -223,7 +262,7 @@ class PortalBackInputInstrumentedTest {
         isFocusableInTouchMode = true
         animateIn = false
         modal = true
-        setHasCloseRequestHandler(true)
+        setHasCloseRequestHandler(hasCloseRequestHandler)
         setDetents(listOf(mapOf("value" to 0.0), mapOf("value" to 300.0)))
         setIndex(1)
         addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
