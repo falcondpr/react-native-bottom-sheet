@@ -167,6 +167,8 @@ UIView *BottomSheetAccessibilityContainerView(id origin) {
                                                     actionOrigin:(id)origin
                                                    presentations:
     (NSArray<BottomSheetPortalPresentation *> *)presentations
+                                                  windowBoundary:(UIView *)windowBoundary
+                                                  windowIdentity:(BottomSheetPresentationIdentity *)windowIdentity
                                                    orderProvider:
     (BottomSheetPresentationOrderProvider)orderProvider
 {
@@ -176,12 +178,21 @@ UIView *BottomSheetAccessibilityContainerView(id origin) {
   for (BottomSheetPortalPresentation *presentation in presentations) {
     if (presentation.identity == callerIdentity) caller = presentation;
   }
-  if (!caller.isEligible) {
+  if (!caller.isEligible && !windowIdentity) {
     return BottomSheetPresentationEscapeRoutePassThrough;
   }
-  UIWindow *expectedWindow = caller.owner.window;
-  auto callerRoot = [caller.observer currentRootForOwner:caller.owner];
-  if (!callerRoot) return BottomSheetPresentationEscapeRoutePassThrough;
+  UIWindow *expectedWindow = windowIdentity ? windowBoundary.window : caller.owner.window;
+  if (windowIdentity && !expectedWindow) return BottomSheetPresentationEscapeRoutePassThrough;
+  UIView *originView = BottomSheetAccessibilityContainerView(origin);
+  // Underlying independent panels cannot take input from the window-modal
+  // presentation. Its physically contained contexts still use action origin.
+  if (windowIdentity && (!originView || ![originView isDescendantOfView:windowBoundary])) {
+    return [BottomSheetPresentationEscapeResolver routeForCallerIdentity:callerIdentity
+        topPresentationIdentity:windowIdentity];
+  }
+  if (presentations == nil) return BottomSheetPresentationEscapeRoutePassThrough;
+  auto callerRoot = caller ? [caller.observer currentRootForOwner:caller.owner] : RootShadowNode::Shared{};
+  if (caller && !callerRoot) return BottomSheetPresentationEscapeRoutePassThrough;
   auto hierarchy = [BottomSheetNativeHierarchySnapshot new];
   auto query = collectPortalPresentations(presentations, hierarchy);
   if (!query) return BottomSheetPresentationEscapeRoutePassThrough;
@@ -197,7 +208,6 @@ UIView *BottomSheetAccessibilityContainerView(id origin) {
   }
   auto isolation = [self projectionFromQuery:*query hierarchy:hierarchy orderProvider:orderProvider];
   if (!isolation) return BottomSheetPresentationEscapeRoutePassThrough;
-  UIView *originView = BottomSheetAccessibilityContainerView(origin);
   if (!originView || (originView != expectedWindow && originView.window != expectedWindow)) {
     return BottomSheetPresentationEscapeRoutePassThrough;
   }
@@ -220,8 +230,8 @@ UIView *BottomSheetAccessibilityContainerView(id origin) {
       }
     }
   }
-  if (!selected || ambiguous || caller.owner.window != expectedWindow ||
-      [caller.observer currentRootForOwner:caller.owner] != callerRoot) {
+  if (ambiguous || (caller && (caller.owner.window != expectedWindow ||
+      [caller.observer currentRootForOwner:caller.owner] != callerRoot))) {
     return BottomSheetPresentationEscapeRoutePassThrough;
   }
   for (const auto& [context, members] : groups) {
@@ -237,6 +247,10 @@ UIView *BottomSheetAccessibilityContainerView(id origin) {
   }
   if (BottomSheetAccessibilityContainerView(origin) != originView || ![hierarchy validate]) {
     return BottomSheetPresentationEscapeRoutePassThrough;
+  }
+  if (!selected) {
+    return [BottomSheetPresentationEscapeResolver routeForCallerIdentity:callerIdentity
+        topPresentationIdentity:windowIdentity];
   }
   for (const auto& member : groups.at(*selected)) {
     if ([isolation.topPresentationIdentities containsObject:member.presentation.identity]) {

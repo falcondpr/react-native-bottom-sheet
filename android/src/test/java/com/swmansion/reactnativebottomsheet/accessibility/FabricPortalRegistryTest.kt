@@ -155,6 +155,7 @@ class FabricPortalRegistryTest {
         f.posted.removeAt(0).run()
 
         assertEquals(listOf(f.a, f.b), result?.get(2)?.retainedOwners)
+        assertEquals(listOf(listOf(14, 24)), f.receiptQueries)
         assertEquals(2, f.readStates.size)
         f.readStates.forEach { states ->
           assertSame(current, states[14])
@@ -388,7 +389,7 @@ class FabricPortalRegistryTest {
         } as UIManager
       val requestedSurfaces = mutableSetOf<Int>()
       val source =
-        object : FabricPublicationLease {
+        object : TestFabricPublicationLease() {
           override fun bootstrap() = Unit
 
           override fun release() = Unit
@@ -554,6 +555,7 @@ class FabricPortalRegistryTest {
         if (method.name == "resolveView") registry[args!![0] as Int] else null
       } as UIManager
     val readStates = mutableListOf<Map<Int, StateWrapper?>>()
+    val receiptQueries = mutableListOf<List<Int>>()
     val receiptOverrides = mutableMapOf<Int, FabricPortalReceipt>()
     var projectionResult: FabricPortalIsolationProjection? =
       FabricPortalIsolationProjection(intArrayOf(), intArrayOf(11, 13, 13, 14, 21, 23, 23, 24))
@@ -563,10 +565,19 @@ class FabricPortalRegistryTest {
     val contextPaths =
       mutableMapOf(11 to listOf(11), 14 to listOf(11), 21 to listOf(21), 24 to listOf(21))
     val source =
-      object : FabricPublicationLease {
+      object : TestFabricPublicationLease() {
         override fun bootstrap() = Unit
 
         override fun release() = Unit
+
+        override fun receipts(
+          surfaceId: Int,
+          tags: List<Int>,
+          states: Map<Int, StateWrapper?>,
+        ): List<FabricPortalReceipt>? {
+          receiptQueries.add(tags.toList())
+          return super.receipts(surfaceId, tags, states)
+        }
 
         override fun contextPath(
           surfaceId: Int,

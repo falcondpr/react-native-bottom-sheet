@@ -8,8 +8,11 @@ NS_ASSUME_NONNULL_BEGIN
 // callback; obsolete masks are restored after it returns.
 @interface BottomSheetAccessibilityMaskLedger : NSObject
 
-- (void)reconcileHiddenBranches:(NSSet<UIView *> *)hiddenBranches
-       beforeRestoringBranches:(nullable void (NS_NOESCAPE ^)(void))transferBoundaries;
+// nil keeps the settled portal interface while it moves or its source is
+// unavailable. Window modality still follows the current Active lifecycle.
+- (void)reconcilePortalHiddenBranches:(nullable NSSet<UIView *> *)portalHiddenBranches
+                windowHiddenBranches:(NSSet<UIView *> *)windowHiddenBranches
+             beforeRestoringBranches:(nullable void (NS_NOESCAPE ^)(void))transferBoundaries;
 
 // The mounting adapter verifies these exact native instances before Delete.
 // Restore their leases before the registry can recycle them into other families.

@@ -165,11 +165,4 @@ static std::shared_ptr<BottomSheetViewProps> BottomSheetMakeTestProps(
   return BottomSheetReadPresentationIvar(coordinator, "_window");
 }
 
-+ (nullable BottomSheetPresentationIdentity *)windowEscapeOwnerForController:
-    (BottomSheetPresentationController *)controller
-{
-  id coordinator = BottomSheetReadPresentationIvar(controller, "_coordinator");
-  return BottomSheetReadPresentationIvar(coordinator, "_escapeOwnerIdentity");
-}
-
 @end

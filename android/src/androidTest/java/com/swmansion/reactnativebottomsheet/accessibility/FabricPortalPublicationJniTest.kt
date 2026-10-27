@@ -8,7 +8,9 @@ import com.facebook.react.uimanager.StateWrapper
 import com.facebook.soloader.SoLoader
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.BeforeClass
@@ -40,7 +42,12 @@ class FabricPortalPublicationJniTest {
           // Synthetic source membership tests transport, not native attachment acceptance.
           val projection =
             requireNotNull(
-              lease.isolation(1, mapOf(14 to state), receipt.nativeParents, mapOf(13 to listOf(14)))
+              lease.isolation(
+                1,
+                mapOf(14 to state),
+                receipt.nativeParents,
+                mapOf(13 to listOf(14)),
+              ),
             )
           assertEquals(emptySet<Int>(), projection.hiddenBranches)
           assertEquals(
@@ -49,11 +56,11 @@ class FabricPortalPublicationJniTest {
           )
           val released =
             requireNotNull(
-              lease.isolation(1, mapOf(14 to state), receipt.nativeParents, emptyMap())
+              lease.isolation(1, mapOf(14 to state), receipt.nativeParents, emptyMap()),
             )
           assertEquals(emptyMap<Int, Set<Int>>(), released.retainedChildren)
           assertNull(
-            lease.isolation(1, mapOf(14 to state), receipt.nativeParents, mapOf(13 to emptyList()))
+            lease.isolation(1, mapOf(14 to state), receipt.nativeParents, mapOf(13 to emptyList())),
           )
           assertNull(lease.receipt(2, 14, mapOf(14 to state)))
           assertNull(lease.receipt(1, 99, mapOf(14 to state)))
@@ -61,7 +68,7 @@ class FabricPortalPublicationJniTest {
           assertNull(lease.receipt(1, 14, mapOf(14 to state)))
           assertNull(lease.contextPath(1, 13, mapOf(14 to state)))
           assertNull(
-            lease.isolation(1, mapOf(14 to state), receipt.nativeParents, mapOf(13 to listOf(14)))
+            lease.isolation(1, mapOf(14 to state), receipt.nativeParents, mapOf(13 to listOf(14))),
           )
           lease.release()
           lease.release()
@@ -107,7 +114,7 @@ class FabricPortalPublicationJniTest {
               mapOf(14 to delayed),
               oldReceipt.nativeParents,
               mapOf(13 to listOf(14)),
-            )
+            ),
           )
         val newProjection =
           requireNotNull(
@@ -116,7 +123,7 @@ class FabricPortalPublicationJniTest {
               mapOf(14 to current),
               newReceipt.nativeParents,
               mapOf(13 to listOf(14)),
-            )
+            ),
           )
         assertEquals(
           mapOf(11 to setOf(31), 31 to setOf(13), 13 to setOf(14)),
@@ -157,19 +164,28 @@ class FabricPortalPublicationJniTest {
         val complete = mapOf(14 to states[0], 15 to states[1])
         assertNull(lease.receipt(1, 14, mapOf(14 to states[0])))
         assertNull(lease.receipt(1, 14, mapOf(14 to states[0], 15 to null)))
-        val first = requireNotNull(lease.receipt(1, 14, complete))
-        val second = requireNotNull(lease.receipt(1, 15, complete))
+        val receipts = requireNotNull(lease.receipts(1, listOf(14, 15), complete))
+        assertEquals(2, receipts.size)
+        val first = receipts[0]
+        val second = receipts[1]
+        assertSame(first.logicalTags, second.logicalTags)
+        assertSame(first.nativeParents, second.nativeParents)
+        val fresh = requireNotNull(lease.receipts(1, listOf(14, 15), complete))
+        assertNotSame(first.logicalTags, fresh[0].logicalTags)
+        assertNotSame(first.nativeParents, fresh[0].nativeParents)
+        assertNull(lease.receipts(1, listOf(14, 14), complete))
+        assertNull(lease.receipts(1, listOf(14, 99), complete))
         assertEquals(first.publicationId, second.publicationId)
         assertEquals(13, first.hostTag)
         assertEquals(listOf(11), first.contexts)
         assertEquals(13, second.hostTag)
         assertEquals(listOf(11), second.contexts)
         assertNull(
-          lease.isolation(1, mapOf(14 to states[0]), first.nativeParents, mapOf(13 to listOf(14)))
+          lease.isolation(1, mapOf(14 to states[0]), first.nativeParents, mapOf(13 to listOf(14))),
         )
         val both =
           requireNotNull(
-            lease.isolation(1, complete, first.nativeParents, mapOf(13 to listOf(14, 15)))
+            lease.isolation(1, complete, first.nativeParents, mapOf(13 to listOf(14, 15))),
           )
         assertEquals(setOf(14, 15), both.retainedChildren[13])
         val one =
@@ -187,7 +203,7 @@ class FabricPortalPublicationJniTest {
     @JvmStatic
     fun loadNativeBoundary() {
       assumeTrue(
-        InstrumentationRegistry.getArguments().getString("bottomSheetPublicationJni") == "true"
+        InstrumentationRegistry.getArguments().getString("bottomSheetPublicationJni") == "true",
       )
       SoLoader.init(InstrumentationRegistry.getInstrumentation().context, OpenSourceMergedSoMapping)
       SoLoader.loadLibrary("fabricjni")

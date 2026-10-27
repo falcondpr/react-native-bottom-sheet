@@ -18,7 +18,7 @@ import java.util.WeakHashMap
 @UiThread
 internal class PortalAccessibilityIsolationCoordinator(
   private val mountAdapter: ReactNativeMountReconciliationAdapter =
-    ReactNativeMountReconciliationAdapter.shared
+    ReactNativeMountReconciliationAdapter.shared,
 ) {
   internal interface Lease {
     fun release()
@@ -56,7 +56,8 @@ internal class PortalAccessibilityIsolationCoordinator(
         if (mountCallbacks.containsKey(root)) return@forEach
         val callbacks = ReactNativeMountReconciliationAdapter.resolve(root) ?: return@forEach
         val callback = MountReconciliationCallback(windowRoot, root, callbacks.identity)
-        callback.observation = mountAdapter.observe(callbacks, callback)
+        // Each root keeps its own lifetime lease; one manager batch reads this window once.
+        callback.observation = mountAdapter.observe(callbacks, this, callback)
         mountCallbacks[root] = callback
         callback.observation?.requestReconciliation()
       }
@@ -115,10 +116,12 @@ internal class PortalAccessibilityIsolationCoordinator(
     override fun invoke() {
       if (observation == null) return
       val windowRoot = windowRoot.get()
-      if (windowRoot == null || root.get() == null) {
+      if (windowRoot == null) {
         remove()
         return
       }
+      // A collected root still requests the current window policy, including the other leases.
+      if (root.get() == null) remove()
       onPolicyChanged(
         windowRoot,
         PortalPresentationCoordinator.currentAccessibilityPolicy(windowRoot),

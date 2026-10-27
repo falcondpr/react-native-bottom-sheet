@@ -58,9 +58,12 @@ internal class ReactNativeMountReconciliationAdapter(
     fun remove()
   }
 
+  private class ReconciliationCallback(val key: Any, val reconcile: () -> Unit) {
+    var active = true
+  }
+
   private inner class ManagerState(val boundary: ReactNativeMountCallbacks) {
-    val callbacks = mutableListOf<() -> Unit>()
-    var reconciliationPosted = false
+    val callbacks = mutableListOf<ReconciliationCallback>()
     var reconciliationRequested = false
     var publicationSource: FabricPublicationLease? = null
     var active = true
@@ -93,26 +96,48 @@ internal class ReactNativeMountReconciliationAdapter(
     }
 
     fun scheduleWork() {
-      if (!active || reconciliationPosted) return
-      reconciliationPosted = true
-      postToUiThread(
-        Runnable {
-          reconciliationPosted = false
-          if (!active) return@Runnable
-          if (boundary.isFabric && publicationSource == null) {
-            publicationSource = acquirePublicationSource(boundary.identity)
-            publicationSource?.bootstrap()
-          }
-          if (active && reconciliationRequested) {
-            reconciliationRequested = false
-            callbacks.toList().forEach { it() }
-          }
-        },
-      )
+      if (active) queueManager(this)
     }
   }
 
   private val managers = IdentityHashMap<Any, ManagerState>()
+  private val pendingManagers = linkedSetOf<ManagerState>()
+  private var workPosted = false
+
+  private fun queueManager(state: ManagerState) {
+    pendingManagers.add(state)
+    if (workPosted) return
+    workPosted = true
+    postToUiThread(
+      Runnable {
+        workPosted = false
+        val batch = pendingManagers.toList()
+        pendingManagers.clear()
+        // Install every pending source before any window attempts an all-manager read.
+        batch.forEach {
+          if (it.active && it.boundary.isFabric && it.publicationSource == null) {
+            it.publicationSource = acquirePublicationSource(it.boundary.identity)
+            it.publicationSource?.bootstrap()
+          }
+        }
+        val callbacks = batch.flatMap {
+          if (!it.active || !it.reconciliationRequested) emptyList()
+          else {
+            it.reconciliationRequested = false
+            it.callbacks.toList()
+          }
+        }
+        val reconciled = IdentityHashMap<Any, Boolean>()
+        callbacks.forEach {
+          if (it.active && !reconciled.containsKey(it.key)) {
+            it.reconcile()
+            // A callback that removed itself did not finish its shared lifetime's cleanup.
+            if (it.active) reconciled[it.key] = true
+          }
+        }
+      },
+    )
+  }
 
   /** Fresh UI input reuses the installed source; unavailable bootstrap is unresolved. */
   @UiThread
@@ -139,13 +164,15 @@ internal class ReactNativeMountReconciliationAdapter(
   /** Reconciliation runs in queued UI work and must read current facts when invoked. */
   fun observe(
     boundary: ReactNativeMountCallbacks,
+    reconciliationKey: Any? = null,
     reconcile: () -> Unit,
   ): Observation {
     val state =
       managers.getOrPut(boundary.identity) {
         ManagerState(boundary).also { boundary.addListener(it.listener) }
       }
-    state.callbacks.add(reconcile)
+    val callback = ReconciliationCallback(reconciliationKey ?: reconcile, reconcile)
+    state.callbacks.add(callback)
     if (boundary.isFabric) state.scheduleWork()
     return object : Observation {
       private var active = true
@@ -172,7 +199,8 @@ internal class ReactNativeMountReconciliationAdapter(
       override fun remove() {
         if (!active) return
         active = false
-        state.callbacks.remove(reconcile)
+        callback.active = false
+        state.callbacks.remove(callback)
         if (state.callbacks.isEmpty()) {
           state.active = false
           managers.remove(state.boundary.identity)

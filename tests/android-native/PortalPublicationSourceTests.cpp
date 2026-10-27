@@ -87,6 +87,29 @@ State::Shared delivered(const MountingTransaction& transaction, Tag tag) {
   return result;
 }
 
+// Source-only fixture adapter: supply the exact source's complete inventory to
+// the production batch query even when an assertion concerns one owner.
+struct TestPortalSourceReceipt : PortalSourceReceipt {
+  std::vector<Tag> logicalTags;
+  std::map<Tag, Tag> nativeParents;
+};
+
+std::optional<TestPortalSourceReceipt> receiptForState(
+    const PortalPublicationSource& source, SurfaceId surface, Tag tag, const State::Shared& state) {
+  auto root = source.rootForState(surface, tag, state);
+  if (!root) return std::nullopt;
+  std::map<Tag, State::Shared> states;
+  auto nodes = indexPortalShadowNodes(*root);
+  if (!nodes) return std::nullopt;
+  for (const auto& [nodeTag, node] : *nodes) {
+    if (dynamic_cast<const BottomSheetViewShadowNode*>(node)) states.emplace(nodeTag, node->getState());
+  }
+  auto snapshot = source.receiptsForStates(surface, {tag}, states);
+  if (!snapshot) return std::nullopt;
+  return TestPortalSourceReceipt{std::move(snapshot->receipts.front()),
+      std::move(snapshot->logicalTags), std::move(snapshot->nativeParents)};
+}
+
 const BottomSheetViewState& data(const State::Shared& state) {
   return std::static_pointer_cast<const BottomSheetViewShadowNode::ConcreteState>(state)->getData();
 }
@@ -166,7 +189,7 @@ int main() {
            data(native).contentRegionInset == 24 &&
            root == tree.getCurrentRevision().rootShadowNode && root &&
            discoverPortalContexts(*root)->hostContexts.at(13) == 11);
-    auto receipt = f.source->receiptForState(1, 14, native);
+    auto receipt = receiptForState(*f.source, 1, 14, native);
     expect("expected native structure includes background but preserves the flattened logical context",
            receipt && receipt->logicalTags == std::vector<Tag>{1, 11, 12, 13, 14} &&
            receipt->nativeParents == std::map<Tag, Tag>{{1, 0}, {12, 1}, {13, 1}, {14, 13}} &&
@@ -358,14 +381,33 @@ int main() {
     auto areaB = f.make(21, false, "relative", {
         f.make(23, true, "absolute", {f.make(24, true, "relative", {}, true)}, false, true)});
     auto mount = f.commit(tree, {areaA, areaB});
-    auto a = f.source->receiptForState(1, 14, delivered(mount, 14));
-    auto b = f.source->receiptForState(1, 24, delivered(mount, 24));
+    std::map<Tag, State::Shared> states{{14, delivered(mount, 14)}, {24, delivered(mount, 24)}};
+    auto snapshot = f.source->receiptsForStates(1, {14, 24}, states);
+    const auto* a = snapshot ? &snapshot->receipts[0] : nullptr;
+    const auto* b = snapshot ? &snapshot->receipts[1] : nullptr;
     expect("receipts preserve one publication identity and separate local host context paths",
            a && b && !a->publicationId.empty() && a->publicationId == b->publicationId &&
            a->host == 13 && a->contexts == std::vector<Tag>{11} &&
            a->ancestors == std::vector<Tag>{14, 13, 11, 1} &&
            b->host == 23 && b->contexts == std::vector<Tag>{21} &&
            b->ancestors == std::vector<Tag>{24, 23, 21, 1});
+    expect("one batch contains shared complete metadata and preserves requested owner order",
+           snapshot && snapshot->logicalTags == std::vector<Tag>{1, 11, 13, 14, 21, 23, 24} &&
+           snapshot->nativeParents.at(14) == 13 && snapshot->nativeParents.at(24) == 23 &&
+           f.source->receiptsForStates(1, {24, 14}, states)->receipts.front().host == 23);
+    expect("a batch rejects incomplete inventory and duplicate or unknown requested owners atomically",
+           !f.source->receiptsForStates(1, {14}, {{14, states.at(14)}}) &&
+           !f.source->receiptsForStates(1, {14, 14}, states) &&
+           !f.source->receiptsForStates(1, {14, 99}, states) &&
+           !f.source->receiptsForStates(1, {}, states));
+    auto next = f.commit(tree, {areaA, areaB, f.make(41, true, "relative")});
+    std::map<Tag, State::Shared> current{{14, delivered(next, 14)}, {24, delivered(next, 24)}};
+    auto fresh = f.source->receiptsForStates(1, {14, 24}, current);
+    expect("a new query rebuilds current metadata without mutating an earlier query snapshot",
+           snapshot && fresh && snapshot->receipts.front().publicationId != fresh->receipts.front().publicationId &&
+           !snapshot->nativeParents.contains(41) && fresh->nativeParents.at(41) == 1);
+    expect("batch source validation still rejects mixed exact States after a newer publication",
+           !f.source->receiptsForStates(1, {14, 24}, {{14, states.at(14)}, {24, current.at(24)}}));
   }
 
   {
@@ -376,8 +418,8 @@ int main() {
     auto outerSheet = f.make(14, true, "relative", {innerHost}, true);
     auto outerHost = f.make(13, true, "absolute", {outerSheet}, false, true);
     auto mount = f.commit(tree, {f.make(11, false, "relative", {outerHost})});
-    auto outer = f.source->receiptForState(1, 14, delivered(mount, 14));
-    auto inner = f.source->receiptForState(1, 24, delivered(mount, 24));
+    auto outer = receiptForState(*f.source, 1, 14, delivered(mount, 14));
+    auto inner = receiptForState(*f.source, 1, 24, delivered(mount, 24));
     expect("an outer presentation receipt does not adopt its descendant portal context",
            outer && inner && outer->host == 13 && outer->contexts == std::vector<Tag>{11} &&
            inner->host == 23 && inner->contexts == std::vector<Tag>{14, 11});
@@ -394,8 +436,8 @@ int main() {
     auto first = delivered(f.commit(tree, {area}), 14);
     later.relative = true;
     auto second = delivered(f.commit(tree, {area}), 14);
-    auto delayed = f.source->receiptForState(1, 14, first);
-    auto current = f.source->receiptForState(1, 14, second);
+    auto delayed = receiptForState(*f.source, 1, 14, first);
+    auto current = receiptForState(*f.source, 1, 14, second);
     expect("reading a delayed receipt never substitutes the newer containing block",
            delayed && current && delayed->publicationId != current->publicationId &&
            delayed->contexts == std::vector<Tag>{11} && current->contexts == std::vector<Tag>{31} &&
@@ -411,9 +453,9 @@ int main() {
         f.make(14, true, "relative", {}, true)}), 14);
     expect("a nonportal or unavailable state never supplies a root fallback receipt",
            f.source->rootForState(1, 14, standalone) &&
-           !f.source->receiptForState(1, 14, standalone) &&
-           !f.source->receiptForState(2, 14, standalone) &&
-           !f.source->receiptForState(1, 14, nullptr));
+           !receiptForState(*f.source, 1, 14, standalone) &&
+           !receiptForState(*f.source, 2, 14, standalone) &&
+           !receiptForState(*f.source, 1, 14, nullptr));
   }
 
   {
@@ -430,7 +472,7 @@ int main() {
         f.make(13, true, "absolute", {f.make(14, true, "relative", {}, true)}, false, true)}), 14);
     expect("restarting a surface with reused tags rejects States from its retired lifetime",
            oldRoot->getFamilyShared() != restarted.getCurrentRevision().rootShadowNode->getFamilyShared() &&
-           !f.source->rootForState(1, 14, old) && !f.source->receiptForState(1, 14, old) &&
+           !f.source->rootForState(1, 14, old) && !receiptForState(*f.source, 1, 14, old) &&
            f.source->rootForState(1, 14, fresh) == restarted.getCurrentRevision().rootShadowNode);
   }
 
@@ -519,7 +561,7 @@ int main() {
     auto modal = f.modals.createShadowNode({.props = std::make_shared<ModalHostViewProps>(),
         .children = std::make_shared<const Children>(Children{area}), .state = state}, family);
     auto mount = f.commit(tree, {f.make(21, false, "relative", {modal})});
-    auto receipt = f.source->receiptForState(1, 14, delivered(mount, 14));
+    auto receipt = receiptForState(*f.source, 1, 14, delivered(mount, 14));
     expect("source ancestry ends at the native Modal owner without inheriting its JSX parent",
            receipt && receipt->contexts == std::vector<Tag>{11} &&
            receipt->ancestors == std::vector<Tag>{14, 13, 11, 30});
@@ -541,8 +583,8 @@ int main() {
         RawProps(folly::dynamic::object("nativeOverlay", false)));
     auto secondMount = f.commit(tree, tree.getCurrentRevision().rootShadowNode->cloneTree(
         overlay->getFamily(), [&](const ShadowNode& node) { return node.clone({.props = inlineProps}); })->getChildren());
-    auto oldReceipt = f.source->receiptForState(1, 14, firstState);
-    auto currentReceipt = f.source->receiptForState(1, 14, delivered(secondMount, 14));
+    auto oldReceipt = receiptForState(*f.source, 1, 14, firstState);
+    auto currentReceipt = receiptForState(*f.source, 1, 14, delivered(secondMount, 14));
     expect("nativeOverlay ancestry and local nesting follow its native root across a return to inline",
            overlay->getTraits().check(ShadowNodeTraits::Trait::RootNodeKind) &&
            oldReceipt && oldReceipt->contexts == std::vector<Tag>{11} &&
@@ -567,7 +609,7 @@ int main() {
     auto mount = f.commit(tree, {f.make(5, false, "relative", {outsideHost, overlay})});
     auto root = tree.getCurrentRevision().rootShadowNode;
     auto graph = discoverPortalContexts(*root);
-    auto receipt = f.source->receiptForState(1, 14, delivered(mount, 14));
+    auto receipt = receiptForState(*f.source, 1, 14, delivered(mount, 14));
     auto nativeRoot = static_cast<const BottomSheetViewShadowNode*>(graph->nodes.at(24));
     expect("a static nativeOverlay before its first geometry report cannot inherit an outside containing block",
            data(nativeRoot->getState()).frameSize == facebook::react::Size{} &&
@@ -594,7 +636,7 @@ int main() {
     auto baseBeforePull = coordinator->getBaseRevision().rootShadowNode;
     auto merged = coordinator->pullTransaction(true);
     auto mergedState = merged ? delivered(*merged, 14) : nullptr;
-    auto receipt = f.source->receiptForState(1, 14, mergedState);
+    auto receipt = receiptForState(*f.source, 1, 14, mergedState);
     expect("coalesced commits deliver the final source context without substituting a skipped revision",
            baseBeforePull == initialRoot && skippedRoot != finalRoot &&
            mergedState && mergedState != initial && mergedState != skippedState &&
@@ -619,8 +661,8 @@ int main() {
     auto secondRoot = tree.getCurrentRevision().rootShadowNode;
     auto thirdRoot = f.enqueue(tree, secondRoot->getChildren());
     auto coordinator = tree.getMountingCoordinator();
-    auto firstReceipt = f.source->receiptForState(1, 14, first);
-    auto secondReceipt = f.source->receiptForState(1, 14, second);
+    auto firstReceipt = receiptForState(*f.source, 1, 14, first);
+    auto secondReceipt = receiptForState(*f.source, 1, 14, second);
     expect("asynchronously pulled batches retain their exact source while both base and current revisions advance",
            first && second && first != second &&
            coordinator->getBaseRevision().rootShadowNode == secondRoot &&
@@ -648,7 +690,7 @@ int main() {
     later.relative = true;
     f.enqueue(tree, initialRoot->getChildren());
     auto finalRoot = f.enqueue(tree, tree.getCurrentRevision().rootShadowNode->getChildren());
-    auto oldReceipt = f.source->receiptForState(1, 14, initial);
+    auto oldReceipt = receiptForState(*f.source, 1, 14, initial);
     bool suspended = !coordinator->hasPendingTransactions() &&
         !coordinator->pullTransaction(true) &&
         coordinator->getBaseRevision().rootShadowNode == initialRoot &&
@@ -658,7 +700,7 @@ int main() {
     tree.setCommitMode(ShadowTree::CommitMode::Normal);
     auto resumed = coordinator->pullTransaction(true);
     auto resumedState = resumed ? delivered(*resumed, 14) : nullptr;
-    auto receipt = f.source->receiptForState(1, 14, resumedState);
+    auto receipt = receiptForState(*f.source, 1, 14, resumedState);
     expect("suspended mounting keeps the delivered context until resumption supplies the final merged State",
            suspended && resumedState && resumedState != initial &&
            resumedState == indexPortalShadowNodes(*finalRoot)->at(14)->getState() &&

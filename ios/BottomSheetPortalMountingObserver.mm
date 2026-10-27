@@ -2,6 +2,7 @@
 #import <React/RCTComponentViewRegistry.h>
 #import <React/RCTMountingManager.h>
 #include <react/renderer/mounting/Differentiator.h>
+#include <algorithm>
 
 using namespace facebook::react;
 using namespace facebook::react::bottomsheet;
@@ -32,6 +33,7 @@ struct SurfacePublication {
   std::weak_ptr<const MountingCoordinator> coordinator;
   MountingTransaction::Number number = 0;
   MountingTransaction::Number inFlight = 0;
+  std::optional<std::vector<Tag>> completedTags;
   BottomSheetMountedPortalContextGraph *__strong graph;
   NSHashTable<UIView *> *__strong owners = [NSHashTable weakObjectsHashTable];
 };
@@ -97,6 +99,7 @@ AppliedRoot appliedRoot(const UIManager& manager, SurfaceId surface) {
     deletion = [data.graph nativeDeletionForMutations:transaction.getMutations()];
   }
   data.coordinator = current.coordinator;
+  data.completedTags.reset();
   data.inFlight = transaction.getNumber();
   // Block queries before a callback can reenter. Do not use the publication
   // reference after the callback, which may invalidate this runtime.
@@ -111,6 +114,18 @@ AppliedRoot appliedRoot(const UIManager& manager, SurfaceId surface) {
   if (!current.root || !current.coordinator ||
       [_mountingManager.componentViewRegistry
           findComponentViewWithTag:static_cast<Tag>(owner.tag)] != owner) return;
+  // The immutable root was fully indexed by the first completed owner. Reuse
+  // only this exact batch's tags; later mounts and withdrawals discard them.
+  auto completed = _surfaces.find(transaction.getSurfaceId());
+  if (completed != _surfaces.end()) {
+    auto& data = completed->second;
+    if (data.coordinator.lock() == current.coordinator && current.root == data.root &&
+        transaction.getNumber() == data.number && data.completedTags) {
+      if (std::binary_search(data.completedTags->begin(), data.completedTags->end(),
+                             static_cast<Tag>(owner.tag))) [data.owners addObject:owner];
+      return;
+    }
+  }
   auto nodes = indexPortalShadowNodes(*current.root);
   if (!nodes || !nodes->contains(static_cast<Tag>(owner.tag))) return;
   auto& data = _surfaces[transaction.getSurfaceId()];
@@ -135,6 +150,10 @@ AppliedRoot appliedRoot(const UIManager& manager, SurfaceId surface) {
   data.coordinator = current.coordinator;
   data.number = transaction.getNumber();
   data.inFlight = 0;
+  // The complete index orders tags; retain only compact membership for this batch.
+  data.completedTags.emplace();
+  data.completedTags->reserve(nodes->size());
+  for (const auto& [tag, node] : *nodes) data.completedTags->push_back(tag);
   [data.owners addObject:owner];
 }
 
@@ -142,6 +161,7 @@ AppliedRoot appliedRoot(const UIManager& manager, SurfaceId surface) {
 {
   [self currentManager];
   for (auto it = _surfaces.begin(); it != _surfaces.end();) {
+    if ([it->second.owners containsObject:owner]) it->second.completedTags.reset();
     [it->second.owners removeObject:owner];
     if (it->second.owners.count == 0) it = _surfaces.erase(it);
     else ++it;
@@ -172,14 +192,6 @@ AppliedRoot appliedRoot(const UIManager& manager, SurfaceId surface) {
       ? data.root : RootShadowNode::Shared{};
 }
 
-- (NSSet<UIView *> *)hiddenBranchesForSurface:(SurfaceId)surface
-                              retainedPaths:(const std::vector<PortalRetainedPaths> &)requests
-{
-  auto root = [self currentRootForSurface:surface];
-  if (!root) return nil;
-  return [_surfaces.at(surface).graph hiddenBranchesForRoot:root retainedPaths:requests];
-}
-
 - (std::optional<PortalNativeContextPath>)contextPathForView:(UIView *)view
         root:(const RootShadowNode::Shared &)root
    hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy
@@ -187,13 +199,6 @@ AppliedRoot appliedRoot(const UIManager& manager, SurfaceId surface) {
   if (!root || [self currentRootForSurface:root->getSurfaceId()] != root) return std::nullopt;
   return [_surfaces.at(root->getSurfaceId()).graph contextPathForView:view
       root:root hierarchy:hierarchy];
-}
-
-- (NSSet<UIView *> *)hiddenBranchesForRoot:(const RootShadowNode::Shared &)root
-                           retainedPaths:(const std::vector<PortalRetainedPaths> &)requests
-{
-  if (!root || [self currentRootForSurface:root->getSurfaceId()] != root) return nil;
-  return [_surfaces.at(root->getSurfaceId()).graph hiddenBranchesForRoot:root retainedPaths:requests];
 }
 
 - (NSSet<UIView *> *)hiddenBranchesForRoot:(const RootShadowNode::Shared &)root

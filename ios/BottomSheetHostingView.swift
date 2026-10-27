@@ -763,8 +763,7 @@ public final class BottomSheetHostingView: UIView {
       let closedIndex,
       !detentSpecs[closedIndex].programmatic,
       detent(at: targetIndex).height > 0,
-      activeSpring == nil || currentSheetHeight > 0.5,
-      dismissAccessibilityFrame != nil
+      activeSpring == nil || currentSheetHeight > 0.5
     else {
       return nil
     }
@@ -942,10 +941,17 @@ public final class BottomSheetHostingView: UIView {
     attemptScrimDismissal()
   }
 
-  /// Dismisses a modal sheet to its closed detent through the exact path a
-  /// scrim tap takes, returning whether a dismissal was actually performed.
+  /// Scrim taps and Dismiss activation require a positive outside-sheet area.
   @discardableResult
   private func attemptScrimDismissal() -> Bool {
+    guard dismissAccessibilityFrame != nil else { return false }
+    return attemptAccessibleDismissal()
+  }
+
+  /// Escape can directly dismiss an eligible sheet even when it fills the host
+  /// and leaves no outside-sheet area for the spatial Dismiss control.
+  @discardableResult
+  private func attemptAccessibleDismissal() -> Bool {
     guard let closedIndex = accessibleDismissalIndex else {
       return false
     }
@@ -966,7 +972,7 @@ public final class BottomSheetHostingView: UIView {
     case .passThrough:
       return false
     case .attemptLocal:
-      attemptScrimDismissal()
+      attemptAccessibleDismissal()
       return true
     case .consume:
       return true
@@ -2208,7 +2214,7 @@ private extension BottomSheetHostingView {
     // sheet; otherwise it would be an inert, unlabeled stop in the
     // accessibility tree (a scrim over a programmatic-only close detent is
     // decorative, not actionable).
-    scrimView.isAccessibilityElement = accessibleDismissalIndex != nil
+    scrimView.isAccessibilityElement = accessibleDismissalIndex != nil && dismissAccessibilityFrame != nil
     if !scrimView.isAccessibilityElement {
       discardPendingStableDismissGeometry()
     }

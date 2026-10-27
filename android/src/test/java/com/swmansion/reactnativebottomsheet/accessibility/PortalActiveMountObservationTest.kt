@@ -79,6 +79,7 @@ class PortalActiveMountObservationTest {
       f.registerBoth()
       f.drain()
       f.readSurfaces.clear()
+      f.sourceReadCounts.clear()
 
       sheet.setIndex(1)
       val host = sheet.getChildAt(0) as BottomSheetHostView
@@ -110,6 +111,7 @@ class PortalActiveMountObservationTest {
       assertTrue("spring settles", finished)
       f.drain()
       assertEquals(setOf(2, 4), f.readSurfaces)
+      assertEquals(mapOf(2 to 1, 4 to 1), f.sourceReadCounts)
     }
   }
 
@@ -304,17 +306,19 @@ class PortalActiveMountObservationTest {
       listOf(Surface(activity.get(), context, 2, 10), Surface(activity.get(), secondContext, 4, 20))
     val posted = mutableListOf<Runnable>()
     val readSurfaces = mutableSetOf<Int>()
+    val sourceReadCounts = mutableMapOf<Int, Int>()
     var rejectedSurface: Int? = null
     var sourceAvailable = true
 
     private fun source(managed: List<Surface>): FabricPublicationLease =
-      object : FabricPublicationLease {
+      object : TestFabricPublicationLease() {
         override fun bootstrap() = Unit
 
         override fun release() = Unit
 
         override fun sheetTags(surfaceId: Int, tag: Int, state: StateWrapper?): IntArray? {
           readSurfaces.add(surfaceId)
+          sourceReadCounts[surfaceId] = sourceReadCounts.getOrDefault(surfaceId, 0) + 1
           return managed.singleOrNull { it.root.id == surfaceId }?.let { intArrayOf(it.sheet.id) }
         }
 

@@ -7,6 +7,7 @@
 
 #import "../../../ios/BottomSheetMountedPortalContextGraph.h"
 #import "../../../ios/BottomSheetPortalNativeContainer.h"
+#import "Support/BottomSheetPortalProjectionTestHelper.h"
 #include <react/renderer/components/view/ViewComponentDescriptor.h>
 #include <react/renderer/components/modal/ModalHostViewComponentDescriptor.h>
 #include <react/renderer/mounting/Differentiator.h>
@@ -14,6 +15,7 @@
 
 using namespace facebook::react;
 using namespace facebook::react::bottomsheet;
+using namespace facebook::react::bottomsheet::tests;
 
 namespace {
 using Children = std::vector<std::shared_ptr<const ShadowNode>>;
@@ -242,15 +244,15 @@ struct MountedTree {
   [fixture.view(16) removeFromSuperview];
   XCTAssertNil(fixture.view(16).superview);
 
-  auto branches = [publication hiddenBranchesForRoot:root retainedPaths:requests];
+  auto branches = hiddenBranches(publication, root, requests);
   XCTAssertNotNil(branches);
   XCTAssertTrue([branches containsObject:fixture.view(12)]);
   XCTAssertFalse([branches containsObject:fixture.view(14)]);
 
   [fixture.view(14) removeFromSuperview];
-  XCTAssertNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
+  XCTAssertNil(hiddenBranches(publication, root, requests));
   [fixture.view(13) addSubview:fixture.view(14)];
-  XCTAssertNotNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
+  XCTAssertNotNil(hiddenBranches(publication, root, requests));
 }
 - (void)testStockModalContentProjectsOnlyTheActualLocalPanel
 {
@@ -265,7 +267,7 @@ struct MountedTree {
   fixture.bootstrap(publication, root);
   std::vector<PortalRetainedPaths> requests{{&host->getFamily(), {&sheet->getFamily()}}};
 
-  auto branches = [publication hiddenBranchesForRoot:root retainedPaths:requests];
+  auto branches = hiddenBranches(publication, root, requests);
 
   XCTAssertEqualObjects(branches, ([NSSet setWithObject:fixture.view(12)]));
   XCTAssertFalse([branches containsObject:fixture.view(2)]);
@@ -289,19 +291,19 @@ struct MountedTree {
   [outside removeFromSuperview];
 
   [modalView unmountChildComponentView:panel index:1];
-  XCTAssertNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
+  XCTAssertNil(hiddenBranches(publication, root, requests));
   auto detached = [BottomSheetNativeHierarchySnapshot new];
   XCTAssertFalse([publication contextPathForView:panel root:root hierarchy:detached].has_value());
 
   [modalView mountChildComponentView:panel index:1];
-  XCTAssertEqualObjects([publication hiddenBranchesForRoot:root retainedPaths:requests],
+  XCTAssertEqualObjects(hiddenBranches(publication, root, requests),
                        ([NSSet setWithObject:fixture.view(12)]));
   RCTFabricModalHostViewController *controller =
       (RCTFabricModalHostViewController *)panel.superview.nextResponder;
   CallbackModalOwner *foreignOwner = [CallbackModalOwner new];
   foreignOwner.tag = 30; // Same tag is insufficient without the registry identity.
   controller.delegate = (id<RCTFabricModalHostViewControllerDelegate>)foreignOwner;
-  XCTAssertNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
+  XCTAssertNil(hiddenBranches(publication, root, requests));
 }
 
 - (void)testModalContainingBlockIncludesItsNativeBackgroundWithoutHidingTheApplication
@@ -319,7 +321,7 @@ struct MountedTree {
   [fixture.view(13).superview addSubview:nativeBackground];
   std::vector<PortalRetainedPaths> requests{{&host->getFamily(), {&sheet->getFamily()}}};
 
-  auto branches = [publication hiddenBranchesForRoot:root retainedPaths:requests];
+  auto branches = hiddenBranches(publication, root, requests);
 
   XCTAssertEqualObjects(branches, ([NSSet setWithObjects:fixture.view(12), nativeBackground, nil]));
   XCTAssertFalse([branches containsObject:fixture.view(4)]);
@@ -401,7 +403,7 @@ struct MountedTree {
       {&hostA->getFamily(), {&sheetA->getFamily()}},
       {&hostB->getFamily(), {&sheetB->getFamily()}}};
 
-  auto branches = [publication hiddenBranchesForRoot:root retainedPaths:requests];
+  auto branches = hiddenBranches(publication, root, requests);
 
   XCTAssertNotNil(branches);
   XCTAssertEqualObjects(branches, ([NSSet setWithObjects:fixture.view(12), fixture.view(22), nil]));
@@ -419,7 +421,7 @@ struct MountedTree {
   fixture.bootstrap(publication, root);
   std::vector<PortalRetainedPaths> requests{{&host->getFamily(), {&sheet->getFamily()}}};
 
-  auto branches = [publication hiddenBranchesForRoot:root retainedPaths:requests];
+  auto branches = hiddenBranches(publication, root, requests);
 
   XCTAssertEqualObjects(branches, ([NSSet setWithObject:fixture.view(12)]));
 }
@@ -438,10 +440,10 @@ struct MountedTree {
   UIView *oldParent = fixture.view(14).superview;
 
   [fixture.view(1) addSubview:fixture.view(14)];
-  XCTAssertNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
+  XCTAssertNil(hiddenBranches(publication, root, requests));
 
   [oldParent addSubview:fixture.view(14)];
-  XCTAssertEqualObjects([publication hiddenBranchesForRoot:root retainedPaths:requests],
+  XCTAssertEqualObjects(hiddenBranches(publication, root, requests),
                        ([NSSet setWithObject:fixture.view(12)]));
 }
 
@@ -460,14 +462,14 @@ struct MountedTree {
   nativeBackground.accessibilityElementsHidden = YES;
   [fixture.view(11) addSubview:nativeBackground];
 
-  auto branches = [publication hiddenBranchesForRoot:root retainedPaths:requests];
+  auto branches = hiddenBranches(publication, root, requests);
 
   XCTAssertEqualObjects(branches,
       ([NSSet setWithObjects:fixture.view(12), nativeBackground, nil]));
   XCTAssertFalse(fixture.view(12).accessibilityElementsHidden);
   XCTAssertTrue(nativeBackground.accessibilityElementsHidden);
   [nativeBackground removeFromSuperview];
-  XCTAssertEqualObjects([publication hiddenBranchesForRoot:root retainedPaths:requests],
+  XCTAssertEqualObjects(hiddenBranches(publication, root, requests),
                        ([NSSet setWithObject:fixture.view(12)]));
 }
 
@@ -485,7 +487,7 @@ struct MountedTree {
   [fixture.view(11) addSubview:wrapper];
   [wrapper addSubview:fixture.view(13)];
 
-  XCTAssertNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
+  XCTAssertNil(hiddenBranches(publication, root, requests));
   XCTAssertFalse(wrapper.accessibilityElementsHidden);
 }
 
@@ -510,12 +512,12 @@ struct MountedTree {
   std::vector<PortalRetainedPaths> oldPaths{{&host->getFamily(), {&firstSheet->getFamily()}}};
   std::vector<PortalRetainedPaths> currentPaths{{&nextHost->getFamily(), {&nextSheet->getFamily()}}};
 
-  XCTAssertNil([publication hiddenBranchesForRoot:first retainedPaths:oldPaths]);
-  XCTAssertNil([publication hiddenBranchesForRoot:next retainedPaths:oldPaths]);
-  XCTAssertEqualObjects([publication hiddenBranchesForRoot:next retainedPaths:currentPaths],
+  XCTAssertNil(hiddenBranches(publication, first, oldPaths));
+  XCTAssertNil(hiddenBranches(publication, next, oldPaths));
+  XCTAssertEqualObjects(hiddenBranches(publication, next, currentPaths),
                        ([NSSet setWithObject:fixture.view(12)]));
   [publication invalidate];
-  XCTAssertNil([publication hiddenBranchesForRoot:next retainedPaths:currentPaths]);
+  XCTAssertNil(hiddenBranches(publication, next, currentPaths));
 }
 
 - (void)testMovingAMaterializedBoundaryRejectsObsoleteContextNesting
@@ -532,7 +534,7 @@ struct MountedTree {
 
   [fixture.view(2) addSubview:fixture.view(11)];
 
-  XCTAssertNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
+  XCTAssertNil(hiddenBranches(publication, root, requests));
 }
 
 - (void)testUnresolvableLayoutDoesNotLoseUnchangedCompletedNativeMembership
@@ -555,13 +557,13 @@ struct MountedTree {
   auto hidden = fixture.mount({hiddenA, areaB});
   auto hidingMutations = calculateShadowViewMutations(*first, *hidden);
   [publication publishRoot:hidden mutations:hidingMutations];
-  XCTAssertNil([publication hiddenBranchesForRoot:hidden retainedPaths:requests]);
+  XCTAssertNil(hiddenBranches(publication, hidden, requests));
 
   auto restored = fixture.mount({areaA, areaB});
   auto restoringMutations = calculateShadowViewMutations(*hidden, *restored);
   [publication publishRoot:restored mutations:restoringMutations];
 
-  XCTAssertEqualObjects([publication hiddenBranchesForRoot:restored retainedPaths:requests],
+  XCTAssertEqualObjects(hiddenBranches(publication, restored, requests),
                        ([NSSet setWithObject:fixture.view(22)]));
 }
 
@@ -580,11 +582,11 @@ struct MountedTree {
     foreign.mount({foreign.node(114)});
     [fixture.view(11) addSubview:foreign.viewport];
 
-    XCTAssertNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
+    XCTAssertNil(hiddenBranches(publication, root, requests));
     XCTAssertFalse(foreign.viewport.accessibilityElementsHidden);
 
     [foreign.viewport removeFromSuperview];
-    XCTAssertEqualObjects([publication hiddenBranchesForRoot:root retainedPaths:requests],
+    XCTAssertEqualObjects(hiddenBranches(publication, root, requests),
                          ([NSSet setWithObject:fixture.view(12)]));
   }
 }
@@ -604,11 +606,11 @@ struct MountedTree {
   [fixture.view(14) addSubview:foreign.viewport];
   [foreign.view(101) addSubview:fixture.view(16)];
 
-  XCTAssertNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
+  XCTAssertNil(hiddenBranches(publication, root, requests));
 
   [fixture.view(14) addSubview:fixture.view(16)];
   [foreign.viewport removeFromSuperview];
-  XCTAssertEqualObjects([publication hiddenBranchesForRoot:root retainedPaths:requests],
+  XCTAssertEqualObjects(hiddenBranches(publication, root, requests),
                        ([NSSet setWithObject:fixture.view(12)]));
 }
 
@@ -627,11 +629,11 @@ struct MountedTree {
   [fixture.viewport addSubview:content];
   [content addSubview:fixture.view(16)];
 
-  XCTAssertEqualObjects([publication hiddenBranchesForRoot:root retainedPaths:requests],
+  XCTAssertEqualObjects(hiddenBranches(publication, root, requests),
                        ([NSSet setWithObject:fixture.view(12)]));
 
   content.portalNativeOwner = nil;
-  XCTAssertNil([publication hiddenBranchesForRoot:root retainedPaths:requests]);
+  XCTAssertNil(hiddenBranches(publication, root, requests));
 }
 
 - (void)testOwnedNativeChromeIsExcludedOnlyAlongANarrowRetainedInnerPath
@@ -660,13 +662,13 @@ struct MountedTree {
       {&hostA->getFamily(), {&topA->getFamily()}},
       {&innerHost->getFamily(), {&innerSheet->getFamily()}}};
 
-  XCTAssertEqualObjects([publication hiddenBranchesForRoot:root retainedPaths:narrow],
+  XCTAssertEqualObjects(hiddenBranches(publication, root, narrow),
       ([NSSet setWithObjects:fixture.view(12), fixture.view(17), fixture.view(22), chrome, nil]));
 
   std::vector<PortalRetainedPaths> whole{
       {&hostA->getFamily(), {&sheetA->getFamily()}},
       {&innerHost->getFamily(), {&innerSheet->getFamily()}}};
-  XCTAssertEqualObjects([publication hiddenBranchesForRoot:root retainedPaths:whole],
+  XCTAssertEqualObjects(hiddenBranches(publication, root, whole),
       ([NSSet setWithObjects:fixture.view(12), fixture.view(18), fixture.view(22), nil]));
 }
 

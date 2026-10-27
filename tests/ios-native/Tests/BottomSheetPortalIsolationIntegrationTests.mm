@@ -10,12 +10,11 @@ using namespace facebook::react;
 using namespace facebook::react::bottomsheet;
 using namespace facebook::react::bottomsheet::tests;
 
-// A native application container may synchronously change lifecycle during a
-// getter. This is the UIKit boundary, not a replacement for the Fabric adapter.
-@interface ReentrantPortalNativeContainer : UIView
+// Structural overrides are rejected before the hierarchy dispatches a getter.
+@interface UnsupportedPortalNativeContainer : UIView
 @property (nonatomic, copy) void (^onReadSubviews)(void);
 @end
-@implementation ReentrantPortalNativeContainer
+@implementation UnsupportedPortalNativeContainer
 - (NSArray<UIView *> *)subviews
 {
   if (self.onReadSubviews) self.onReadSubviews();
@@ -32,6 +31,62 @@ using namespace facebook::react::bottomsheet::tests;
 @interface BottomSheetPortalIsolationIntegrationTests : XCTestCase
 @end
 @implementation BottomSheetPortalIsolationIntegrationTests
+
+- (void)testWindowContextFallbackRequiresAValidQueryOutsideActiveLocalContexts
+{
+  RuntimeFixture fixture;
+  fixture.mount({fixture.node(2), fixture.node(21, {fixture.node(22),
+      fixture.node(23, {fixture.node(24), fixture.node(28)}, true)})});
+  UIWindow *window = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, 800, 600)];
+  UIView *overlay = [UIView new];
+  UIView *outside = [UIView new];
+  [window addSubview:outside];
+  [window addSubview:overlay];
+  [overlay addSubview:fixture.viewport];
+  auto observer = fixture.observer();
+  MountingTransaction first(1, 1, {}, {});
+  [observer didMount:first owner:fixture.view(24)];
+  [observer didMount:first owner:fixture.view(28)];
+  auto overlayIdentity = [BottomSheetPresentationIdentity new];
+  auto firstIdentity = [BottomSheetPresentationIdentity new];
+  auto secondIdentity = [BottomSheetPresentationIdentity new];
+  NSArray *presentations = @[
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:firstIdentity owner:fixture.view(24)
+        observer:observer active:YES eligible:YES],
+    [[BottomSheetPortalPresentation alloc] initWithIdentity:secondIdentity owner:fixture.view(28)
+        observer:observer active:YES eligible:YES]];
+  BottomSheetPresentationOrderProvider unknown = ^BottomSheetPresentationOrder(
+      BottomSheetPresentationIdentity *a, BottomSheetPresentationIdentity *b) {
+    return BottomSheetPresentationOrderUnknown;
+  };
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:overlayIdentity
+      actionOrigin:fixture.view(24) presentations:presentations windowBoundary:overlay
+      windowIdentity:overlayIdentity orderProvider:unknown], BottomSheetPresentationEscapeRoutePassThrough,
+      @"Unresolved local Top must not turn into dismissal of its enclosing overlay");
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:overlayIdentity
+      actionOrigin:fixture.view(2) presentations:presentations windowBoundary:overlay
+      windowIdentity:overlayIdentity orderProvider:unknown], BottomSheetPresentationEscapeRouteAttemptLocal,
+      @"A valid query can establish that the action belongs to the enclosing context");
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:firstIdentity
+      actionOrigin:fixture.view(2) presentations:presentations windowBoundary:overlay
+      windowIdentity:overlayIdentity orderProvider:unknown], BottomSheetPresentationEscapeRouteConsume);
+
+  [observer invalidate];
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:overlayIdentity
+      actionOrigin:fixture.view(24) presentations:presentations windowBoundary:overlay
+      windowIdentity:overlayIdentity orderProvider:unknown], BottomSheetPresentationEscapeRoutePassThrough);
+  XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:overlayIdentity
+      actionOrigin:fixture.view(2) presentations:presentations windowBoundary:overlay
+      windowIdentity:overlayIdentity orderProvider:unknown], BottomSheetPresentationEscapeRoutePassThrough,
+      @"Unavailable local facts do not prove that an origin is outside the local context");
+  for (id origin in @[outside, NSNull.null, [NSObject new]]) {
+    XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:overlayIdentity
+        actionOrigin:origin == NSNull.null ? nil : origin presentations:nil windowBoundary:overlay
+        windowIdentity:overlayIdentity orderProvider:unknown], BottomSheetPresentationEscapeRouteAttemptLocal,
+        @"A foreground overlay still blocks underlying, absent and unsupported origins");
+  }
+  [fixture.viewport removeFromSuperview];
+}
 
 - (void)testStockModalAndApplicationPortalsShareTheWriterWithoutMergingTheirScopes
 {
@@ -63,17 +118,17 @@ using namespace facebook::react::bottomsheet::tests;
   };
 
   XCTAssertTrue([adapter reconcilePortalPresentations:presentations
-      orderProvider:order ifCurrent:nil]);
+      windowBoundary:nil orderProvider:order ifCurrent:nil]);
   XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
   XCTAssertTrue(fixture.view(42).accessibilityElementsHidden);
   XCTAssertFalse(fixture.view(2).accessibilityElementsHidden);
   XCTAssertFalse(fixture.view(4).accessibilityElementsHidden);
   XCTAssertFalse(modalOwner.accessibilityElementsHidden);
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:modalIdentity
-      actionOrigin:modalOwner presentations:presentations orderProvider:order],
+      actionOrigin:modalOwner presentations:presentations windowBoundary:nil windowIdentity:nil orderProvider:order],
       BottomSheetPresentationEscapeRouteAttemptLocal);
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:applicationIdentity
-      actionOrigin:fixture.view(2) presentations:presentations orderProvider:order],
+      actionOrigin:fixture.view(2) presentations:presentations windowBoundary:nil windowIdentity:nil orderProvider:order],
       BottomSheetPresentationEscapeRoutePassThrough);
 
   auto inactiveModal = [BottomSheetPortalPresentation presentationForIdentity:modalIdentity
@@ -82,22 +137,22 @@ using namespace facebook::react::bottomsheet::tests;
   if (!inactiveModal) return;
   NSArray *releasedModal = @[application, inactiveModal];
   XCTAssertTrue([adapter reconcilePortalPresentations:releasedModal
-      orderProvider:order ifCurrent:nil]);
+      windowBoundary:nil orderProvider:order ifCurrent:nil]);
   XCTAssertFalse(fixture.view(12).accessibilityElementsHidden);
   XCTAssertTrue(fixture.view(42).accessibilityElementsHidden);
 
   XCTAssertTrue([adapter reconcilePortalPresentations:presentations
-      orderProvider:order ifCurrent:nil]);
+      windowBoundary:nil orderProvider:order ifCurrent:nil]);
   auto modalView = (RCTModalHostViewComponentView *)fixture.view(30);
   UIView<RCTComponentViewProtocol> *panel = (UIView<RCTComponentViewProtocol> *)fixture.view(11);
   [modalView unmountChildComponentView:panel index:1];
   XCTAssertFalse([adapter reconcilePortalPresentations:presentations
-      orderProvider:order ifCurrent:nil]);
+      windowBoundary:nil orderProvider:order ifCurrent:nil]);
   XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
   XCTAssertTrue(fixture.view(42).accessibilityElementsHidden);
   [modalView mountChildComponentView:panel index:1];
   XCTAssertTrue([adapter reconcilePortalPresentations:presentations
-      orderProvider:order ifCurrent:nil]);
+      windowBoundary:nil orderProvider:order ifCurrent:nil]);
   [adapter invalidate];
   XCTAssertFalse(fixture.view(12).accessibilityElementsHidden);
   XCTAssertFalse(fixture.view(42).accessibilityElementsHidden);
@@ -126,7 +181,7 @@ using namespace facebook::react::bottomsheet::tests;
     return BottomSheetPresentationOrderUnknown;
   };
   XCTAssertNotNil(presentation);
-  [adapter reconcilePortalPresentations:@[presentation] orderProvider:order ifCurrent:nil];
+  [adapter reconcilePortalPresentations:@[presentation] windowBoundary:nil orderProvider:order ifCurrent:nil];
   XCTAssertTrue(oldBackground.accessibilityElementsHidden);
 
   auto nextArea = area->clone({.children = std::make_shared<const Children>(
@@ -137,13 +192,13 @@ using namespace facebook::react::bottomsheet::tests;
   MountingTransaction next(1, 2, std::move(mutations), {});
   [observer willMount:next];
   XCTAssertFalse([adapter reconcilePortalPresentations:@[presentation]
-      orderProvider:order ifCurrent:nil]);
+      windowBoundary:nil orderProvider:order ifCurrent:nil]);
   XCTAssertTrue(oldBackground.accessibilityElementsHidden);
 
   fixture.mount({outside, nextArea});
   [observer didMount:next owner:owner];
   XCTAssertTrue([adapter reconcilePortalPresentations:@[presentation]
-      orderProvider:order ifCurrent:nil]);
+      windowBoundary:nil orderProvider:order ifCurrent:nil]);
 
   XCTAssertEqual(fixture.view(14), owner);
   XCTAssertEqual(presentation.identity, identity);
@@ -174,13 +229,13 @@ using namespace facebook::react::bottomsheet::tests;
       BottomSheetPresentationIdentity *a, BottomSheetPresentationIdentity *b) {
     return BottomSheetPresentationOrderUnknown;
   };
-  [adapter reconcilePortalPresentations:@[presentation] orderProvider:order ifCurrent:nil];
+  [adapter reconcilePortalPresentations:@[presentation] windowBoundary:nil orderProvider:order ifCurrent:nil];
   boundary.accessibilityViewIsModal = YES;
   [adapter unregisterBoundary:boundary];
   MountingTransaction inFlight(1, 2, {}, {});
   [observer willMount:inFlight];
 
-  [adapter reconcilePortalPresentations:@[presentation] orderProvider:order ifCurrent:nil];
+  [adapter reconcilePortalPresentations:@[presentation] windowBoundary:nil orderProvider:order ifCurrent:nil];
 
   XCTAssertFalse(boundary.accessibilityViewIsModal);
   XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
@@ -213,30 +268,30 @@ using namespace facebook::react::bottomsheet::tests;
       BottomSheetPresentationIdentity *a, BottomSheetPresentationIdentity *b) {
     return BottomSheetPresentationOrderUnknown;
   };
-  [adapter reconcilePortalPresentations:presentations orderProvider:known ifCurrent:nil];
+  [adapter reconcilePortalPresentations:presentations windowBoundary:nil orderProvider:known ifCurrent:nil];
   XCTAssertTrue(fixture.view(14).accessibilityElementsHidden);
   XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
-      actionOrigin:fixture.view(14) presentations:presentations orderProvider:known],
+      actionOrigin:fixture.view(14) presentations:presentations windowBoundary:nil windowIdentity:nil orderProvider:known],
       BottomSheetPresentationEscapeRouteConsume);
 
-  [adapter reconcilePortalPresentations:presentations orderProvider:unknown
+  [adapter reconcilePortalPresentations:presentations windowBoundary:nil orderProvider:unknown
       ifCurrent:^BOOL { return NO; }];
   XCTAssertTrue(fixture.view(14).accessibilityElementsHidden);
   XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
 
-  [adapter reconcilePortalPresentations:presentations orderProvider:unknown ifCurrent:nil];
+  [adapter reconcilePortalPresentations:presentations windowBoundary:nil orderProvider:unknown ifCurrent:nil];
   XCTAssertFalse(fixture.view(14).accessibilityElementsHidden);
   XCTAssertFalse(fixture.view(15).accessibilityElementsHidden);
   XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityB
-      actionOrigin:fixture.view(15) presentations:presentations orderProvider:unknown],
+      actionOrigin:fixture.view(15) presentations:presentations windowBoundary:nil windowIdentity:nil orderProvider:unknown],
       BottomSheetPresentationEscapeRoutePassThrough);
 
   MountingTransaction inFlight(1, 2, {}, {});
   [observer willMount:inFlight];
   XCTAssertFalse([adapter reconcilePortalPresentations:presentations
-      orderProvider:known ifCurrent:nil]);
+      windowBoundary:nil orderProvider:known ifCurrent:nil]);
   XCTAssertTrue(fixture.view(12).accessibilityElementsHidden);
   XCTAssertFalse(fixture.view(14).accessibilityElementsHidden);
   [adapter invalidate];
@@ -262,7 +317,7 @@ using namespace facebook::react::bottomsheet::tests;
   [adapter registerBoundary:anchor];
   if (presentation) {
     [adapter reconcilePortalPresentations:@[presentation]
-        orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
+        windowBoundary:nil orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
                                                     BottomSheetPresentationIdentity *b) {
           return BottomSheetPresentationOrderUnknown;
         } ifCurrent:nil];
@@ -299,7 +354,7 @@ using namespace facebook::react::bottomsheet::tests;
         owner:fixture.view(24) observer:observer active:YES eligible:YES]];
 
   [adapter reconcilePortalPresentations:presentations
-      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
+      windowBoundary:nil orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
                                                   BottomSheetPresentationIdentity *b) {
         return BottomSheetPresentationOrderUnknown;
       } ifCurrent:nil];
@@ -364,60 +419,60 @@ using namespace facebook::react::bottomsheet::tests;
     return a == identityB ? BottomSheetPresentationOrderAbove : BottomSheetPresentationOrderBelow;
   };
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
-      actionOrigin:fixture.view(14) presentations:presentations orderProvider:globalOrder],
+      actionOrigin:fixture.view(14) presentations:presentations windowBoundary:nil windowIdentity:nil orderProvider:globalOrder],
       BottomSheetPresentationEscapeRouteAttemptLocal);
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityB
-      actionOrigin:fixture.view(24) presentations:presentations orderProvider:globalOrder],
+      actionOrigin:fixture.view(24) presentations:presentations windowBoundary:nil windowIdentity:nil orderProvider:globalOrder],
       BottomSheetPresentationEscapeRouteAttemptLocal);
   UIView *nativeChild = [UIView new];
   [fixture.view(14) addSubview:nativeChild];
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
-      actionOrigin:nativeChild presentations:presentations orderProvider:globalOrder],
+      actionOrigin:nativeChild presentations:presentations windowBoundary:nil windowIdentity:nil orderProvider:globalOrder],
       BottomSheetPresentationEscapeRouteAttemptLocal);
   UIAccessibilityElement *outer = [[UIAccessibilityElement alloc] initWithAccessibilityContainer:nativeChild];
   UIAccessibilityElement *inner = [[UIAccessibilityElement alloc] initWithAccessibilityContainer:outer];
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
-      actionOrigin:inner presentations:presentations orderProvider:globalOrder],
+      actionOrigin:inner presentations:presentations windowBoundary:nil windowIdentity:nil orderProvider:globalOrder],
       BottomSheetPresentationEscapeRouteAttemptLocal);
   [fixture.view(24) addSubview:nativeChild];
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityB
-      actionOrigin:inner presentations:presentations orderProvider:globalOrder],
+      actionOrigin:inner presentations:presentations windowBoundary:nil windowIdentity:nil orderProvider:globalOrder],
       BottomSheetPresentationEscapeRouteAttemptLocal);
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
-      actionOrigin:inner presentations:presentations orderProvider:globalOrder],
+      actionOrigin:inner presentations:presentations windowBoundary:nil windowIdentity:nil orderProvider:globalOrder],
       BottomSheetPresentationEscapeRouteConsume);
   [nativeChild removeFromSuperview];
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityB
-      actionOrigin:inner presentations:presentations orderProvider:globalOrder],
+      actionOrigin:inner presentations:presentations windowBoundary:nil windowIdentity:nil orderProvider:globalOrder],
       BottomSheetPresentationEscapeRoutePassThrough);
   outer.accessibilityContainer = inner;
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
-      actionOrigin:inner presentations:presentations orderProvider:globalOrder],
+      actionOrigin:inner presentations:presentations windowBoundary:nil windowIdentity:nil orderProvider:globalOrder],
       BottomSheetPresentationEscapeRoutePassThrough);
   outer.accessibilityContainer = nil;
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
-      actionOrigin:fixture.view(2) presentations:presentations orderProvider:globalOrder],
+      actionOrigin:fixture.view(2) presentations:presentations windowBoundary:nil windowIdentity:nil orderProvider:globalOrder],
       BottomSheetPresentationEscapeRoutePassThrough);
 
   // Missing or unsupported UIKit origins cannot select another panel's Top.
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
-      actionOrigin:nil presentations:presentations orderProvider:globalOrder],
+      actionOrigin:nil presentations:presentations windowBoundary:nil windowIdentity:nil orderProvider:globalOrder],
       BottomSheetPresentationEscapeRoutePassThrough);
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
-      actionOrigin:[NSObject new] presentations:presentations orderProvider:globalOrder],
+      actionOrigin:[NSObject new] presentations:presentations windowBoundary:nil windowIdentity:nil orderProvider:globalOrder],
       BottomSheetPresentationEscapeRoutePassThrough);
   NSArray *inactivePresentations = @[
     [[BottomSheetPortalPresentation alloc] initWithIdentity:identityA owner:fixture.view(14)
         observer:observer active:NO eligible:YES],
     presentations[1]];
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
-      actionOrigin:fixture.view(14) presentations:inactivePresentations orderProvider:globalOrder],
+      actionOrigin:fixture.view(14) presentations:inactivePresentations windowBoundary:nil windowIdentity:nil orderProvider:globalOrder],
       BottomSheetPresentationEscapeRoutePassThrough);
 
   [fixture.view(14) addSubview:nativeChild];
   reads = 0;
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
-      actionOrigin:nativeChild presentations:presentations orderProvider:globalOrder],
+      actionOrigin:nativeChild presentations:presentations windowBoundary:nil windowIdentity:nil orderProvider:globalOrder],
       BottomSheetPresentationEscapeRouteAttemptLocal);
   NSUInteger queryReads = reads;
   // Reenter at every provider checkpoint. Once the origin moves into B, A
@@ -428,7 +483,7 @@ using namespace facebook::react::bottomsheet::tests;
     reads = 0;
     moveOnRead = checkpoint;
     auto route = [BottomSheetPortalIsolation escapeRouteForCallerIdentity:identityA
-        actionOrigin:nativeChild presentations:presentations orderProvider:globalOrder];
+        actionOrigin:nativeChild presentations:presentations windowBoundary:nil windowIdentity:nil orderProvider:globalOrder];
     XCTAssertEqual(nativeChild.superview, targetOwner);
     XCTAssertNotEqual(route, BottomSheetPresentationEscapeRouteAttemptLocal);
   }
@@ -633,86 +688,37 @@ using namespace facebook::react::bottomsheet::tests;
     return BottomSheetPresentationOrderUnknown;
   };
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:innerTop
-      actionOrigin:inner.view(24) presentations:wholeOuter orderProvider:order],
+      actionOrigin:inner.view(24) presentations:wholeOuter windowBoundary:nil windowIdentity:nil orderProvider:order],
       BottomSheetPresentationEscapeRouteAttemptLocal);
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:outerA
-      actionOrigin:inner.view(24) presentations:wholeOuter orderProvider:order],
+      actionOrigin:inner.view(24) presentations:wholeOuter windowBoundary:nil windowIdentity:nil orderProvider:order],
       BottomSheetPresentationEscapeRouteConsume);
   NSArray *inactiveInner = @[wholeOuter[0], wholeOuter[1],
       [[BottomSheetPortalPresentation alloc] initWithIdentity:innerTop owner:inner.view(24)
           observer:innerObserver active:NO eligible:YES]];
   XCTAssertEqual([BottomSheetPortalIsolation escapeRouteForCallerIdentity:outerA
-      actionOrigin:inner.view(22) presentations:inactiveInner orderProvider:order],
+      actionOrigin:inner.view(22) presentations:inactiveInner windowBoundary:nil windowIdentity:nil orderProvider:order],
       BottomSheetPresentationEscapeRouteAttemptLocal);
 
-  UIView *innerOwner = inner.view(24);
-  UIView *lateBackground = [UIView new];
-  UIView *innerRoot = inner.view(1);
-  ReentrantPortalNativeContainer *backgroundAccessor = [ReentrantPortalNativeContainer new];
+  UnsupportedPortalNativeContainer *backgroundAccessor = [UnsupportedPortalNativeContainer new];
   [outer.view(11) addSubview:backgroundAccessor];
   __block NSUInteger backgroundReads = 0;
-  backgroundAccessor.onReadSubviews = ^{
-    if (++backgroundReads == 2) [coveredOuter addSubview:lateBackground];
-  };
-  auto changedDuringLowerQuery = [BottomSheetPortalIsolation projectionFromPresentations:presentations
-      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
-                                                  BottomSheetPresentationIdentity *b) {
-        return BottomSheetPresentationOrderUnknown;
-      }];
-  XCTAssertNil(changedDuringLowerQuery);
+  backgroundAccessor.onReadSubviews = ^{ backgroundReads++; };
+  auto rejectedBackgroundAccessor = [BottomSheetPortalIsolation
+      projectionFromPresentations:presentations orderProvider:order];
+  XCTAssertNil(rejectedBackgroundAccessor);
   XCTAssertEqual(backgroundReads, 0);
   [backgroundAccessor removeFromSuperview];
-  [lateBackground removeFromSuperview];
-
-  ReentrantPortalNativeContainer *unsafeBridge = [ReentrantPortalNativeContainer new];
+  UnsupportedPortalNativeContainer *unsafeBridge = [UnsupportedPortalNativeContainer new];
   [bridge removeFromSuperview];
   [coveredOuter addSubview:unsafeBridge];
   [unsafeBridge addSubview:inner.viewport];
   __block NSUInteger readCount = 0;
-  unsafeBridge.onReadSubviews = ^{
-    if (++readCount == 2) [innerRoot addSubview:lateBackground];
-  };
-  auto changedDuringValidation = [BottomSheetPortalIsolation projectionFromPresentations:presentations
-      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
-                                                  BottomSheetPresentationIdentity *b) {
-        return BottomSheetPresentationOrderUnknown;
-      }];
-  XCTAssertNil(changedDuringValidation);
+  unsafeBridge.onReadSubviews = ^{ readCount++; };
+  auto rejectedBridgeAccessor = [BottomSheetPortalIsolation
+      projectionFromPresentations:presentations orderProvider:order];
+  XCTAssertNil(rejectedBridgeAccessor);
   XCTAssertEqual(readCount, 0);
-  unsafeBridge.onReadSubviews = nil;
-  [lateBackground removeFromSuperview];
-
-  __weak ReentrantPortalNativeContainer *weakBridge = unsafeBridge;
-  unsafeBridge.onReadSubviews = ^{
-    weakBridge.onReadSubviews = nil;
-    [coveredOuter addSubview:lateBackground];
-  };
-  auto changedChildren = [BottomSheetPortalIsolation projectionFromPresentations:presentations
-      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
-                                                  BottomSheetPresentationIdentity *b) {
-        return BottomSheetPresentationOrderUnknown;
-      }];
-  XCTAssertNil(changedChildren);
-  [lateBackground removeFromSuperview];
-
-  UIView *innerHost = innerOwner.superview;
-  unsafeBridge.onReadSubviews = ^{ [innerRoot addSubview:innerOwner]; };
-  auto reparented = [BottomSheetPortalIsolation projectionFromPresentations:presentations
-      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
-                                                  BottomSheetPresentationIdentity *b) {
-        return BottomSheetPresentationOrderUnknown;
-      }];
-  XCTAssertNil(reparented);
-  unsafeBridge.onReadSubviews = nil;
-  [innerHost addSubview:innerOwner];
-
-  unsafeBridge.onReadSubviews = ^{ [innerObserver withdrawOwner:innerOwner]; };
-  auto withdrawn = [BottomSheetPortalIsolation projectionFromPresentations:presentations
-      orderProvider:^BottomSheetPresentationOrder(BottomSheetPresentationIdentity *a,
-                                                  BottomSheetPresentationIdentity *b) {
-        return BottomSheetPresentationOrderUnknown;
-      }];
-  XCTAssertNil(withdrawn);
 }
 
 @end

@@ -81,7 +81,7 @@ final class BottomSheetHostFixture {
   private let componentRootBranches: [UIView]
 
   init() {
-    window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+    window = Self.makeWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
     rootViewController = UIViewController()
     let host = BottomSheetHostingView(frame: window.bounds)
     let events = BottomSheetEventRecorder()
@@ -119,7 +119,7 @@ final class BottomSheetHostFixture {
     let indices = initialIndices ?? Array(repeating: 1, count: presentations.count)
     precondition(indices.count == presentations.count)
     let windowFrame = CGRect(x: 0, y: 0, width: 390, height: 844)
-    window = UIWindow(frame: windowFrame)
+    window = Self.makeWindow(frame: windowFrame)
     rootViewController = UIViewController()
     let components = zip(presentations, indices).map {
       BottomSheetTestComponentFactory.makeProductionComponent(
@@ -216,6 +216,20 @@ final class BottomSheetHostFixture {
     BottomSheetTestComponentFactory.performObservedMount(forProductionComponent: components[index]) {
       self.bringComponentToFront(at: index)
     }
+  }
+
+  private static func makeWindow(frame: CGRect) -> UIWindow {
+    let foregroundWindowScenes = UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .filter { $0.activationState == .foregroundActive }
+    precondition(
+      foregroundWindowScenes.count == 1,
+      "The native fixture requires exactly one foreground-active UIWindowScene"
+    )
+    let window = UIWindow(frame: frame)
+    window.windowScene = foregroundWindowScenes[0]
+    window.frame = frame
+    return window
   }
 
   private static func findHost(in view: UIView) -> BottomSheetHostingView? {

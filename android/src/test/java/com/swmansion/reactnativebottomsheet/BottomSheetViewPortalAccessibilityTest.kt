@@ -15,10 +15,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.facebook.react.bridge.BridgeReactContext
 import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsForTests
 import com.facebook.react.uimanager.ThemedReactContext
-import com.facebook.react.uimanager.events.BatchEventDispatchedListener
-import com.facebook.react.uimanager.events.Event
-import com.facebook.react.uimanager.events.EventDispatcher
-import com.facebook.react.uimanager.events.EventDispatcherListener
 import com.facebook.react.views.view.ReactViewGroup
 import com.swmansion.reactnativebottomsheet.presentation.TestReactRoot
 import java.util.Collections
@@ -184,7 +180,7 @@ class BottomSheetViewPortalAccessibilityTest {
           contentDescription = "Sheet content"
         }
       sheet.apply {
-        eventDispatcher = NoOpPortalAccessibilityEventDispatcher
+        eventDispatcher = NoOpEventDispatcher
         animateIn = false
         modal = true
         setHasCloseRequestHandler(false)
@@ -342,20 +338,4 @@ class BottomSheetViewPortalAccessibilityTest {
       throw AssertionError("Spring did not settle within 240 frames")
     }
   }
-}
-
-private object NoOpPortalAccessibilityEventDispatcher : EventDispatcher {
-  override fun dispatchEvent(event: Event<*>) = Unit
-
-  override fun dispatchAllEvents() = Unit
-
-  override fun addListener(listener: EventDispatcherListener) = Unit
-
-  override fun removeListener(listener: EventDispatcherListener) = Unit
-
-  override fun addBatchEventDispatchedListener(listener: BatchEventDispatchedListener) = Unit
-
-  override fun removeBatchEventDispatchedListener(listener: BatchEventDispatchedListener) = Unit
-
-  @Suppress("OVERRIDE_DEPRECATION") override fun onCatalystInstanceDestroyed() = Unit
 }

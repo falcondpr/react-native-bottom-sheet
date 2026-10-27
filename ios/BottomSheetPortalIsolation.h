@@ -43,11 +43,16 @@ FOUNDATION_EXPORT UIView *_Nullable BottomSheetAccessibilityContainerView(id _Nu
 
 // Read-only action-time selection. The caller supplies current origin facts;
 // unavailable sources/origins pass through without expanding to another scope.
+// A window-modal owner is the enclosing context, not the inner portal's Top.
+// Inside it, fallback requires a current query with no active local context.
+// Outside, absent or unsupported origins retain window-modal input ownership.
 + (BottomSheetPresentationEscapeRoute)escapeRouteForCallerIdentity:
     (BottomSheetPresentationIdentity *)callerIdentity
                                                     actionOrigin:(nullable id)origin
                                                    presentations:
-    (NSArray<BottomSheetPortalPresentation *> *)presentations
+    (nullable NSArray<BottomSheetPortalPresentation *> *)presentations
+                                                  windowBoundary:(nullable UIView *)windowBoundary
+                                                  windowIdentity:(nullable BottomSheetPresentationIdentity *)windowIdentity
                                                    orderProvider:
     (BottomSheetPresentationOrderProvider)orderProvider;
 @end

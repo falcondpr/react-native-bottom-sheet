@@ -223,37 +223,44 @@ RootShadowNode::Shared PortalPublicationSource::rootForStates(
   return rootForDeliveredStates(surface, states, true);
 }
 
-std::optional<PortalSourceReceipt> PortalPublicationSource::receiptForState(
-    SurfaceId surface, Tag tag, const State::Shared& state) const {
-  auto root = rootForState(surface, tag, state);
+std::optional<PortalSourceSnapshot> PortalPublicationSource::receiptsForStates(
+    SurfaceId surface, const std::vector<Tag>& tags,
+    const std::map<Tag, State::Shared>& states) const {
+  if (tags.empty()) return std::nullopt;
+  auto root = rootForStates(surface, states);
   if (!root) return std::nullopt;
   auto graph = discoverPortalContexts(*root);
   if (!graph) return std::nullopt;
-  const auto& node = *graph->nodes.at(tag);
-  auto host = graph->hostForPresentation(node.getFamily(), *root);
-  if (!host) return std::nullopt;
-  std::vector<Tag> ancestors{tag};
-  auto path = node.getFamily().getAncestors(*root);
-  for (auto it = path.rbegin(); it != path.rend(); ++it) {
-    const auto& ancestor = it->first.get();
-    ancestors.push_back(ancestor.getTag());
-    if (isPortalNativePresentationRoot(ancestor)) break;
+  PortalSourceSnapshot snapshot;
+  std::unordered_set<Tag> requested;
+  for (Tag tag : tags) {
+    if (!requested.insert(tag).second || !states.contains(tag)) return std::nullopt;
+    const auto& node = *graph->nodes.at(tag);
+    auto host = graph->hostForPresentation(node.getFamily(), *root);
+    if (!host) return std::nullopt;
+    std::vector<Tag> ancestors{tag};
+    auto path = node.getFamily().getAncestors(*root);
+    for (auto it = path.rbegin(); it != path.rend(); ++it) {
+      const auto& ancestor = it->first.get();
+      ancestors.push_back(ancestor.getTag());
+      if (isPortalNativePresentationRoot(ancestor)) break;
+    }
+    const auto& concrete = static_cast<const BottomSheetViewShadowNode::ConcreteState&>(*states.at(tag));
+    snapshot.receipts.push_back({
+        concrete.getData().portalPublicationId, *host,
+        graph->contextPathForNode(
+            *graph->contexts.at(graph->hostContexts.at(*host)).boundary, *root),
+        std::move(ancestors)});
   }
-  std::vector<Tag> logicalTags;
-  for (const auto& [nodeTag, node] : graph->nodes) logicalTags.push_back(nodeTag);
+  for (const auto& [nodeTag, node] : graph->nodes) snapshot.logicalTags.push_back(nodeTag);
   auto empty = root->ShadowNode::clone({.children = ShadowNode::emptySharedShadowNodeSharedList()});
-  std::map<Tag, Tag> nativeParents{{root->getTag(), 0}};
+  snapshot.nativeParents.emplace(root->getTag(), 0);
   for (const auto& mutation : calculateShadowViewMutations(*empty, *root)) {
     if (mutation.type == ShadowViewMutation::Insert && !mutation.mutatedViewIsVirtual()) {
-      nativeParents.emplace(mutation.newChildShadowView.tag, parentTag(mutation));
+      snapshot.nativeParents.emplace(mutation.newChildShadowView.tag, parentTag(mutation));
     }
   }
-  const auto& concrete = static_cast<const BottomSheetViewShadowNode::ConcreteState&>(*state);
-  return PortalSourceReceipt{
-      concrete.getData().portalPublicationId, *host,
-      graph->contextPathForNode(
-          *graph->contexts.at(graph->hostContexts.at(*host)).boundary, *root),
-      std::move(ancestors), std::move(logicalTags), std::move(nativeParents)};
+  return snapshot;
 }
 
 std::optional<std::vector<Tag>> PortalPublicationSource::contextPathForStates(

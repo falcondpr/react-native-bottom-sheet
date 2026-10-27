@@ -22,8 +22,6 @@ NS_ASSUME_NONNULL_BEGIN
 // candidates, resolve order, apply masks, or route an accessibility action.
 + (BottomSheetPresentationController *)presentationControllerForComponent:(UIView *)component;
 + (nullable UIWindow *)registeredWindowForController:(BottomSheetPresentationController *)controller;
-+ (nullable BottomSheetPresentationIdentity *)windowEscapeOwnerForController:
-    (BottomSheetPresentationController *)controller;
 
 @end
 

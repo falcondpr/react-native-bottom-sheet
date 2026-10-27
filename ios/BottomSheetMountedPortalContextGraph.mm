@@ -244,16 +244,6 @@ Tag parentTag(const Mutation& mutation) {
   return hierarchy.isValid;
 }
 
-- (NSSet<UIView *> *)hiddenBranchesForRoot:
-    (const std::shared_ptr<const facebook::react::RootShadowNode> &)root
-                                    retainedPaths:
-    (const std::vector<facebook::react::bottomsheet::PortalRetainedPaths> &)requests
-{
-  auto hierarchy = [BottomSheetNativeHierarchySnapshot new];
-  auto branches = [self hiddenBranchesForRoot:root retainedPaths:requests hierarchy:hierarchy];
-  return [hierarchy validate] ? branches : nil;
-}
-
 - (NSSet<UIView *> *)hiddenBranchesForRoot:(const RootShadowNode::Shared &)root
                            retainedPaths:(const std::vector<PortalRetainedPaths> &)requests
                                hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy

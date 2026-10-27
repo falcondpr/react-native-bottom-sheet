@@ -195,7 +195,7 @@ class FabricPortalPublicationMountJniTest {
             awaitedPublication.countDown()
           }
         }
-        observation = adapter.observe(boundary, verifyMountedState)
+        observation = adapter.observe(boundary, reconcile = verifyMountedState)
         host.onHostResume(null)
       }
       // Drain acquisition/bootstrap before React starts its first render.
@@ -266,7 +266,7 @@ class FabricPortalPublicationMountJniTest {
         observation =
           adapter.observe(
             requireNotNull(ReactNativeMountReconciliationAdapter.resolve(root)),
-            verifyMountedState,
+            reconcile = verifyMountedState,
           )
       }
       onMain {

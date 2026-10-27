@@ -204,4 +204,59 @@ final class BottomSheetAccessibleDismissalTests: XCTestCase {
     XCTAssertEqual(events.positionSamples.last?.isModalScrimVisible, false)
   }
 
+  func testFullHeightHostEscapeClosesWithoutDismissControlAndConsumesRetries() async throws {
+    let fixture = BottomSheetHostFixture(
+      presentations: [.nativeOverlay],
+      initialIndices: [0],
+      detents: [
+        ["value": 0.0, "kind": "points", "programmatic": false],
+        ["value": 1.0, "kind": "percentage", "programmatic": false],
+      ]
+    )
+    defer { fixture.tearDown() }
+    let host = fixture.host
+    let events = fixture.events
+    let dismiss = try XCTUnwrap(host.subviews.first { $0.accessibilityLabel == "Dismiss" })
+    host.extendUnderStatusBar = true
+    host.layoutIfNeeded()
+    let opened = expectation(description: "full-height host finishes opening before Escape")
+    events.didSettleExpectation = opened
+    host.setDetentIndex(1)
+    await fulfillment(of: [opened], timeout: 2.0)
+    events.didSettleExpectation = nil
+    events.reset()
+
+    XCTAssertEqual(host.currentContentOffsetY, 0, accuracy: 0.5)
+    XCTAssertNil(host.sheetContainer.layer.animation(forKey: "bottomSheetSettle"))
+    XCTAssertNil(findDismiss(in: host))
+    XCTAssertTrue(dismiss.frame.isEmpty)
+    XCTAssertTrue(dismiss.accessibilityFrame.isEmpty)
+    XCTAssertFalse(dismiss.accessibilityActivate(), "a retained Dismiss requires positive geometry")
+    XCTAssertEqual(events.changedIndices, [])
+
+    let settle = expectation(description: "full-height Escape closes through the real spring")
+    settle.assertForOverFulfill = true
+    events.didSettleExpectation = settle
+
+    XCTAssertTrue(host.accessibilityPerformEscape())
+    XCTAssertEqual(events.changedIndices, [0])
+    XCTAssertEqual(events.settledIndices, [])
+    let closingAnimation = try XCTUnwrap(
+      host.sheetContainer.layer.animation(forKey: "bottomSheetSettle")
+    )
+    XCTAssertNil(findDismiss(in: host))
+    XCTAssertTrue(host.accessibilityPerformEscape(), "closing Top must keep consuming Escape")
+    XCTAssertEqual(events.changedIndices, [0])
+    XCTAssertTrue(host.sheetContainer.layer.animation(forKey: "bottomSheetSettle") === closingAnimation)
+
+    await fulfillment(of: [settle], timeout: 2.0)
+
+    XCTAssertEqual(events.changedIndices, [0])
+    XCTAssertEqual(events.settledIndices, [0])
+    XCTAssertEqual(host.currentContentOffsetY, host.bounds.height, accuracy: 0.5)
+    XCTAssertNil(host.sheetContainer.layer.animation(forKey: "bottomSheetSettle"))
+    XCTAssertNil(findDismiss(in: host))
+    XCTAssertFalse(host.accessibilityPerformEscape())
+  }
+
 }

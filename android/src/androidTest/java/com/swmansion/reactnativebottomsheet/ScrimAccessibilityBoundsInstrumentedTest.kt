@@ -17,10 +17,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.facebook.react.bridge.BridgeReactContext
 import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsForTests
 import com.facebook.react.uimanager.ThemedReactContext
-import com.facebook.react.uimanager.events.BatchEventDispatchedListener
-import com.facebook.react.uimanager.events.Event
-import com.facebook.react.uimanager.events.EventDispatcher
-import com.facebook.react.uimanager.events.EventDispatcherListener
 import java.util.ArrayDeque
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -60,7 +56,7 @@ class ScrimAccessibilityBoundsInstrumentedTest {
           sheet =
             BottomSheetView(themedContext).apply {
               listener = SettledListener(openSettled)
-              eventDispatcher = GeometryNoOpEventDispatcher
+              eventDispatcher = NoOpEventDispatcher
               animateIn = true
               modal = true
               setScrimOpacities(listOf(0f, 1f))
@@ -68,7 +64,7 @@ class ScrimAccessibilityBoundsInstrumentedTest {
                 listOf(
                   mapOf("value" to 0.0, "kind" to "points", "programmatic" to false),
                   mapOf("value" to 160.0, "kind" to "points", "programmatic" to false),
-                )
+                ),
               )
               setIndex(1)
             }
@@ -150,7 +146,7 @@ class ScrimAccessibilityBoundsInstrumentedTest {
 
     fail(
       "$state geometry did not stabilize: expected=$lastExpected, view=$lastView, node=$lastNode, " +
-        "viewWindow=$lastViewWindowId, nodeWindow=$lastNodeWindowId"
+        "viewWindow=$lastViewWindowId, nodeWindow=$lastNodeWindowId",
     )
   }
 
@@ -229,20 +225,4 @@ private class SettledListener(private val openSettled: CountDownLatch) : BottomS
   override fun onPositionChange(position: Double, index: Double) = Unit
 
   override fun onCloseRequest() = Unit
-}
-
-private object GeometryNoOpEventDispatcher : EventDispatcher {
-  override fun dispatchEvent(event: Event<*>) = Unit
-
-  override fun dispatchAllEvents() = Unit
-
-  override fun addListener(listener: EventDispatcherListener) = Unit
-
-  override fun removeListener(listener: EventDispatcherListener) = Unit
-
-  override fun addBatchEventDispatchedListener(listener: BatchEventDispatchedListener) = Unit
-
-  override fun removeBatchEventDispatchedListener(listener: BatchEventDispatchedListener) = Unit
-
-  @Suppress("OVERRIDE_DEPRECATION") override fun onCatalystInstanceDestroyed() = Unit
 }

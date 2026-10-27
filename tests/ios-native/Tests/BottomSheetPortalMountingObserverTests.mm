@@ -1,5 +1,6 @@
 #import <XCTest/XCTest.h>
 #import "Support/BottomSheetPortalRuntimeFixture.h"
+#import "Support/BottomSheetPortalProjectionTestHelper.h"
 #import "../../../ios/BottomSheetAccessibilityMaskLedger.h"
 #include <react/renderer/mounting/Differentiator.h>
 
@@ -24,8 +25,32 @@ using namespace facebook::react::bottomsheet::tests;
   std::vector<PortalRetainedPaths> paths{{&host->getFamily(), {&sheet->getFamily()}}};
 
   XCTAssertTrue([observer currentRootForSurface:1] == root);
-  XCTAssertEqualObjects([observer hiddenBranchesForSurface:1 retainedPaths:paths],
+  XCTAssertEqualObjects(hiddenBranches(observer, 1, paths),
                        ([NSSet setWithObject:fixture.view(12)]));
+}
+
+- (void)testCompletedBatchValidatesEachAdditionalOwnerAgainstItsRootAndRegistry
+{
+  RuntimeFixture fixture;
+  auto root = fixture.mount({fixture.node(14), fixture.node(15)});
+  auto observer = fixture.observer();
+  MountingTransaction first(1, 1, {}, {});
+  [observer didMount:first owner:fixture.view(14)];
+  auto registry = fixture.mountingManager.componentViewRegistry;
+  auto handle = fixture.descriptor.getComponentHandle();
+  auto foreign = [registry dequeueComponentViewWithComponentHandle:handle tag:24];
+  UIView *sameTag = [UIView new];
+  sameTag.tag = 15;
+
+  [observer didMount:first owner:fixture.view(15)];
+  [observer didMount:first owner:foreign.view];
+  [observer didMount:first owner:sameTag];
+
+  XCTAssertTrue([observer currentRootForOwner:fixture.view(14)] == root);
+  XCTAssertTrue([observer currentRootForOwner:fixture.view(15)] == root);
+  XCTAssertFalse(bool([observer currentRootForOwner:foreign.view]));
+  XCTAssertFalse(bool([observer currentRootForOwner:sameTag]));
+  [registry enqueueComponentViewWithComponentHandle:handle tag:24 componentViewDescriptor:foreign];
 }
 
 - (void)testDuplicateObserverCannotExposeAnInFlightMountAndCompletionAddsNewBackground
@@ -50,12 +75,37 @@ using namespace facebook::react::bottomsheet::tests;
   auto nextRoot = fixture.mount({changedArea});
   auto mutations = calculateShadowViewMutations(*firstRoot, *nextRoot);
   MountingTransaction next(1, 2, std::move(mutations), {});
+  [observer didMount:first owner:fixture.view(16)];
+  XCTAssertFalse(bool([observer currentRootForSurface:1]));
   [observer didMount:next owner:fixture.view(14)];
   std::vector<PortalRetainedPaths> paths{{&host->getFamily(), {&sheet->getFamily()}}};
 
   XCTAssertTrue([observer currentRootForSurface:1] == nextRoot);
-  XCTAssertEqualObjects([observer hiddenBranchesForSurface:1 retainedPaths:paths],
+  XCTAssertEqualObjects(hiddenBranches(observer, 1, paths),
                        ([NSSet setWithObjects:fixture.view(12), fixture.view(16), nil]));
+}
+
+- (void)testRepeatedOldCallbacksCannotRepublishAChangedRootAfterAnotherOwnerWithdraws
+{
+  RuntimeFixture fixture;
+  auto owner = fixture.node(14);
+  auto firstRoot = fixture.mount({owner});
+  auto observer = fixture.observer();
+  MountingTransaction first(1, 1, {}, {});
+  [observer didMount:first owner:fixture.view(14)];
+  auto nextRoot = fixture.mount({owner, fixture.node(16)});
+
+  // A late callback must validate membership in the changed applied root. Its
+  // new owner keeps the old publication alive until the actual next completion.
+  [observer didMount:first owner:fixture.view(16)];
+  [observer withdrawOwner:fixture.view(14)];
+  [observer didMount:first owner:fixture.view(16)];
+  XCTAssertFalse(bool([observer currentRootForOwner:fixture.view(16)]));
+
+  auto mutations = calculateShadowViewMutations(*firstRoot, *nextRoot);
+  MountingTransaction next(1, 2, std::move(mutations), {});
+  [observer didMount:next owner:fixture.view(16)];
+  XCTAssertTrue([observer currentRootForOwner:fixture.view(16)] == nextRoot);
 }
 
 - (void)testCurrentSourceOwnerResolvesOnlyItsOwnCompletedPublication
@@ -99,7 +149,7 @@ using namespace facebook::react::bottomsheet::tests;
 
   [observer didMount:first owner:fixture.view(15)];
   std::vector<PortalRetainedPaths> paths{{&host->getFamily(), {&sheetB->getFamily()}}};
-  XCTAssertEqualObjects([observer hiddenBranchesForSurface:1 retainedPaths:paths],
+  XCTAssertEqualObjects(hiddenBranches(observer, 1, paths),
                        ([NSSet setWithObjects:fixture.view(12), fixture.view(14), nil]));
 }
 
@@ -154,8 +204,8 @@ using namespace facebook::react::bottomsheet::tests;
 
   XCTAssertTrue([observer currentRootForSurface:1] == root);
   XCTAssertTrue(root != oldRoot);
-  XCTAssertNil([observer hiddenBranchesForSurface:1 retainedPaths:oldPaths]);
-  XCTAssertEqualObjects([observer hiddenBranchesForSurface:1 retainedPaths:paths],
+  XCTAssertNil(hiddenBranches(observer, 1, oldPaths));
+  XCTAssertEqualObjects(hiddenBranches(observer, 1, paths),
                        ([NSSet setWithObject:fixture.view(12)]));
 }
 
@@ -170,8 +220,8 @@ using namespace facebook::react::bottomsheet::tests;
   BottomSheetAccessibilityMaskLedger *ledger = [BottomSheetAccessibilityMaskLedger new];
   UIView *otherContext = [UIView new];
   UIView *deletedView = fixture.view(12);
-  [ledger reconcileHiddenBranches:[NSSet setWithObjects:deletedView, otherContext, nil]
-         beforeRestoringBranches:nil];
+  [ledger reconcilePortalHiddenBranches:[NSSet setWithObjects:deletedView, otherContext, nil]
+         windowHiddenBranches:[NSSet set] beforeRestoringBranches:nil];
   std::weak_ptr<UIManager> current = fixture.uiManager;
   auto observer = [[BottomSheetPortalMountingObserver alloc]
       initWithMountingManager:fixture.mountingManager
@@ -194,7 +244,7 @@ using namespace facebook::react::bottomsheet::tests;
   XCTAssertFalse(bool([observer currentRootForSurface:1]));
   fixture.mount({nextArea});
   deletedView.accessibilityElementsHidden = YES;
-  [ledger reconcileHiddenBranches:[NSSet set] beforeRestoringBranches:nil];
+  [ledger reconcilePortalHiddenBranches:[NSSet set] windowHiddenBranches:[NSSet set] beforeRestoringBranches:nil];
   XCTAssertTrue(deletedView.accessibilityElementsHidden);
 }
 
@@ -208,8 +258,8 @@ using namespace facebook::react::bottomsheet::tests;
   fixture.mount({area});
   BottomSheetAccessibilityMaskLedger *ledger = [BottomSheetAccessibilityMaskLedger new];
   UIView *backgroundView = fixture.view(12);
-  [ledger reconcileHiddenBranches:[NSSet setWithObject:backgroundView]
-         beforeRestoringBranches:nil];
+  [ledger reconcilePortalHiddenBranches:[NSSet setWithObject:backgroundView]
+         windowHiddenBranches:[NSSet set] beforeRestoringBranches:nil];
   std::weak_ptr<UIManager> current = fixture.uiManager;
   auto observer = [[BottomSheetPortalMountingObserver alloc]
       initWithMountingManager:fixture.mountingManager
@@ -246,8 +296,8 @@ using namespace facebook::react::bottomsheet::tests;
   UIView *nativeChild = [UIView new];
   [backgroundView addSubview:nativeChild];
   auto ledger = [BottomSheetAccessibilityMaskLedger new];
-  [ledger reconcileHiddenBranches:[NSSet setWithObjects:backgroundView, nativeChild, nil]
-         beforeRestoringBranches:nil];
+  [ledger reconcilePortalHiddenBranches:[NSSet setWithObjects:backgroundView, nativeChild, nil]
+         windowHiddenBranches:[NSSet set] beforeRestoringBranches:nil];
   std::weak_ptr<UIManager> current = fixture.uiManager;
   auto observer = [[BottomSheetPortalMountingObserver alloc]
       initWithMountingManager:fixture.mountingManager
@@ -274,7 +324,7 @@ using namespace facebook::react::bottomsheet::tests;
   XCTAssertEqual(fixture.view(12), backgroundView);
   XCTAssertTrue(backgroundView.accessibilityElementsHidden);
   XCTAssertTrue(nativeChild.accessibilityElementsHidden);
-  [ledger reconcileHiddenBranches:[NSSet set] beforeRestoringBranches:nil];
+  [ledger reconcilePortalHiddenBranches:[NSSet set] windowHiddenBranches:[NSSet set] beforeRestoringBranches:nil];
   XCTAssertFalse(backgroundView.accessibilityElementsHidden);
   XCTAssertFalse(nativeChild.accessibilityElementsHidden);
 }
@@ -291,8 +341,8 @@ using namespace facebook::react::bottomsheet::tests;
   UIView *deletedParent = fixture.view(12);
   UIView *survivingControl = fixture.view(16);
   auto ledger = [BottomSheetAccessibilityMaskLedger new];
-  [ledger reconcileHiddenBranches:[NSSet setWithObject:deletedParent]
-         beforeRestoringBranches:nil];
+  [ledger reconcilePortalHiddenBranches:[NSSet setWithObject:deletedParent]
+         windowHiddenBranches:[NSSet set] beforeRestoringBranches:nil];
   std::weak_ptr<UIManager> current = fixture.uiManager;
   auto observer = [[BottomSheetPortalMountingObserver alloc]
       initWithMountingManager:fixture.mountingManager
@@ -320,7 +370,7 @@ using namespace facebook::react::bottomsheet::tests;
   XCTAssertNil(fixture.view(12));
   XCTAssertEqual(fixture.view(16), survivingControl);
   XCTAssertTrue(survivingControl.accessibilityElementsHidden);
-  [ledger reconcileHiddenBranches:[NSSet set] beforeRestoringBranches:nil];
+  [ledger reconcilePortalHiddenBranches:[NSSet set] windowHiddenBranches:[NSSet set] beforeRestoringBranches:nil];
   XCTAssertFalse(survivingControl.accessibilityElementsHidden);
 }
 

@@ -71,6 +71,27 @@ static BottomSheetHostingView *BottomSheetFindHost(UIView *view)
   return nil;
 }
 
+static UIWindow *BottomSheetMakeWindow(CGRect frame)
+{
+  UIWindowScene *foregroundScene = nil;
+  NSUInteger foregroundSceneCount = 0;
+  for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+    if ([scene isKindOfClass:UIWindowScene.class] &&
+        scene.activationState == UISceneActivationStateForegroundActive) {
+      foregroundScene = (UIWindowScene *)scene;
+      foregroundSceneCount++;
+    }
+  }
+  if (foregroundSceneCount != 1) {
+    [NSException raise:NSInternalInconsistencyException
+                format:@"The native fixture requires exactly one foreground-active UIWindowScene"];
+  }
+  UIWindow *window = [[UIWindow alloc] initWithFrame:frame];
+  window.windowScene = foregroundScene;
+  window.frame = frame;
+  return window;
+}
+
 @interface BottomSheetNativeOverlayAccessibilityTests : XCTestCase
 @end
 
@@ -78,7 +99,7 @@ static BottomSheetHostingView *BottomSheetFindHost(UIView *view)
 - (void)testTransparentOverlayBlocksBackgroundWithEligibleProgrammaticOnlyOrAbsentClosedDetent
 {
   for (NSUInteger variant = 0; variant < 3; variant++) {
-    UIWindow *window = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, 390, 844)];
+    UIWindow *window = BottomSheetMakeWindow(CGRectMake(0, 0, 390, 844));
     window.rootViewController = [UIViewController new];
     UIButton *background = [[UIButton alloc] initWithFrame:window.bounds];
     __block NSUInteger activations = 0;
@@ -129,7 +150,7 @@ static BottomSheetHostingView *BottomSheetFindHost(UIView *view)
 - (void)testNativeOverlayBoundaryRemainsModalUntilRealCloseSettles
 {
   XCTAssertTrue(NSThread.isMainThread);
-  UIWindow *window = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, 390, 844)];
+  UIWindow *window = BottomSheetMakeWindow(CGRectMake(0, 0, 390, 844));
   window.rootViewController = [UIViewController new];
   UIButton *background = [[UIButton alloc] initWithFrame:window.bounds];
   [window.rootViewController.view addSubview:background];

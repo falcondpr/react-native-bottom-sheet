@@ -36,11 +36,6 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable NSSet<UIView *> *)hiddenBranchesForRoot:
     (const std::shared_ptr<const facebook::react::RootShadowNode> &)root
                                     retainedPaths:
-    (const std::vector<facebook::react::bottomsheet::PortalRetainedPaths> &)requests;
-
-- (nullable NSSet<UIView *> *)hiddenBranchesForRoot:
-    (const std::shared_ptr<const facebook::react::RootShadowNode> &)root
-                                    retainedPaths:
     (const std::vector<facebook::react::bottomsheet::PortalRetainedPaths> &)requests
                                         hierarchy:(BottomSheetNativeHierarchySnapshot *)hierarchy;
 

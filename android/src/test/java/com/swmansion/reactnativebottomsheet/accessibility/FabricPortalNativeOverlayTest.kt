@@ -11,11 +11,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.facebook.react.bridge.BridgeReactContext
 import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsForTests
 import com.facebook.react.uimanager.ThemedReactContext
-import com.facebook.react.uimanager.events.BatchEventDispatchedListener
-import com.facebook.react.uimanager.events.Event
-import com.facebook.react.uimanager.events.EventDispatcher
-import com.facebook.react.uimanager.events.EventDispatcherListener
 import com.swmansion.reactnativebottomsheet.BottomSheetView
+import com.swmansion.reactnativebottomsheet.NoOpEventDispatcher
 import com.swmansion.reactnativebottomsheet.presentation.TestReactRoot
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotSame
@@ -52,7 +49,7 @@ class FabricPortalNativeOverlayTest {
       f.layout(f.root)
       assertNull(f.receipt.attachedNativePath(f.registry::get, f.content, overlayWindow))
       assertNotNull(
-        f.inlineReceipt.attachedNativePath(f.registry::get, f.content, applicationWindow)
+        f.inlineReceipt.attachedNativePath(f.registry::get, f.content, applicationWindow),
       )
       assertNotNull(f.inlineReceipt.nativeMembers(f.registry::get))
     }
@@ -129,14 +126,14 @@ class FabricPortalNativeOverlayTest {
       owner =
         BottomSheetView(ThemedReactContext(reactContext, activity.get(), "test", 1)).apply {
           id = 24
-          eventDispatcher = NoOpOverlayEventDispatcher
+          eventDispatcher = NoOpEventDispatcher
           animateIn = false
           modal = true
           setDetents(
             listOf(
               mapOf("value" to 0.0, "kind" to "points", "programmatic" to false),
               mapOf("value" to 300.0, "kind" to "points", "programmatic" to false),
-            )
+            ),
           )
           setIndex(1)
         }
@@ -186,20 +183,4 @@ class FabricPortalNativeOverlayTest {
         intArrayOf(2, 0, 24, 2, 11, 24, 13, 11, 14, 13),
       )
   }
-}
-
-private object NoOpOverlayEventDispatcher : EventDispatcher {
-  override fun dispatchEvent(event: Event<*>) = Unit
-
-  override fun dispatchAllEvents() = Unit
-
-  override fun addListener(listener: EventDispatcherListener) = Unit
-
-  override fun removeListener(listener: EventDispatcherListener) = Unit
-
-  override fun addBatchEventDispatchedListener(listener: BatchEventDispatchedListener) = Unit
-
-  override fun removeBatchEventDispatchedListener(listener: BatchEventDispatchedListener) = Unit
-
-  @Suppress("OVERRIDE_DEPRECATION") override fun onCatalystInstanceDestroyed() = Unit
 }

@@ -16,27 +16,37 @@ using NativeBinding = FabricUIManagerBinding;
 using NativeBinding = Binding;
 #endif
 
-struct JFabricPortalReceipt : jni::JavaClass<JFabricPortalReceipt> {
+struct JFabricPortalSourceMetadata : jni::JavaClass<JFabricPortalSourceMetadata> {
   static constexpr auto kJavaDescriptor =
-      "Lcom/swmansion/reactnativebottomsheet/accessibility/FabricPortalReceipt;";
+      "Lcom/swmansion/reactnativebottomsheet/accessibility/FabricPortalSourceMetadata;";
 
-  static jni::local_ref<JFabricPortalReceipt> create(const PortalSourceReceipt& receipt) {
-    auto contexts = jni::JArrayInt::newArray(receipt.contexts.size());
-    contexts->setRegion(0, receipt.contexts.size(), receipt.contexts.data());
-    auto ancestors = jni::JArrayInt::newArray(receipt.ancestors.size());
-    ancestors->setRegion(0, receipt.ancestors.size(), receipt.ancestors.data());
-    auto tags = jni::JArrayInt::newArray(receipt.logicalTags.size());
-    tags->setRegion(0, receipt.logicalTags.size(), receipt.logicalTags.data());
+  static jni::local_ref<JFabricPortalSourceMetadata> create(const PortalSourceSnapshot& snapshot) {
+    auto tags = jni::JArrayInt::newArray(snapshot.logicalTags.size());
+    tags->setRegion(0, snapshot.logicalTags.size(), snapshot.logicalTags.data());
     std::vector<jint> edges;
-    for (const auto& [child, parent] : receipt.nativeParents) {
+    for (const auto& [child, parent] : snapshot.nativeParents) {
       edges.push_back(child);
       edges.push_back(parent);
     }
     auto parents = jni::JArrayInt::newArray(edges.size());
     parents->setRegion(0, edges.size(), edges.data());
+    return newInstance(tags, parents);
+  }
+};
+
+struct JFabricPortalReceipt : jni::JavaClass<JFabricPortalReceipt> {
+  static constexpr auto kJavaDescriptor =
+      "Lcom/swmansion/reactnativebottomsheet/accessibility/FabricPortalReceipt;";
+
+  static jni::local_ref<JFabricPortalReceipt> create(
+      const PortalSourceReceipt& receipt, jni::alias_ref<JFabricPortalSourceMetadata> source) {
+    auto contexts = jni::JArrayInt::newArray(receipt.contexts.size());
+    contexts->setRegion(0, receipt.contexts.size(), receipt.contexts.data());
+    auto ancestors = jni::JArrayInt::newArray(receipt.ancestors.size());
+    ancestors->setRegion(0, receipt.ancestors.size(), receipt.ancestors.data());
     return newInstance(
         jni::make_jstring(receipt.publicationId), static_cast<jint>(receipt.host),
-        contexts, ancestors, tags, parents);
+        contexts, ancestors, source);
   }
 };
 
@@ -75,7 +85,7 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
         makeNativeMethod("bootstrapNative", FabricPortalPublication::bootstrapNative),
         makeNativeMethod("usesDirectStateNative", FabricPortalPublication::usesDirectStateNative),
         makeNativeMethod("sheetTagsNative", FabricPortalPublication::sheetTagsNative),
-        makeNativeMethod("receiptNative", FabricPortalPublication::receiptNative),
+        makeNativeMethod("receiptsNative", FabricPortalPublication::receiptsNative),
         makeNativeMethod("contextPathNative", FabricPortalPublication::contextPathNative),
         makeNativeMethod("isolationNative", FabricPortalPublication::isolationNative),
     });
@@ -144,16 +154,22 @@ class FabricPortalPublication final : public jni::HybridClass<FabricPortalPublic
     return result;
   }
 
-  jni::local_ref<JFabricPortalReceipt> receiptNative(
-      jint surface, jint tag, jni::alias_ref<jintArray> tags,
+  jni::local_ref<jni::JArrayClass<JFabricPortalReceipt::javaobject>> receiptsNative(
+      jint surface, jni::alias_ref<jintArray> requestedTags, jni::alias_ref<jintArray> tags,
       jni::alias_ref<jni::JArrayClass<jobject>::javaobject> objects) {
     auto states = deliveredStates(surface, tags, objects);
-    if (!states) return nullptr;
-    auto selected = states->find(tag);
-    if (selected == states->end() || !source_.rootForStates(surface, *states)) return nullptr;
-    auto receipt = source_.receiptForState(surface, tag, selected->second);
-    if (!receipt) return nullptr;
-    return JFabricPortalReceipt::create(*receipt);
+    if (!states || !requestedTags) return nullptr;
+    std::vector<jint> requested(requestedTags->size());
+    requestedTags->getRegion(0, requested.size(), requested.data());
+    auto snapshot = source_.receiptsForStates(surface, requested, *states);
+    if (!snapshot) return nullptr;
+    auto source = JFabricPortalSourceMetadata::create(*snapshot);
+    auto result = jni::JArrayClass<JFabricPortalReceipt::javaobject>::newArray(snapshot->receipts.size());
+    for (size_t index = 0; index < snapshot->receipts.size(); ++index) {
+      auto receipt = JFabricPortalReceipt::create(snapshot->receipts[index], source);
+      result->setElement(index, receipt.get());
+    }
+    return result;
   }
 
   jni::local_ref<jintArray> contextPathNative(

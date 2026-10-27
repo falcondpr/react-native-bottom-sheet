@@ -53,8 +53,10 @@ internal fun FabricPublicationLease.attachedInputContextsFromRegistry(
   val first = presentations.firstOrNull() ?: return null
   val states = deliveredStatesFromRegistry(manager, surfaceId, first) ?: return null
   val receipts = mutableMapOf<BottomSheetView, FabricPortalReceipt>()
-  for (owner in presentations) {
-    val receipt = receipt(surfaceId, owner.id, states) ?: return null
+  val owners = presentations.toList()
+  val sourceReceipts = receipts(surfaceId, owners.map { it.id }, states) ?: return null
+  if (sourceReceipts.size != owners.size) return null
+  for ((owner, receipt) in owners.zip(sourceReceipts)) {
     if (receipt.attachedNativePath(manager::resolveView, owner, windowRoot) == null) return null
     receipts[owner] = receipt
   }
@@ -90,8 +92,9 @@ internal fun FabricPublicationLease.attachedIsolationCutsFromRegistry(
     if (surface <= 0) return null
     val states = deliveredStatesFromRegistry(manager, surface, owners.first()) ?: return null
     val receipts = mutableMapOf<BottomSheetView, FabricPortalReceipt>()
-    for (owner in owners) {
-      val receipt = receipt(surface, owner.id, states) ?: return null
+    val sourceReceipts = receipts(surface, owners.map { it.id }, states) ?: return null
+    if (sourceReceipts.size != owners.size) return null
+    for ((owner, receipt) in owners.zip(sourceReceipts)) {
       if (receipt.attachedNativePath(manager::resolveView, owner, windowRoot) == null) return null
       receipts[owner] = receipt
     }

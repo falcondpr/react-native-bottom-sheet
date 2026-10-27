@@ -28,10 +28,6 @@ import com.facebook.react.R
 import com.facebook.react.bridge.BridgeReactContext
 import com.facebook.react.internal.featureflags.ReactNativeFeatureFlagsForTests
 import com.facebook.react.uimanager.ThemedReactContext
-import com.facebook.react.uimanager.events.BatchEventDispatchedListener
-import com.facebook.react.uimanager.events.Event
-import com.facebook.react.uimanager.events.EventDispatcher
-import com.facebook.react.uimanager.events.EventDispatcherListener
 import com.swmansion.reactnativebottomsheet.closerequest.TestWindowBackDispatcher
 import com.swmansion.reactnativebottomsheet.closerequest.startSystemBack
 import com.swmansion.reactnativebottomsheet.closerequest.systemBack
@@ -778,20 +774,4 @@ private class EscapeConsumingView(context: Context, private val consumesEscape: 
     ordinaryEventCount++
     return true
   }
-}
-
-private object NoOpEventDispatcher : EventDispatcher {
-  override fun dispatchEvent(event: Event<*>) = Unit
-
-  override fun dispatchAllEvents() = Unit
-
-  override fun addListener(listener: EventDispatcherListener) = Unit
-
-  override fun removeListener(listener: EventDispatcherListener) = Unit
-
-  override fun addBatchEventDispatchedListener(listener: BatchEventDispatchedListener) = Unit
-
-  override fun removeBatchEventDispatchedListener(listener: BatchEventDispatchedListener) = Unit
-
-  @Suppress("OVERRIDE_DEPRECATION") override fun onCatalystInstanceDestroyed() = Unit
 }

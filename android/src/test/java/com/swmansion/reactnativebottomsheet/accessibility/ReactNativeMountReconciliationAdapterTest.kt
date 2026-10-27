@@ -20,6 +20,113 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class ReactNativeMountReconciliationAdapterTest {
   @Test
+  fun `one UI batch installs both manager sources before the shared window reads once`() {
+    val posted = mutableListOf<Runnable>()
+    val firstManager = FakeMountCallbacks(isFabric = true)
+    val secondManager = FakeMountCallbacks(isFabric = true)
+    val bootstrapped = mutableSetOf<Any>()
+    val adapter =
+      ReactNativeMountReconciliationAdapter(
+        postToUiThread = { posted.add(it) },
+        acquirePublicationSource = { identity ->
+          FakePublicationLease { bootstrapped.add(identity) }
+        },
+      )
+    val window = Any()
+    var reads = 0
+    val readWindow = {
+      assertEquals(setOf(firstManager.identity, secondManager.identity), bootstrapped)
+      reads++
+      Unit
+    }
+    val first = adapter.observe(firstManager, window, readWindow)
+    val second = adapter.observe(secondManager, window, readWindow)
+    first.requestReconciliation()
+    second.requestReconciliation()
+    assertEquals(1, posted.size)
+    posted.removeAt(0).run()
+    assertEquals(1, reads)
+    first.remove()
+    second.remove()
+    posted.toList().forEach { it.run() }
+  }
+
+  @Test
+  fun `callbacks sharing a collected window clean up every lease in the same batch`() {
+    val posted = mutableListOf<Runnable>()
+    val boundary = FakeMountCallbacks(isFabric = true)
+    val adapter = ReactNativeMountReconciliationAdapter(postToUiThread = { posted.add(it) })
+    val window = Any()
+    var removals = 0
+    lateinit var first: ReactNativeMountReconciliationAdapter.Observation
+    lateinit var second: ReactNativeMountReconciliationAdapter.Observation
+    first =
+      adapter.observe(boundary, window) {
+        first.remove()
+        removals++
+      }
+    second =
+      adapter.observe(boundary, window) {
+        second.remove()
+        removals++
+      }
+    first.requestReconciliation()
+    posted.removeAt(0).run()
+    assertEquals(2, removals)
+    assertEquals(1, boundary.removeCount)
+    assertEquals(0, posted.size)
+  }
+
+  @Test
+  fun `one window reconciles once per manager batch while root leases remain independent`() {
+    val posted = mutableListOf<Runnable>()
+    val boundary = FakeMountCallbacks(isFabric = true)
+    val adapter = ReactNativeMountReconciliationAdapter(postToUiThread = { posted.add(it) })
+    val window = Any()
+    var reads = 0
+    val first = adapter.observe(boundary, window) { reads++ }
+    val second = adapter.observe(boundary, window) { reads++ }
+
+    first.requestReconciliation()
+    second.requestReconciliation()
+    posted.removeAt(0).run()
+    assertEquals(1, reads)
+    first.remove()
+    assertEquals(0, boundary.removeCount)
+    boundary.listener?.didMountItems(FakeUIManager)
+    posted.removeAt(0).run()
+    assertEquals(2, reads)
+    second.remove()
+    assertEquals(1, boundary.removeCount)
+  }
+
+  @Test
+  fun `reentrant requests schedule fresh window work and removed snapshot callbacks do not run`() {
+    val posted = mutableListOf<Runnable>()
+    val boundary = FakeMountCallbacks(isFabric = true)
+    val adapter = ReactNativeMountReconciliationAdapter(postToUiThread = { posted.add(it) })
+    val window = Any()
+    var reads = 0
+    lateinit var other: ReactNativeMountReconciliationAdapter.Observation
+    val first =
+      adapter.observe(boundary, window) {
+        reads++
+        other.remove()
+        if (reads == 1) boundary.listener?.didMountItems(FakeUIManager)
+      }
+    val second = adapter.observe(boundary, window) { error("duplicate window callback") }
+    other = adapter.observe(boundary) { error("removed callback") }
+    first.requestReconciliation()
+    posted.removeAt(0).run()
+    assertEquals(1, reads)
+    assertEquals(1, posted.size)
+    posted.removeAt(0).run()
+    assertEquals(2, reads)
+    first.remove()
+    second.remove()
+  }
+
+  @Test
   fun `Fabric mount callbacks coalesce and one listener lives until the final observation ends`() {
     val posted = mutableListOf<Runnable>()
     val boundary = FakeMountCallbacks(isFabric = true)
@@ -260,7 +367,7 @@ class ReactNativeMountReconciliationAdapterTest {
   }
 
   private class FakePublicationLease(private val onBootstrap: () -> Unit = {}) :
-    FabricPublicationLease {
+    TestFabricPublicationLease() {
     var bootstraps = 0
     var releases = 0
 

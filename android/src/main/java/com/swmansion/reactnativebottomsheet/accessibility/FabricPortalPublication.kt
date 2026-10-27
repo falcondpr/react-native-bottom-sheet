@@ -26,19 +26,20 @@ private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
   override fun sheetTags(surfaceId: Int, tag: Int, state: StateWrapper?): IntArray? =
     if (active) sheetTagsNative(surfaceId, tag, transportState(state)) else null
 
-  override fun receipt(
+  override fun receipts(
     surfaceId: Int,
-    tag: Int,
+    tags: List<Int>,
     states: Map<Int, StateWrapper?>,
-  ): FabricPortalReceipt? {
-    if (!active || tag !in states) return null
+  ): List<FabricPortalReceipt>? {
+    if (!active || tags.isEmpty() || tags.any { it !in states }) return null
     val delivered = states.toList()
-    return receiptNative(
-      surfaceId,
-      tag,
-      delivered.map { it.first }.toIntArray(),
-      delivered.map { transportState(it.second) ?: return null }.toTypedArray(),
-    )
+    return receiptsNative(
+        surfaceId,
+        tags.toIntArray(),
+        delivered.map { it.first }.toIntArray(),
+        delivered.map { transportState(it.second) ?: return null }.toTypedArray(),
+      )
+      ?.toList()
   }
 
   override fun release() {
@@ -97,12 +98,12 @@ private constructor(@field:DoNotStrip private val mHybridData: HybridData) :
   @DoNotStrip private external fun sheetTagsNative(surfaceId: Int, tag: Int, state: Any?): IntArray?
 
   @DoNotStrip
-  private external fun receiptNative(
+  private external fun receiptsNative(
     surfaceId: Int,
-    tag: Int,
+    requestedTags: IntArray,
     tags: IntArray,
     states: Array<Any>,
-  ): FabricPortalReceipt?
+  ): Array<FabricPortalReceipt>?
 
   @DoNotStrip
   private external fun contextPathNative(

@@ -213,6 +213,10 @@ presentation may attempt dismissal and consumes the gesture even when dismissal
 is unavailable. If the local context or top presentation cannot be resolved, the
 gesture continues through normal UIKit routing.
 
+When an iOS sheet fills its host, there is no outside-sheet area for the Dismiss
+control, so that control is unavailable. VoiceOver Escape can still close it
+when an eligible non-programmatic closed detent is available.
+
 ## Screen reader transitions
 
 For portal modals, the previous screen reader interface remains available while

@@ -83,11 +83,10 @@ static void BottomSheetLayoutViewTree(UIView *root)
   UIView *anchor = [UIView new];
   [window.rootViewController.view addSubview:anchor];
   BottomSheetPresentationController *controller =
-      BottomSheetActivateCandidate(anchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(anchor, BottomSheetPresentationModeNativeOverlay);
 
   XCTAssertEqual([BottomSheetTestComponentFactory registeredWindowForController:controller], window);
-  XCTAssertEqualObjects(
-      [BottomSheetTestComponentFactory windowEscapeOwnerForController:controller], controller.identity);
+  XCTAssertEqual([controller routeForVoiceOverEscape], BottomSheetPresentationEscapeRouteAttemptLocal);
 
   [controller invalidate];
   BottomSheetTearDownWindow(window);
@@ -101,12 +100,11 @@ static void BottomSheetLayoutViewTree(UIView *root)
   [window.rootViewController.view addSubview:lowerAnchor];
   [window.rootViewController.view addSubview:upperAnchor];
   BottomSheetPresentationController *upperController =
-      BottomSheetActivateCandidate(upperAnchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(upperAnchor, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationController *lowerController =
-      BottomSheetActivateCandidate(lowerAnchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(lowerAnchor, BottomSheetPresentationModeNativeOverlay);
 
-  XCTAssertEqualObjects(
-      [BottomSheetTestComponentFactory windowEscapeOwnerForController:lowerController], upperController.identity);
+  XCTAssertEqual([upperController routeForVoiceOverEscape], BottomSheetPresentationEscapeRouteAttemptLocal);
 
   [lowerController invalidate];
   [upperController invalidate];
@@ -158,16 +156,15 @@ static void BottomSheetLayoutViewTree(UIView *root)
   [window.rootViewController.view addSubview:firstAnchor];
   [window.rootViewController.view addSubview:secondAnchor];
   BottomSheetPresentationController *firstController =
-      BottomSheetActivateCandidate(firstAnchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(firstAnchor, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationController *secondController =
-      BottomSheetActivateCandidate(secondAnchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(secondAnchor, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationIdentity *firstIdentity = firstController.identity;
 
   [window.rootViewController.view bringSubviewToFront:firstAnchor];
   [secondController reconcilePresentationOrder];
 
-  XCTAssertEqualObjects(
-      [BottomSheetTestComponentFactory windowEscapeOwnerForController:firstController], firstController.identity);
+  XCTAssertEqual([firstController routeForVoiceOverEscape], BottomSheetPresentationEscapeRouteAttemptLocal);
   XCTAssertEqualObjects(firstController.identity, firstIdentity);
 
   [secondController invalidate];
@@ -187,15 +184,14 @@ static void BottomSheetLayoutViewTree(UIView *root)
   [firstBranch addSubview:firstAnchor];
   [secondBranch addSubview:secondAnchor];
   BottomSheetPresentationController *firstController =
-      BottomSheetActivateCandidate(firstAnchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(firstAnchor, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationController *secondController =
-      BottomSheetActivateCandidate(secondAnchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(secondAnchor, BottomSheetPresentationModeNativeOverlay);
 
   firstBranch.layer.zPosition = 3;
   [firstController reconcilePresentationOrder];
 
-  XCTAssertEqualObjects(
-      [BottomSheetTestComponentFactory windowEscapeOwnerForController:firstController], firstController.identity);
+  XCTAssertEqual([firstController routeForVoiceOverEscape], BottomSheetPresentationEscapeRouteAttemptLocal);
 
   [secondController invalidate];
   [firstController invalidate];
@@ -216,13 +212,13 @@ static void BottomSheetLayoutViewTree(UIView *root)
   [secondBranch addSubview:secondAnchor];
 
   BottomSheetPresentationController *secondController =
-      BottomSheetActivateCandidate(secondAnchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(secondAnchor, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationController *firstController =
-      BottomSheetActivateCandidate(firstAnchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(firstAnchor, BottomSheetPresentationModeNativeOverlay);
 
   XCTAssertEqual([BottomSheetTestComponentFactory registeredWindowForController:firstController], window);
   XCTAssertEqual([BottomSheetTestComponentFactory registeredWindowForController:secondController], window);
-  XCTAssertNil([BottomSheetTestComponentFactory windowEscapeOwnerForController:firstController]);
+  XCTAssertEqual([firstController routeForVoiceOverEscape], BottomSheetPresentationEscapeRoutePassThrough);
 
   [firstController invalidate];
   [secondController invalidate];
@@ -237,20 +233,19 @@ static void BottomSheetLayoutViewTree(UIView *root)
   [window.rootViewController.view addSubview:lowerAnchor];
   [window.rootViewController.view addSubview:upperAnchor];
   BottomSheetPresentationController *lowerController =
-      BottomSheetActivateCandidate(lowerAnchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(lowerAnchor, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationController *upperController =
       [[BottomSheetPresentationController alloc] initWithAnchor:upperAnchor];
-  [upperController updateModal:YES active:NO mode:BottomSheetPresentationModePortal];
+  [upperController updateModal:YES active:NO mode:BottomSheetPresentationModeNativeOverlay];
 
-  XCTAssertEqualObjects(
-      [BottomSheetTestComponentFactory windowEscapeOwnerForController:lowerController], lowerController.identity);
+  XCTAssertEqual([lowerController routeForVoiceOverEscape], BottomSheetPresentationEscapeRouteAttemptLocal);
 
   [upperController invalidate];
   [lowerController invalidate];
   BottomSheetTearDownWindow(window);
 }
 
-- (void)testPortalAndNativeOverlayModeDoNotOverrideNativeOrder
+- (void)testUnmappedPortalAboveOverlayDoesNotTakeItsWindowInput
 {
   UIWindow *window = BottomSheetMakeTestWindow();
   UIView *overlayAnchor = [UIView new];
@@ -263,8 +258,8 @@ static void BottomSheetLayoutViewTree(UIView *root)
   BottomSheetPresentationController *overlayController =
       BottomSheetActivateCandidate(overlayAnchor, BottomSheetPresentationModeNativeOverlay);
 
-  XCTAssertEqualObjects(
-      [BottomSheetTestComponentFactory windowEscapeOwnerForController:portalController], portalController.identity);
+  XCTAssertEqual([portalController routeForVoiceOverEscape], BottomSheetPresentationEscapeRouteConsume);
+  XCTAssertEqual([overlayController routeForVoiceOverEscape], BottomSheetPresentationEscapeRouteAttemptLocal);
 
   [overlayController invalidate];
   [portalController invalidate];
@@ -281,14 +276,12 @@ static void BottomSheetLayoutViewTree(UIView *root)
   [secondWindow.rootViewController.view addSubview:secondAnchor];
 
   BottomSheetPresentationController *firstController =
-      BottomSheetActivateCandidate(firstAnchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(firstAnchor, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationController *secondController =
       BottomSheetActivateCandidate(secondAnchor, BottomSheetPresentationModeNativeOverlay);
 
-  XCTAssertEqualObjects(
-      [BottomSheetTestComponentFactory windowEscapeOwnerForController:firstController], firstController.identity);
-  XCTAssertEqualObjects(
-      [BottomSheetTestComponentFactory windowEscapeOwnerForController:secondController], secondController.identity);
+  XCTAssertEqual([firstController routeForVoiceOverEscape], BottomSheetPresentationEscapeRouteAttemptLocal);
+  XCTAssertEqual([secondController routeForVoiceOverEscape], BottomSheetPresentationEscapeRouteAttemptLocal);
 
   [secondController invalidate];
   [firstController invalidate];
@@ -304,16 +297,15 @@ static void BottomSheetLayoutViewTree(UIView *root)
   [window.rootViewController.view addSubview:lowerAnchor];
   [window.rootViewController.view addSubview:upperAnchor];
   BottomSheetPresentationController *lowerController =
-      BottomSheetActivateCandidate(lowerAnchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(lowerAnchor, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationController *upperController =
-      BottomSheetActivateCandidate(upperAnchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(upperAnchor, BottomSheetPresentationModeNativeOverlay);
 
   [upperAnchor removeFromSuperview];
   [upperController reconcilePresentationOrder];
 
   XCTAssertNil([BottomSheetTestComponentFactory registeredWindowForController:upperController]);
-  XCTAssertEqualObjects(
-      [BottomSheetTestComponentFactory windowEscapeOwnerForController:lowerController], lowerController.identity);
+  XCTAssertEqual([lowerController routeForVoiceOverEscape], BottomSheetPresentationEscapeRouteAttemptLocal);
 
   [upperController invalidate];
   [lowerController invalidate];
@@ -326,20 +318,20 @@ static void BottomSheetLayoutViewTree(UIView *root)
   UIView *anchor = [UIView new];
   [window.rootViewController.view addSubview:anchor];
   BottomSheetPresentationController *firstController =
-      BottomSheetActivateCandidate(anchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(anchor, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationController *secondController =
       BottomSheetActivateCandidate(anchor, BottomSheetPresentationModeNativeOverlay);
 
   XCTAssertEqual([BottomSheetTestComponentFactory registeredWindowForController:firstController], window);
   XCTAssertEqual([BottomSheetTestComponentFactory registeredWindowForController:secondController], window);
-  XCTAssertNil([BottomSheetTestComponentFactory windowEscapeOwnerForController:firstController]);
+  XCTAssertEqual([firstController routeForVoiceOverEscape], BottomSheetPresentationEscapeRoutePassThrough);
 
   [secondController invalidate];
   [firstController invalidate];
   BottomSheetTearDownWindow(window);
 }
 
-- (void)testRemovingCurrentTopTransfersNeutralOwnershipToNextCandidate
+- (void)testRemovingCurrentOverlayTransfersWindowInputToRemainingOverlay
 {
   UIWindow *window = BottomSheetMakeTestWindow();
   UIView *lowerAnchor = [UIView new];
@@ -347,16 +339,15 @@ static void BottomSheetLayoutViewTree(UIView *root)
   [window.rootViewController.view addSubview:lowerAnchor];
   [window.rootViewController.view addSubview:upperAnchor];
   BottomSheetPresentationController *lowerController =
-      BottomSheetActivateCandidate(lowerAnchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(lowerAnchor, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationController *upperController =
-      BottomSheetActivateCandidate(upperAnchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(upperAnchor, BottomSheetPresentationModeNativeOverlay);
 
   [upperController invalidate];
   [upperController invalidate];
 
   XCTAssertNil([BottomSheetTestComponentFactory registeredWindowForController:upperController]);
-  XCTAssertEqualObjects(
-      [BottomSheetTestComponentFactory windowEscapeOwnerForController:lowerController], lowerController.identity);
+  XCTAssertEqual([lowerController routeForVoiceOverEscape], BottomSheetPresentationEscapeRouteAttemptLocal);
 
   [lowerController invalidate];
   BottomSheetTearDownWindow(window);
@@ -397,7 +388,7 @@ static void BottomSheetLayoutViewTree(UIView *root)
   @autoreleasepool {
     UIView *anchor = [UIView new];
     [window.rootViewController.view addSubview:anchor];
-    controller = BottomSheetActivateCandidate(anchor, BottomSheetPresentationModePortal);
+    controller = BottomSheetActivateCandidate(anchor, BottomSheetPresentationModeNativeOverlay);
     weakAnchor = anchor;
     [anchor removeFromSuperview];
   }
@@ -407,7 +398,6 @@ static void BottomSheetLayoutViewTree(UIView *root)
   // does not promise a lifecycle update; the action must reject the stale anchor.
   XCTAssertEqual([controller routeForVoiceOverEscape], BottomSheetPresentationEscapeRoutePassThrough);
   XCTAssertNil([BottomSheetTestComponentFactory registeredWindowForController:controller]);
-  XCTAssertNil([BottomSheetTestComponentFactory windowEscapeOwnerForController:controller]);
 
   [controller invalidate];
   BottomSheetTearDownWindow(window);
@@ -421,28 +411,28 @@ static void BottomSheetLayoutViewTree(UIView *root)
   [window.rootViewController.view addSubview:firstAnchor];
   [window.rootViewController.view addSubview:secondAnchor];
   BottomSheetPresentationController *firstController =
-      BottomSheetActivateCandidate(firstAnchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(firstAnchor, BottomSheetPresentationModeNativeOverlay);
   BottomSheetPresentationController *secondController =
-      BottomSheetActivateCandidate(secondAnchor, BottomSheetPresentationModePortal);
+      BottomSheetActivateCandidate(secondAnchor, BottomSheetPresentationModeNativeOverlay);
 
   [secondController beginHierarchyMutation];
   [window.rootViewController.view bringSubviewToFront:firstAnchor];
   [secondController reconcilePresentationOrder];
 
-  XCTAssertEqualObjects(
-      [BottomSheetTestComponentFactory windowEscapeOwnerForController:secondController], secondController.identity);
+  XCTAssertTrue(secondAnchor.accessibilityViewIsModal);
+  XCTAssertFalse(firstAnchor.accessibilityViewIsModal);
+  XCTAssertEqual([firstController routeForVoiceOverEscape], BottomSheetPresentationEscapeRoutePassThrough);
 
   [secondController endHierarchyMutation];
 
-  XCTAssertEqualObjects(
-      [BottomSheetTestComponentFactory windowEscapeOwnerForController:firstController], firstController.identity);
+  XCTAssertEqual([firstController routeForVoiceOverEscape], BottomSheetPresentationEscapeRouteAttemptLocal);
 
   [secondController invalidate];
   [firstController invalidate];
   BottomSheetTearDownWindow(window);
 }
 
-- (void)testProductionPortalAndNativeOverlayComponentsTransferTopOwnership
+- (void)testRemovingProductionOverlayDoesNotInventWindowInputForUnmappedPortal
 {
   UIWindow *window = BottomSheetMakeTestWindow();
   window.rootViewController.view.frame = window.bounds;
@@ -459,14 +449,12 @@ static void BottomSheetLayoutViewTree(UIView *root)
       [BottomSheetTestComponentFactory presentationControllerForComponent:portalComponent];
   BottomSheetPresentationController *overlay =
       [BottomSheetTestComponentFactory presentationControllerForComponent:overlayComponent];
-  XCTAssertEqualObjects(
-      [BottomSheetTestComponentFactory windowEscapeOwnerForController:overlay], overlay.identity);
+  XCTAssertEqual([overlay routeForVoiceOverEscape], BottomSheetPresentationEscapeRouteAttemptLocal);
 
   [BottomSheetTestComponentFactory prepareForRecycle:overlayComponent];
 
   XCTAssertNil([BottomSheetTestComponentFactory registeredWindowForController:overlay]);
-  XCTAssertEqualObjects(
-      [BottomSheetTestComponentFactory windowEscapeOwnerForController:portal], portal.identity);
+  XCTAssertEqual([portal routeForVoiceOverEscape], BottomSheetPresentationEscapeRoutePassThrough);
 
   [BottomSheetTestComponentFactory prepareForRecycle:portalComponent];
 

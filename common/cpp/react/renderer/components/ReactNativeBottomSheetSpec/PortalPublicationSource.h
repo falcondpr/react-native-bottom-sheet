@@ -19,6 +19,11 @@ struct PortalSourceReceipt {
   std::vector<Tag> contexts;
   // Presentation first; ends at its nearest native presentation root or source root.
   std::vector<Tag> ancestors;
+};
+
+// One complete query-local source, shared by all requested presentation receipts.
+struct PortalSourceSnapshot {
+  std::vector<PortalSourceReceipt> receipts;
   // Expected structure from RN's own Differentiator, not applied membership.
   std::vector<Tag> logicalTags;
   // Materialized children -> parent, including the source root -> 0.
@@ -52,8 +57,9 @@ class PortalPublicationSource final : private UIManagerCommitHook {
   RootShadowNode::Shared rootForStates(
       SurfaceId surface, const std::map<Tag, State::Shared>& states) const;
 
-  std::optional<PortalSourceReceipt> receiptForState(
-      SurfaceId surface, Tag tag, const State::Shared& state) const;
+  std::optional<PortalSourceSnapshot> receiptsForStates(
+      SurfaceId surface, const std::vector<Tag>& tags,
+      const std::map<Tag, State::Shared>& states) const;
 
   // Innermost containing contexts for a node in the exact all-sheet source.
   // Empty means outside; missing source/node is unresolved. Native origin

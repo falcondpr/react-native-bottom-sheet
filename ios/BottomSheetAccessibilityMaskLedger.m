@@ -2,6 +2,8 @@
 
 @interface BottomSheetAccessibilityHiddenMutation : NSObject
 @property (nonatomic) BOOL baseline;
+@property (nonatomic) BOOL portalRequired;
+@property (nonatomic) BOOL windowRequired;
 @end
 
 @implementation BottomSheetAccessibilityHiddenMutation
@@ -19,7 +21,8 @@
   NSCAssert(NSThread.isMainThread, @"Accessibility masks must be accessed on the main thread");
   NSArray<UIView *> *leased = self.mutations.keyEnumerator.allObjects;
   NSMutableSet<UIView *> *retired = [NSMutableSet new];
-  NSMutableSet<UIView *> *replacements = [NSMutableSet new];
+  NSMapTable<UIView *, BottomSheetAccessibilityHiddenMutation *> *replacements =
+      [NSMapTable strongToStrongObjectsMapTable];
   for (UIView *branch in leased) {
     for (UIView *owner = branch; owner; owner = owner.superview) {
       if ([deletion.survivingRegisteredViews containsObject:owner]) break;
@@ -38,13 +41,28 @@
               break;
             }
           }
-          if (!coveredBySurvivingAncestor) [replacements addObject:survivor];
+          if (!coveredBySurvivingAncestor) {
+            BottomSheetAccessibilityHiddenMutation *requirements = [replacements objectForKey:survivor];
+            if (!requirements) {
+              requirements = [BottomSheetAccessibilityHiddenMutation new];
+              [replacements setObject:requirements forKey:survivor];
+            }
+            BottomSheetAccessibilityHiddenMutation *previous = [self.mutations objectForKey:branch];
+            requirements.portalRequired |= previous.portalRequired;
+            requirements.windowRequired |= previous.windowRequired;
+          }
         }
         break;
       }
     }
   }
-  for (UIView *replacement in replacements) [self maskBranch:replacement];
+  for (UIView *replacement in replacements.keyEnumerator) {
+    [self maskBranch:replacement];
+    BottomSheetAccessibilityHiddenMutation *mutation = [self.mutations objectForKey:replacement];
+    BottomSheetAccessibilityHiddenMutation *requirements = [replacements objectForKey:replacement];
+    mutation.portalRequired |= requirements.portalRequired;
+    mutation.windowRequired |= requirements.windowRequired;
+  }
   for (UIView *branch in retired) [self restoreBranch:branch];
 }
 
@@ -78,12 +96,22 @@
   return self;
 }
 
-- (void)reconcileHiddenBranches:(NSSet<UIView *> *)hiddenBranches
-       beforeRestoringBranches:(void (NS_NOESCAPE ^)(void))transferBoundaries
+- (void)reconcilePortalHiddenBranches:(NSSet<UIView *> *)portalHiddenBranches
+                windowHiddenBranches:(NSSet<UIView *> *)windowHiddenBranches
+             beforeRestoringBranches:(void (NS_NOESCAPE ^)(void))transferBoundaries
 {
   NSCAssert(NSThread.isMainThread, @"Accessibility masks must be accessed on the main thread");
-  for (UIView *branch in hiddenBranches) {
+  for (BottomSheetAccessibilityHiddenMutation *mutation in self.mutations.objectEnumerator) {
+    if (portalHiddenBranches != nil) mutation.portalRequired = NO;
+    mutation.windowRequired = NO;
+  }
+  for (UIView *branch in portalHiddenBranches) {
     [self maskBranch:branch];
+    [self.mutations objectForKey:branch].portalRequired = YES;
+  }
+  for (UIView *branch in windowHiddenBranches) {
+    [self maskBranch:branch];
+    [self.mutations objectForKey:branch].windowRequired = YES;
   }
   if (transferBoundaries != nil) {
     transferBoundaries();
@@ -91,7 +119,8 @@
 
   NSArray<UIView *> *previouslyHiddenBranches = self.mutations.keyEnumerator.allObjects;
   for (UIView *branch in previouslyHiddenBranches) {
-    if ([hiddenBranches containsObject:branch]) {
+    BottomSheetAccessibilityHiddenMutation *mutation = [self.mutations objectForKey:branch];
+    if (mutation.portalRequired || mutation.windowRequired) {
       continue;
     }
     [self restoreBranch:branch];
