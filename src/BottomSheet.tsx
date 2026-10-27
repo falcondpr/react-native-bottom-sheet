@@ -2,12 +2,14 @@ import { useState, type ComponentType, type ReactNode } from 'react';
 import type { NativeSyntheticEvent, StyleProp, ViewStyle } from 'react-native';
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
 
-import BottomSheetNativeView, {
-  type NativeProps,
-} from './BottomSheetNativeComponent';
-import BottomSheetSurfaceNativeComponent from './BottomSheetSurfaceNativeComponent';
+import {
+  BottomSheetView,
+  BottomSheetSurfaceView,
+} from './BottomSheetHostViews';
+import type { NativeProps } from './BottomSheetNativeComponent';
 import { Portal } from './BottomSheetProvider';
 import {
+  CONTENT_HEIGHT_MARKER_NATIVE_ID,
   type Detent,
   isNormalizedDetentClosed,
   normalizeDetent,
@@ -48,15 +50,6 @@ const SCROLLABLE_NEGOTIATION_LEVEL: Record<ScrollableNegotiationMode, number> =
     initial: 1,
     handoff: 2,
   };
-
-// Identifies the zero-height marker appended after the content so the native
-// hosts can measure the content height from its position. They look it up by
-// this nativeID rather than by sibling index, because Fabric mounts siblings
-// sorted by zIndex and a z-indexed child would otherwise take the marker's
-// place. Mirrored in `BottomSheetHostingView.swift` and
-// `BottomSheetHostView.kt`; keep the three in sync.
-const CONTENT_HEIGHT_MARKER_NATIVE_ID =
-  'swm-bottom-sheet-content-height-marker';
 
 const DEFAULT_SCROLLABLE_NEGOTIATION = {
   expand: 'handoff',
@@ -159,7 +152,7 @@ export interface BottomSheetProps {
 type ModalOnlyBottomSheetProps = {
   /** Internal flag used by `ModalBottomSheet`. */
   modal?: boolean;
-  /** Android-only controlled close request callback used by `ModalBottomSheet`. */
+  /** Android and web controlled close request callback used by `ModalBottomSheet`. */
   onCloseRequest?: () => void;
   /**
    * Internal flag used by `ModalBottomSheet`. When set, the sheet is presented
@@ -265,8 +258,7 @@ export const BottomSheet = (props: BottomSheetProps) => {
   // the native sheet.
   const [NativeView] = useState(
     () =>
-      (wrapNativeView?.(BottomSheetNativeView) ??
-        BottomSheetNativeView) as ComponentType<
+      (wrapNativeView?.(BottomSheetView) ?? BottomSheetView) as ComponentType<
         NativeProps & { children?: ReactNode }
       >
   );
@@ -331,13 +323,13 @@ export const BottomSheet = (props: BottomSheetProps) => {
           onCloseRequest={onCloseRequest}
         >
           {surface != null && (
-            <BottomSheetSurfaceNativeComponent
+            <BottomSheetSurfaceView
               collapsable={false}
               pointerEvents="box-none"
               style={StyleSheet.absoluteFill}
             >
               {surface}
-            </BottomSheetSurfaceNativeComponent>
+            </BottomSheetSurfaceView>
           )}
           <View
             collapsable={false}

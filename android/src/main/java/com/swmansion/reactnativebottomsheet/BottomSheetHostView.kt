@@ -1454,7 +1454,17 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
         val dy = y - initialTouchY
 
         val dragRange = draggableRange(targetIndex)
-        if (abs(dy) > touchSlop && abs(dy) > abs(dx) && dragRange.start < dragRange.endInclusive) {
+        if (abs(dy) > touchSlop && dragRange.start < dragRange.endInclusive) {
+          // A vertical scrollable intercepts any move past the slop whatever
+          // its sideways component, so a shallow diagonal left to it would
+          // scroll content the sheet owns at this detent. Inside one, the
+          // sheet applies the same rule. Elsewhere, and where a horizontal
+          // scroller lies on the touched path, a sideways move stays with
+          // whatever owns it.
+          val touchedHit = findScrollableHitAtTouch()
+          val claimsSideways = touchedHit != null && !touchedHit.throughHorizontalScroller
+          if (!claimsSideways && abs(dy) <= abs(dx)) return false
+
           val canMoveSheet =
             if (dy < 0) {
               sheetContainer.translationY > dragRange.start + 1f
@@ -1463,8 +1473,7 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
             }
           if (!canMoveSheet) return false
 
-          val touchedScrollable = findScrollableAtTouch()
-          if (touchedScrollable != null) {
+          if (touchedHit != null) {
             val level = negotiationLevel(expanding = dy < 0)
             if (level == ScrollableNegotiationLevel.NONE) return false
 
@@ -1891,7 +1900,9 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
     return true
   }
 
-  private fun findScrollableAtTouch(): View? {
+  private fun findScrollableAtTouch(): View? = findScrollableHitAtTouch()?.view
+
+  private fun findScrollableHitAtTouch(): TouchHit.Scrollable? {
     val containerX = initialTouchX - sheetContainer.left - sheetContainer.translationX
     val containerY = initialTouchY - currentSheetTop
     if (
@@ -1902,18 +1913,24 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
     ) {
       return null
     }
-    return (findScrollableAtPoint(sheetContainer, containerX, containerY) as? TouchHit.Scrollable)
-      ?.view
+    return findScrollableAtPoint(sheetContainer, containerX, containerY) as? TouchHit.Scrollable
   }
 
   private sealed interface TouchHit {
     /** Nothing here takes the touch; views underneath may. */
     object Miss : TouchHit
 
-    /** A non-scrollable view takes the touch, shielding views underneath. */
-    object Blocked : TouchHit
+    /**
+     * A non-scrollable view takes the touch, shielding views underneath.
+     * [throughHorizontalScroller] records a horizontal scroller on the path to it.
+     */
+    class Blocked(val throughHorizontalScroller: Boolean) : TouchHit
 
-    class Scrollable(val view: View) : TouchHit
+    /**
+     * [throughHorizontalScroller] is whether a horizontal scroller lies on the touched path, above
+     * or below [view], and so owns sideways movement.
+     */
+    class Scrollable(val view: View, val throughHorizontalScroller: Boolean) : TouchHit
   }
 
   // Mirrors RN's TouchTargetHelper: the topmost child that can take the touch
@@ -1942,6 +1959,7 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
     if (pointerEvents == PointerEvents.NONE) return TouchHit.Miss
 
     var childBlocked = false
+    var childThroughHorizontalScroller = false
     if (view is ViewGroup && pointerEvents != PointerEvents.BOX_ONLY) {
       for (i in view.childCount - 1 downTo 0) {
         val child = view.getChildAt(i)
@@ -1965,9 +1983,14 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
           continue
         }
         when (val hit = findScrollableAtPoint(child, childX, childY)) {
-          is TouchHit.Scrollable -> return hit
-          TouchHit.Blocked -> {
+          is TouchHit.Scrollable ->
+            return TouchHit.Scrollable(
+              hit.view,
+              hit.throughHorizontalScroller || isHorizontallyScrollable(view),
+            )
+          is TouchHit.Blocked -> {
             childBlocked = true
+            childThroughHorizontalScroller = hit.throughHorizontalScroller
             break
           }
           TouchHit.Miss -> Unit
@@ -1975,14 +1998,22 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
       }
     }
 
+    val throughHorizontalScroller = childThroughHorizontalScroller || isHorizontallyScrollable(view)
     if (isVerticallyScrollable(view)) {
-      return TouchHit.Scrollable(view)
+      return TouchHit.Scrollable(view, throughHorizontalScroller)
     }
     return if (childBlocked || pointerEvents != PointerEvents.BOX_NONE) {
-      TouchHit.Blocked
+      TouchHit.Blocked(throughHorizontalScroller)
     } else {
       TouchHit.Miss
     }
+  }
+
+  private fun isHorizontallyScrollable(view: View): Boolean {
+    if (!view.canScrollHorizontally(1) && !view.canScrollHorizontally(-1)) {
+      return false
+    }
+    return getReactScrollEnabled(view) != false
   }
 
   private fun isVerticallyScrollable(view: View): Boolean {
@@ -2232,7 +2263,7 @@ class BottomSheetHostView(context: Context) : ReactViewGroup(context), NestedScr
 
   companion object {
     // The `nativeID` the JS side gives the zero-height marker it appends to
-    // the content wrapper. Mirrored in `BottomSheet.tsx` and
+    // the content wrapper. Mirrored in `bottomSheetUtils.ts` and
     // `BottomSheetHostingView.swift`; keep the three in sync.
     const val CONTENT_HEIGHT_MARKER_NATIVE_ID = "swm-bottom-sheet-content-height-marker"
 

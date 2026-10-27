@@ -76,7 +76,7 @@ export default function RootLayout() {
             <Stack.Screen
               name="close-request"
               options={{
-                title: 'Android close requests',
+                title: 'Close requests',
                 headerShown: false,
               }}
             />

@@ -107,7 +107,7 @@ class PortalBackInputInstrumentedTest {
     val instrumentation = InstrumentationRegistry.getInstrumentation()
     val focused = CountDownLatch(1)
     val laidOut = CountDownLatch(1)
-    val hostDefault = CountDownLatch(1)
+    val hostDefault = Semaphore(0)
     val requested = Semaphore(0)
     val requests = AtomicInteger()
     val defaults = AtomicInteger()
@@ -120,9 +120,9 @@ class PortalBackInputInstrumentedTest {
           object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
               defaults.incrementAndGet()
-              hostDefault.countDown()
+              hostDefault.release()
             }
-          }
+          },
         )
         val root = PortalBackTestRoot(activity)
         outside =
@@ -136,7 +136,7 @@ class PortalBackInputInstrumentedTest {
             orientation = LinearLayout.VERTICAL
             addView(root, LinearLayout.LayoutParams(-1, 0, 1f))
             addView(outside, LinearLayout.LayoutParams(-1, 150))
-          }
+          },
         )
         sheet =
           mountedPortal(activity, root, laidOut) {
@@ -160,12 +160,15 @@ class PortalBackInputInstrumentedTest {
               outside.performAccessibilityAction(
                 AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS,
                 null,
-              )
+              ),
             )
           }
         }
         instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-        assertTrue("RN async default did not reach host", hostDefault.await(5, TimeUnit.SECONDS))
+        assertTrue(
+          "RN async default did not reach host",
+          hostDefault.tryAcquire(5, TimeUnit.SECONDS),
+        )
         assertEquals(1, requests.get())
         assertEquals(1, defaults.get())
         assertEquals(1, RecordingReactActivityDelegate.backEntryCount.get())
@@ -184,6 +187,15 @@ class PortalBackInputInstrumentedTest {
         assertEquals(2, requests.get())
         assertEquals(1, defaults.get())
         assertEquals(1, RecordingReactActivityDelegate.backEntryCount.get())
+        scenario.onActivity { sheet.setHasCloseRequestHandler(false) }
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+        assertTrue(
+          "Back without a handler did not reach the host",
+          hostDefault.tryAcquire(5, TimeUnit.SECONDS),
+        )
+        assertEquals(2, requests.get())
+        assertEquals(2, defaults.get())
+        assertEquals(2, RecordingReactActivityDelegate.backEntryCount.get())
       } finally {
         scenario.onActivity { sheet.destroy() }
       }
@@ -241,7 +253,7 @@ class PortalBackInputInstrumentedTest {
             orientation = LinearLayout.VERTICAL
             addView(root, LinearLayout.LayoutParams(-1, 0, 1f))
             addView(editor, LinearLayout.LayoutParams(-1, 150))
-          }
+          },
         )
         val decor = activity.window.decorView
         decor.viewTreeObserver.addOnWindowFocusChangeListener { if (it) focused.countDown() }

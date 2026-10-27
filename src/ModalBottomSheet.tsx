@@ -9,9 +9,9 @@ import {
 /** Props for the modal bottom-sheet variant, presented through a portal by default. */
 export interface ModalBottomSheetProps extends BottomSheetProps {
   /**
-   * Android only. Called when Android system Back, a committed predictive Back
-   * gesture, or a complete, unmodified physical Escape press requests that an
-   * open sheet close. This is a controlled request: the sheet does not change
+   * Android and web. Called when Android system Back, a committed predictive
+   * Back gesture, or a complete, unmodified physical Escape press requests that
+   * an open sheet close. This is a controlled request: the sheet does not change
    * its `index` or choose a transition. The consumer decides whether and how to
    * close it. While a visible sheet is animating to a closed target, further
    * Back/Escape input is consumed without another callback until settle.
@@ -26,7 +26,8 @@ export interface ModalBottomSheetProps extends BottomSheetProps {
    * within a native modal screen is trapped inside that screen and cannot cover
    * the full window. With `nativeOverlay`, the sheet is reparented natively into
    * a window-level overlay (a `UIWindow`-attached container on iOS, a
-   * full-screen transparent dialog on Android) that floats above the modal.
+   * full-screen transparent dialog on Android, a fixed-position layer in
+   * `document.body` on the web) that floats above the modal.
    *
    * No `BottomSheetProvider` is required in this mode. The sheet sizes relative
    * to the window, so it can be colocated with the trigger even when that trigger

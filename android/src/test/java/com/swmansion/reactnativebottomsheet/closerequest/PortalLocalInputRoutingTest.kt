@@ -40,13 +40,17 @@ class PortalLocalInputRoutingTest {
   }
 
   @Test
-  @Config(sdk = [24])
+  @Config(sdk = [24, 29, 35])
   fun `legacy Back pins local owner from down through up without retargeting focus`() {
     Fixture().use { f ->
       assertTrue(f.a.view.requestFocus())
-      f.activity.dispatchKeyEvent(KeyEvent(10, 10, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, 0))
+      f.activity.window.decorView.dispatchKeyEvent(
+        KeyEvent(10, 10, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, 0),
+      )
       assertTrue(f.b.view.requestFocus())
-      f.activity.dispatchKeyEvent(KeyEvent(10, 11, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK, 0))
+      f.activity.window.decorView.dispatchKeyEvent(
+        KeyEvent(10, 11, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK, 0),
+      )
       assertEquals(1, f.a.requests)
       assertEquals(0, f.b.requests)
       assertEquals(0, f.hostBackCount)

@@ -95,7 +95,7 @@ export const DEMO_CASES: DemoCase[] = [
   },
   {
     key: 'close-request',
-    title: 'Android close requests',
+    title: 'Close requests',
     href: '/close-request',
   },
   {

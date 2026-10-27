@@ -22,9 +22,9 @@ export interface NativeProps extends ViewProps {
   animateContentHeight?: WithDefault<boolean, true>;
   modal: boolean;
   nativeOverlay?: boolean;
-  // Android-only signal that JS supplied `onCloseRequest`. Native event-handler
-  // presence is not otherwise observable, so Android uses this to decide whether
-  // a modal should own Back/Escape input.
+  // Signal that JS supplied `onCloseRequest`. Native event-handler presence is
+  // not otherwise observable, so Android (and the web host) use this to decide
+  // whether a modal should own Back/Escape input.
   hasCloseRequestHandler: boolean;
   // Consulted natively only in native-overlay mode, where the detent cap is
   // computed from the overlay's real bounds and insets; inline sheets bake the

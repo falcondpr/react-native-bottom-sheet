@@ -40,6 +40,7 @@ internal class PortalCloseRequestController(
 
   private var backCallback: CloseRequestBackCallback? = null
   private var backInput: PortalBackInput? = null
+  private var legacyBackKeyRegistration: LegacyBackKeyRouting.Registration? = null
   private var appliedImeVisible: Boolean? = null
 
   private val lifecycleObserver =
@@ -288,7 +289,12 @@ internal class PortalCloseRequestController(
         backDispatcher = dispatcher
         backCallback = newCallback
         hasBackCallbackPresentationEnded = false
-        backInput = PortalBackInput(view, newCallback)
+        val newInput = PortalBackInput(view, newCallback)
+        backInput = newInput
+        legacyBackKeyRegistration =
+          (currentRoutingContext.dispatcherOwner as? Activity)?.window?.let { window ->
+            LegacyBackKeyRouting.register(window, newInput)
+          }
         newCallback.updateState(
           canReceiveBack = canProxyBack,
           currentAction = proxyAction,
@@ -358,6 +364,8 @@ internal class PortalCloseRequestController(
     val callback = backCallback
     backInput?.dispose()
     backInput = null
+    legacyBackKeyRegistration?.remove()
+    legacyBackKeyRegistration = null
     backCallback = null
     backDispatcher = null
     hasBackCallbackPresentationEnded = false

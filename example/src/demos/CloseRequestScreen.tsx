@@ -35,7 +35,7 @@ export const CloseRequestScreen = () => {
 
   return (
     <DemoScreen
-      title="Android close requests"
+      title="Close requests"
       sheet={
         <ModalBottomSheet
           detents={[0, 400]}

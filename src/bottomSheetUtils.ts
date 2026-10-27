@@ -1,3 +1,12 @@
+// Identifies the zero-height marker appended after the content so the native
+// hosts can measure the content height from its position. They look it up by
+// this nativeID rather than by sibling index, because Fabric mounts siblings
+// sorted by zIndex and a z-indexed child would otherwise take the marker's
+// place. Mirrored in `BottomSheetHostingView.swift` and
+// `BottomSheetHostView.kt`; keep the three in sync. The web host imports it.
+export const CONTENT_HEIGHT_MARKER_NATIVE_ID =
+  'swm-bottom-sheet-content-height-marker';
+
 /**
  * A finite, non-negative height in points, an unsigned percentage from `0%`
  * through `100%`, or `'content'` for the measured content height.
