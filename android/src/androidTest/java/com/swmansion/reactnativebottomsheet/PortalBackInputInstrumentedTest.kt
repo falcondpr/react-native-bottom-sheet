@@ -62,9 +62,8 @@ class PortalBackInputInstrumentedTest {
   fun legacyBackWithoutHandlerEntersReactNativeOnce() =
     exerciseBackWithoutHandler(LegacyRecordingReactActivity::class.java)
 
-  // Use a fresh host without an extra dispatcher callback: modern Back may invoke that callback
-  // directly, and the async-default fixture used by exerciseNativeBack only forwards its first
-  // Back.
+  // Model a host that handles Back through React Native. RN only installs its native dispatcher
+  // bridge on API 36+, so an opted-in window on API 33-35 needs an explicit host callback here.
   private fun exerciseBackWithoutHandler(activityClass: Class<out ReactActivity>) {
     val focused = CountDownLatch(1)
     val laidOut = CountDownLatch(1)
@@ -72,6 +71,14 @@ class PortalBackInputInstrumentedTest {
     lateinit var sheet: BottomSheetView
     ActivityScenario.launch(activityClass).use { scenario ->
       scenario.onActivity { activity ->
+        activity.onBackPressedDispatcher.addCallback(
+          activity,
+          object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+              @Suppress("DEPRECATION") activity.onBackPressed()
+            }
+          },
+        )
         val root = PortalBackTestRoot(activity)
         activity.setContentView(root)
         sheet =
@@ -340,10 +347,11 @@ class PortalBackInputInstrumentedTest {
         assertEquals(1, requests.get())
         assertEquals(0, RecordingReactActivityDelegate.backEntryCount.get())
       } finally {
-        scenario.onActivity { activity ->
+        // Back may already have destroyed the Activity; cleanup must not hide the original failure.
+        instrumentation.runOnMainSync {
           sheet?.destroy()
           root.removeAllViews()
-          activity
+          editor.context
             .getSystemService(InputMethodManager::class.java)
             .hideSoftInputFromWindow(editor.windowToken, 0)
         }
